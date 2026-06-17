@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional
@@ -12,6 +13,8 @@ class EEGRecorder:
         self._file = None
         self._writer: Optional[csv.writer] = None
         self.path: Optional[Path] = None
+        self._last_flush = 0.0
+        self._flush_interval = 0.5
 
     @property
     def is_recording(self) -> bool:
@@ -29,17 +32,26 @@ class EEGRecorder:
         self._writer = csv.writer(self._file)
         self._writer.writerow(["timestamp_lsl", "timestamp_iso", *self.channels])
         self._file.flush()
+        self._last_flush = time.monotonic()
         return self.path
 
     def write_samples(self, timestamps: Iterable[float], samples: Iterable[Iterable[float]]) -> None:
         if not self._writer or not self._file:
             return
 
+        rows = []
         for timestamp, sample in zip(timestamps, samples):
             # LSL timestamps are clock-synchronized stream times, not Unix epoch values.
             iso_time = datetime.now().isoformat(timespec="milliseconds")
-            self._writer.writerow([f"{float(timestamp):.6f}", iso_time, *sample])
-        self._file.flush()
+            rows.append([f"{float(timestamp):.6f}", iso_time, *sample])
+
+        if rows:
+            self._writer.writerows(rows)
+
+        now = time.monotonic()
+        if now - self._last_flush >= self._flush_interval:
+            self._file.flush()
+            self._last_flush = now
 
     def stop(self) -> Optional[Path]:
         path = self.path

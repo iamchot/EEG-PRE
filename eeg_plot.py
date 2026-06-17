@@ -49,18 +49,36 @@ class EEGPlotWidget(QtWidgets.QWidget):
         self.buffer = np.zeros((self.max_samples, len(self.channels)), dtype=float)
         keep = min(len(old_data), self.max_samples)
         if keep:
-            self.buffer[-keep:] = old_data[-keep:]
-            self.write_index = 0
+            self.buffer[:keep] = old_data[-keep:]
+            self.write_index = keep % self.max_samples
             self.total_samples = keep
 
     def append_samples(self, samples: np.ndarray) -> None:
         if samples.size == 0:
             return
 
-        for row in samples[:, : len(self.channels)]:
-            self.buffer[self.write_index] = row
-            self.write_index = (self.write_index + 1) % self.max_samples
-            self.total_samples += 1
+        data = np.asarray(samples, dtype=float)
+        if data.ndim == 1:
+            data = data.reshape(1, -1)
+        data = data[:, : len(self.channels)]
+        sample_count = len(data)
+
+        if sample_count >= self.max_samples:
+            self.buffer[:] = data[-self.max_samples :]
+            self.write_index = 0
+            self.total_samples += sample_count
+            return
+
+        end_index = self.write_index + sample_count
+        if end_index <= self.max_samples:
+            self.buffer[self.write_index : end_index] = data
+        else:
+            first_part = self.max_samples - self.write_index
+            self.buffer[self.write_index :] = data[:first_part]
+            self.buffer[: end_index % self.max_samples] = data[first_part:]
+
+        self.write_index = end_index % self.max_samples
+        self.total_samples += sample_count
 
     def get_recent_samples(self) -> np.ndarray:
         count = min(self.total_samples, self.max_samples)
@@ -74,6 +92,11 @@ class EEGPlotWidget(QtWidgets.QWidget):
         data = self.get_recent_samples()
         if data.size == 0:
             return
+
+        max_points = 1200
+        if len(data) > max_points:
+            step = max(1, int(np.ceil(len(data) / max_points)))
+            data = data[::step]
 
         x = np.linspace(-len(data) / self.sampling_rate, 0, len(data))
         for index, channel in enumerate(self.channels):

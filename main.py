@@ -7,7 +7,12 @@ from typing import Dict
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 from eeg_plot import EEGPlotWidget
 from muse_connector import (
@@ -38,22 +43,30 @@ class MuseDashboard(QtWidgets.QMainWindow):
         self.sampling_rate = DEFAULT_SAMPLING_RATE
         self.recording_started_at: float | None = None
         self.latest_values = np.zeros(len(MUSE_CHANNELS))
+        self.camera_capture = None
+        self.camera_retry_count = 0
+        self.camera_max_retries = 12
 
         self._build_ui()
         self._wire_signals()
 
         self.plot_timer = QtCore.QTimer(self)
-        self.plot_timer.setInterval(33)
+        self.plot_timer.setInterval(66)
         self.plot_timer.timeout.connect(self._refresh_plots)
         self.plot_timer.start()
 
         self.analysis_timer = QtCore.QTimer(self)
-        self.analysis_timer.setInterval(500)
+        self.analysis_timer.setInterval(1000)
         self.analysis_timer.timeout.connect(self._update_analysis)
         self.analysis_timer.start()
 
+        self.camera_timer = QtCore.QTimer(self)
+        self.camera_timer.setInterval(50)
+        self.camera_timer.timeout.connect(self._update_camera_frame)
+        QtCore.QTimer.singleShot(500, self._start_camera)
+
     def _build_ui(self) -> None:
-        pg.setConfigOptions(antialias=True)
+        pg.setConfigOptions(antialias=False)
         root = QtWidgets.QWidget()
         self.setCentralWidget(root)
         main_layout = QtWidgets.QVBoxLayout(root)
@@ -78,11 +91,13 @@ class MuseDashboard(QtWidgets.QMainWindow):
         self.device_combo.setMinimumWidth(260)
         self.device_combo.addItem("No Muse scanned", None)
         self.connect_btn = QtWidgets.QPushButton("Connect Selected")
+        self.disconnect_btn = QtWidgets.QPushButton("Disconnect")
         self.start_btn = QtWidgets.QPushButton("Start Stream")
         self.stop_btn = QtWidgets.QPushButton("Stop Stream")
         self.start_record_btn = QtWidgets.QPushButton("Start Recording")
         self.stop_record_btn = QtWidgets.QPushButton("Stop Recording")
         self.connect_btn.setEnabled(False)
+        self.disconnect_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         self.stop_record_btn.setEnabled(False)
@@ -90,6 +105,7 @@ class MuseDashboard(QtWidgets.QMainWindow):
         controls.addWidget(self.device_combo)
         for button in (
             self.connect_btn,
+            self.disconnect_btn,
             self.start_btn,
             self.stop_btn,
             self.start_record_btn,
@@ -107,6 +123,16 @@ class MuseDashboard(QtWidgets.QMainWindow):
         side = QtWidgets.QFrame()
         side.setObjectName("sidePanel")
         side_layout = QtWidgets.QVBoxLayout(side)
+        side_layout.addWidget(QtWidgets.QLabel("Webcam"))
+        self.camera_label = QtWidgets.QLabel("Starting webcam...")
+        self.camera_label.setObjectName("cameraPreview")
+        self.camera_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.camera_label.setMinimumSize(240, 150)
+        self.camera_label.setMaximumHeight(170)
+        self.camera_label.setScaledContents(False)
+        side_layout.addWidget(self.camera_label)
+        side_layout.addSpacing(12)
+
         side_layout.addWidget(QtWidgets.QLabel("Current EEG"))
         self.channel_labels: Dict[str, QtWidgets.QLabel] = {}
         self.quality_bars: Dict[str, QtWidgets.QProgressBar] = {}
@@ -145,6 +171,7 @@ class MuseDashboard(QtWidgets.QMainWindow):
             QMainWindow, QWidget { background: #0c1014; color: #eef3f7; font-size: 13px; }
             QFrame#topBar, QFrame#sidePanel { background: #151b22; border: 1px solid #28313b; border-radius: 6px; }
             QLabel { color: #eef3f7; }
+            QLabel#cameraPreview { background: #090c10; border: 1px solid #3d4d61; border-radius: 6px; color: #8f9aaa; }
             QPushButton { background: #263241; color: #f6f8fb; border: 1px solid #3d4d61; border-radius: 5px; padding: 7px 12px; }
             QPushButton:hover { background: #314055; }
             QPushButton:disabled { color: #7b8794; background: #1b222b; }
@@ -156,6 +183,7 @@ class MuseDashboard(QtWidgets.QMainWindow):
     def _wire_signals(self) -> None:
         self.scan_btn.clicked.connect(self.scan_devices)
         self.connect_btn.clicked.connect(self.connect_selected_device)
+        self.disconnect_btn.clicked.connect(self.disconnect_device)
         self.start_btn.clicked.connect(self.start_stream)
         self.stop_btn.clicked.connect(self.stop_stream)
         self.start_record_btn.clicked.connect(self.start_recording)
@@ -175,6 +203,7 @@ class MuseDashboard(QtWidgets.QMainWindow):
         self.connector.device = None
         self.device_label.setText("Device: -")
         self.start_btn.setEnabled(False)
+        self.disconnect_btn.setEnabled(False)
         self.discovery_worker = MuseDiscoveryWorker(self.connector.backend, self)
         self.discovery_worker.status_changed.connect(self._set_status)
         self.discovery_worker.found.connect(self._on_devices_found)
@@ -200,6 +229,7 @@ class MuseDashboard(QtWidgets.QMainWindow):
         self.connector.device = device
         self.device_label.setText(f"Device: {device.name} ({device.address})")
         self.start_btn.setEnabled(True)
+        self.disconnect_btn.setEnabled(True)
         self._set_status(f"Selected {device.name}. Ready to start stream.")
 
     def _on_discovery_failed(self, message: str) -> None:
@@ -209,6 +239,7 @@ class MuseDashboard(QtWidgets.QMainWindow):
         self.scan_btn.setEnabled(True)
         self.connect_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
+        self.disconnect_btn.setEnabled(False)
         QtWidgets.QMessageBox.warning(
             self,
             "Muse not found",
@@ -251,8 +282,24 @@ class MuseDashboard(QtWidgets.QMainWindow):
             self.receiver.stop()
             self.receiver = None
         self.connector.stop_stream()
-        self.start_btn.setEnabled(True)
+        self.start_btn.setEnabled(self.connector.device is not None)
         self.stop_btn.setEnabled(False)
+
+    def disconnect_device(self) -> None:
+        if self.recorder.is_recording:
+            self.stop_recording()
+        self.stop_stream()
+        self.connector.device = None
+        self.discovered_devices = []
+        self.device_combo.clear()
+        self.device_combo.addItem("No Muse connected", None)
+        self.device_label.setText("Device: -")
+        self.latest_values = np.zeros(len(MUSE_CHANNELS))
+        self.connect_btn.setEnabled(False)
+        self.disconnect_btn.setEnabled(False)
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+        self._set_status("Disconnected")
 
     def _start_receiver(self) -> None:
         if self.receiver:
@@ -287,6 +334,75 @@ class MuseDashboard(QtWidgets.QMainWindow):
 
     def _set_status(self, text: str) -> None:
         self.status_label.setText(f"Status: {text}")
+
+    def _start_camera(self) -> None:
+        if cv2 is None:
+            self.camera_label.setText("Install opencv-python")
+            return
+
+        self._release_camera()
+        self.camera_label.setText("Opening webcam...")
+
+        backends = []
+        if sys.platform == "darwin" and hasattr(cv2, "CAP_AVFOUNDATION"):
+            backends.append(cv2.CAP_AVFOUNDATION)
+        backends.append(cv2.CAP_ANY)
+
+        for backend in backends:
+            capture = cv2.VideoCapture(0, backend)
+            if capture.isOpened():
+                self.camera_capture = capture
+                break
+            capture.release()
+
+        if self.camera_capture is None:
+            self._retry_camera("Webcam unavailable")
+            return
+
+        self.camera_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        self.camera_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 200)
+        self.camera_capture.set(cv2.CAP_PROP_FPS, 20)
+        self.camera_timer.start()
+
+    def _update_camera_frame(self) -> None:
+        if cv2 is None or self.camera_capture is None:
+            return
+
+        ok, frame = self.camera_capture.read()
+        if not ok:
+            self.camera_timer.stop()
+            self._release_camera()
+            self._retry_camera("Waiting for webcam permission...")
+            return
+
+        self.camera_retry_count = 0
+        frame = cv2.flip(frame, 1)
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        height, width, channels = frame.shape
+        bytes_per_line = channels * width
+        image = QtGui.QImage(frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888).copy()
+        pixmap = QtGui.QPixmap.fromImage(image)
+        self.camera_label.setPixmap(
+            pixmap.scaled(
+                self.camera_label.size(),
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation,
+            )
+        )
+
+    def _retry_camera(self, message: str) -> None:
+        self.camera_retry_count += 1
+        if self.camera_retry_count > self.camera_max_retries:
+            self.camera_label.setText("Enable Camera permission")
+            return
+
+        self.camera_label.setText(message)
+        QtCore.QTimer.singleShot(1000, self._start_camera)
+
+    def _release_camera(self) -> None:
+        if self.camera_capture is not None:
+            self.camera_capture.release()
+            self.camera_capture = None
 
     def start_recording(self) -> None:
         path = self.recorder.start()
@@ -331,6 +447,8 @@ class MuseDashboard(QtWidgets.QMainWindow):
             self.band_labels[name].setText(f"{name}: {value:.3f}")
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        self.camera_timer.stop()
+        self._release_camera()
         self.stop_recording()
         self.stop_stream()
         event.accept()
