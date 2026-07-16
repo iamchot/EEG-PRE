@@ -184,6 +184,57 @@ describe('EegSessionComponent', () => {
     expect(button?.disabled).toBeFalse();
   });
 
+  it('uses roving tabindex and arrow keys to move device selection', () => {
+    const devices = [
+      { name: 'Muse-A9C7', address: 'AA:BB' },
+      { name: 'Muse-B123', address: 'CC:DD' },
+    ];
+    component.discoveredDevices.set(devices);
+    fixture.detectChanges();
+
+    let radios = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        '[role="radio"]'
+      )
+    );
+    expect(radios.map((radio) => radio.tabIndex)).toEqual([0, -1]);
+
+    radios[0].focus();
+    radios[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    fixture.detectChanges();
+
+    radios = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        '[role="radio"]'
+      )
+    );
+    expect(component.selectedDevice()).toEqual(devices[1]);
+    expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, 0]);
+    expect(document.activeElement).toBe(radios[1]);
+
+    radios[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    fixture.detectChanges();
+    expect(component.selectedDevice()).toEqual(devices[0]);
+  });
+
+  it('disables scanning while the local connection service is unavailable', () => {
+    eegWs.isConnected.set(false);
+    fixture.detectChanges();
+
+    const button = (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('#btn-scan');
+    expect(button?.disabled).toBeTrue();
+  });
+
+  it('guards direct scan attempts while the local connection service is unavailable', () => {
+    eegWs.isConnected.set(false);
+
+    component.scanDevices();
+
+    http.expectNone(`${environment.apiUrl}/sessions/scan`);
+    expect(component.scanning()).toBeFalse();
+  });
+
   it('renders a successful scan and sends the phase transition', () => {
     const device = { name: 'Muse-A9C7', address: 'AA:BB' };
 
@@ -236,6 +287,42 @@ describe('EegSessionComponent', () => {
     expect(request.request.method).toBe('POST');
     expect(request.request.body).toBeNull();
     request.flush({});
+    expect(eegWs.sendCommand).toHaveBeenCalledOnceWith('confirm_device', {
+      device_name: device.name,
+      device_id: device.address,
+    });
+  });
+
+  it('retains selection, explains connection failure, allows retry, and sends no command on failure', () => {
+    const device = { name: 'Muse-A9C7', address: 'AA:BB' };
+    component.discoveredDevices.set([device]);
+    component.selectDevice(device);
+
+    component.confirmDevice();
+    http
+      .expectOne(
+        `${environment.apiUrl}/sessions/7/confirm-device?device_name=Muse-A9C7&device_id=AA:BB`
+      )
+      .flush('failed', { status: 503, statusText: 'Unavailable' });
+    fixture.detectChanges();
+
+    expect(component.selectedDevice()).toEqual(device);
+    expect(component.connectionError()).toContain('Muse-A9C7');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      component.connectionError()
+    );
+    expect(eegWs.sendCommand).not.toHaveBeenCalledWith(
+      'confirm_device',
+      jasmine.anything()
+    );
+
+    component.confirmDevice();
+    http
+      .expectOne(
+        `${environment.apiUrl}/sessions/7/confirm-device?device_name=Muse-A9C7&device_id=AA:BB`
+      )
+      .flush({});
+    expect(component.connectionError()).toBe('');
     expect(eegWs.sendCommand).toHaveBeenCalledOnceWith('confirm_device', {
       device_name: device.name,
       device_id: device.address,

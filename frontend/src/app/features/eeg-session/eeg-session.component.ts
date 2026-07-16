@@ -59,14 +59,16 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
 
               @if (discoveredDevices().length > 0) {
                 <div class="device-list" role="radiogroup" aria-label="อุปกรณ์ Muse 2 ที่ค้นพบ">
-                  @for (device of discoveredDevices(); track device.address) {
+                  @for (device of discoveredDevices(); track device.address; let i = $index) {
                     <button
                       type="button"
                       class="device-option"
                       role="radio"
                       [attr.aria-checked]="selectedDevice()?.address === device.address"
+                      [attr.tabindex]="selectedDevice() ? (selectedDevice()?.address === device.address ? 0 : -1) : (i === 0 ? 0 : -1)"
                       [class.selected]="selectedDevice()?.address === device.address"
                       (click)="selectDevice(device)"
+                      (keydown)="onDeviceKeydown($event, i)"
                     >
                       <span class="device-mark" aria-hidden="true">{{ selectedDevice()?.address === device.address ? '✓' : '' }}</span>
                       <span><strong>{{ device.name }}</strong><small>{{ device.address }}</small></span>
@@ -76,11 +78,14 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
                 <button id="btn-connect" class="btn primary-action" [disabled]="!selectedDevice()" (click)="confirmDevice()">
                   เชื่อมต่ออุปกรณ์
                 </button>
+                @if (connectionError()) {
+                  <div class="inline-message" role="alert">{{ connectionError() }}</div>
+                }
               } @else {
                 @if (scanError()) {
                   <div class="inline-message" role="alert">{{ scanError() }}</div>
                 }
-                <button id="btn-scan" class="btn primary-action" (click)="scanDevices()" [disabled]="scanning()">
+                <button id="btn-scan" class="btn primary-action" (click)="scanDevices()" [disabled]="scanning() || !eegWs.isConnected()">
                   @if (scanning()) {
                     <span class="spinner" aria-hidden="true"></span> กำลังค้นหา…
                   } @else {
@@ -173,68 +178,13 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
       </p>
     </main>
   `,
-  styles: [`
-    .session-shell { width:min(1120px, calc(100% - 40px)); margin:0 auto; padding:40px 0 56px; display:grid; gap:24px; }
-    .session-header { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
-    .session-header h1 { margin:4px 0 8px; font-size:clamp(2rem, 4vw, 3rem); }
-    .session-header p:last-child { margin:0; }
-    .section-kicker { margin:0; color:var(--color-secondary); font-size:.78rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-    .service-status { min-height:36px; display:flex; align-items:center; gap:9px; padding:7px 12px; border:1px solid var(--color-border); border-radius:999px; color:var(--color-text-muted); white-space:nowrap; }
-    .status-dot { width:8px; height:8px; border-radius:50%; background:var(--color-warning); }
-    .service-status.online { color:#BBF7D0; }
-    .service-status.online .status-dot { background:var(--color-success); }
-    .stepper { display:grid; grid-template-columns:repeat(4,1fr); border-block:1px solid var(--color-border); }
-    .step { min-height:64px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--color-text-muted); }
-    .step-index { width:28px; height:28px; display:grid; place-items:center; border-radius:50%; background:#253047; font:700 .78rem var(--font-en); }
-    .step.active { color:#fff; } .step.active .step-index { background:var(--color-primary); }
-    .step.done { color:#BBF7D0; } .step.done .step-index { color:#052E16; background:var(--color-success); }
-    .setup-card { display:grid; grid-template-columns:minmax(0, 42%) minmax(0, 58%); overflow:hidden; border:1px solid var(--color-border); border-radius:16px; background:var(--color-surface); box-shadow:0 18px 48px rgba(2,6,23,.22); }
-    app-horseshoe-sensor { min-width:0; padding:30px; border-right:1px solid var(--color-border); background:#0E1628; }
-    .stage-panel { min-width:0; min-height:590px; display:flex; flex-direction:column; gap:18px; padding:42px; }
-    .stage-panel h2,.stage-panel > p:not(.section-kicker) { margin:0; }
-    .device-list,.timeline { display:grid; gap:10px; margin-top:6px; }
-    .device-option { min-height:64px; width:100%; display:grid; grid-template-columns:30px 1fr; align-items:center; gap:12px; padding:11px 14px; text-align:left; color:var(--color-text-primary); border:1px solid var(--color-border); border-radius:10px; background:#141E32; cursor:pointer; }
-    .device-option:hover,.device-option:focus-visible { border-color:var(--color-border-strong); }
-    .device-option:focus-visible,.primary-action:focus-visible { outline:3px solid rgba(196,181,253,.35); outline-offset:2px; }
-    .device-option.selected { border-color:var(--color-primary); background:rgba(124,58,237,.09); }
-    .device-mark { width:22px; height:22px; display:grid; place-items:center; border:1px solid #64748B; border-radius:50%; }
-    .device-option.selected .device-mark { border-color:var(--color-primary); background:var(--color-primary); }
-    .device-option strong,.device-option small { display:block; } .device-option small { margin-top:3px; color:var(--color-text-muted); }
-    .inline-message { padding:13px 15px; border-left:3px solid var(--color-secondary); background:rgba(167,139,250,.06); color:var(--color-text-secondary); }
-    .inline-message.warning { border-left-color:var(--color-warning); background:rgba(245,158,11,.06); }
-    .primary-action { width:100%; min-height:50px; margin-top:auto; color:#fff; background:var(--color-primary); border-radius:10px; }
-    .primary-action:hover:not(:disabled) { background:var(--color-primary-hover); }
-    .fitting-list { display:grid; gap:14px; margin:4px 0; padding:0; list-style:none; }
-    .fitting-list li { display:grid; grid-template-columns:30px 1fr; align-items:center; gap:12px; color:var(--color-text-secondary); }
-    .fitting-list li span { width:28px; height:28px; display:grid; place-items:center; border:1px solid var(--color-border-strong); border-radius:50%; color:var(--color-secondary); font-weight:700; }
-    .entertainment-note { margin:0; text-align:center; color:var(--color-text-muted); font-size:.78rem; }
-    .timer-block { display:grid; place-items:center; padding:28px; border-radius:22px; background:rgba(244,114,182,.09); border:1px solid rgba(244,114,182,.2); }
-    .timer-block strong { font:800 4rem var(--font-en); line-height:1; }
-    .record-meter { display:grid; gap:10px; padding:18px; border:1px solid var(--color-border); border-radius:18px; background:rgba(15,23,42,.55); }
-    .record-meter strong { font:800 1.45rem var(--font-en); } .record-meter small { color:var(--color-text-muted); font-size:.82rem; }
-    .emotion-card { display:grid; place-items:center; gap:8px; padding:32px; border:1px solid var(--color-border); border-radius:22px; background:rgba(11,16,32,.45); text-align:center; }
-    .emotion-card span { font-size:4rem; } .emotion-card strong { font:800 1.5rem var(--font-en); } .emotion-card small { color:var(--color-text-muted); }
-    .inline-actions { display:flex; gap:12px; flex-wrap:wrap; }
-    .timeline span { padding:12px 14px; border:1px solid var(--color-border); border-radius:14px; color:var(--color-text-muted); background:rgba(15,23,42,.48); }
-    .timeline span.done { color:#BBF7D0; border-color:rgba(34,197,94,.35); }
-    @media (max-width:900px) {
-      .setup-card { grid-template-columns:1fr; }
-      app-horseshoe-sensor { border-right:0; border-bottom:1px solid var(--color-border); }
-      .stage-panel { min-height:unset; }
-    }
-    @media (max-width:620px) {
-      .session-shell { width:min(100% - 24px, 1120px); padding-top:24px; }
-      .session-header { flex-direction:column; }
-      .stepper { overflow-x:auto; grid-template-columns:repeat(4, minmax(110px, 1fr)); }
-      app-horseshoe-sensor,.stage-panel { padding:22px; }
-      .primary-action { min-height:52px; }
-    }
-  `],
+  styleUrl: './eeg-session.component.css',
 })
 export class EegSessionComponent implements OnInit, OnDestroy {
   currentPhase = computed(() => this.eegWs.phase());
   scanning = signal(false);
   scanError = signal('');
+  connectionError = signal('');
   generating = signal(false);
   discoveredDevices = signal<{ name: string; address: string }[]>([]);
   selectedDevice = signal<{ name: string; address: string } | null>(null);
@@ -278,6 +228,10 @@ export class EegSessionComponent implements OnInit, OnDestroy {
     });
   }
   scanDevices() {
+    if (!this.eegWs.isConnected()) {
+      this.scanning.set(false);
+      return;
+    }
     this.scanning.set(true);
     this.scanError.set('');
     this.discoveredDevices.set([]);
@@ -298,11 +252,49 @@ export class EegSessionComponent implements OnInit, OnDestroy {
       },
     });
   }
-  selectDevice(d: { name: string; address: string }) { this.selectedDevice.set(d); }
+  selectDevice(d: { name: string; address: string }) {
+    this.selectedDevice.set(d);
+    this.connectionError.set('');
+  }
+  onDeviceKeydown(event: KeyboardEvent, index: number) {
+    const direction = ['ArrowDown', 'ArrowRight'].includes(event.key)
+      ? 1
+      : ['ArrowUp', 'ArrowLeft'].includes(event.key)
+        ? -1
+        : 0;
+    if (!direction) return;
+
+    event.preventDefault();
+    const devices = this.discoveredDevices();
+    if (!devices.length) return;
+    const nextIndex = (index + direction + devices.length) % devices.length;
+    this.selectDevice(devices[nextIndex]);
+    const options = (event.currentTarget as HTMLElement)
+      .closest('[role="radiogroup"]')
+      ?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+    options?.[nextIndex]?.focus();
+  }
   confirmDevice() {
     const d = this.selectedDevice(); if (!d) return;
-    if (this.sessionId()) this.http.post(`${environment.apiUrl}/sessions/${this.sessionId()}/confirm-device`, null, { params: { device_name: d.name, device_id: d.address } }).subscribe();
-    this.eegWs.sendCommand('confirm_device', { device_name: d.name, device_id: d.address });
+    this.connectionError.set('');
+    const sendConfirmation = () => this.eegWs.sendCommand('confirm_device', {
+      device_name: d.name,
+      device_id: d.address,
+    });
+    if (!this.sessionId()) {
+      sendConfirmation();
+      return;
+    }
+    this.http.post(
+      `${environment.apiUrl}/sessions/${this.sessionId()}/confirm-device`,
+      null,
+      { params: { device_name: d.name, device_id: d.address } },
+    ).subscribe({
+      next: sendConfirmation,
+      error: () => this.connectionError.set(
+        `เชื่อมต่อ ${d.name} ไม่สำเร็จ ตรวจสอบว่าอุปกรณ์ยังเปิดอยู่แล้วลองอีกครั้ง`,
+      ),
+    });
   }
   startBaseline() { if (this.sessionId()) this.http.post(`${environment.apiUrl}/sessions/${this.sessionId()}/start-baseline`, {}).subscribe(); this.eegWs.sendCommand('start_baseline'); }
   startRecording() { if (this.sessionId()) this.http.post(`${environment.apiUrl}/sessions/${this.sessionId()}/start-recording`, {}).subscribe(); this.eegWs.sendCommand('start_recording'); }

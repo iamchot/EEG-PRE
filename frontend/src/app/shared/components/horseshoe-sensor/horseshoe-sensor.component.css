@@ -1,0 +1,33 @@
+.sensor-panel { display:grid; gap:20px; min-width:0; }
+.sensor-heading { display:grid; gap:5px; }
+.section-kicker { margin:0; color:var(--color-secondary); font-size:.78rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+.sensor-heading h2 { margin:0; font-size:1.45rem; }
+.sensor-heading p:last-child { margin:0; font-size:.9rem; line-height:1.55; }
+.headset-figure { min-height:250px; display:grid; place-items:center; border-block:1px solid var(--color-border); }
+.headset-figure svg { display:block; width:min(100%, 390px); height:auto; }
+.head-outline { fill:none; stroke:rgba(148,163,184,.22); stroke-width:2; }
+.headband { fill:none; stroke:#536078; stroke-width:14; stroke-linecap:round; }
+.sensor-node circle { stroke:#111827; stroke-width:5; }
+.sensor-node text { fill:#fff; font:700 13px var(--font-en); text-anchor:middle; }
+.node-unknown circle { fill:var(--color-neutral); }
+.node-poor circle { fill:var(--color-warning); }
+.node-good circle { fill:var(--color-success); }
+.node-stale circle { fill:var(--color-error); }
+.readiness { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--color-border); }
+.readiness-icon { width:32px; height:32px; display:grid; place-items:center; border-radius:50%; color:#E2E8F0; background:#334155; }
+.readiness.ready .readiness-icon { color:#052E16; background:var(--color-success); }
+.readiness strong,.readiness span { display:block; }
+.readiness span { margin-top:2px; color:var(--color-text-muted); font-size:.8rem; }
+.sensor-list { display:grid; gap:8px; }
+.sensor-row { min-height:52px; display:grid; grid-template-columns:28px 1fr auto; align-items:center; gap:10px; padding:9px 10px; border-radius:10px; border:1px solid transparent; }
+.sensor-row[data-state="poor"] { border-color:rgba(245,158,11,.34); }
+.sensor-row[data-state="stale"] { border-color:rgba(239,68,68,.34); }
+.state-mark { width:24px; height:24px; display:grid; place-items:center; border-radius:50%; background:#334155; font-weight:800; }
+[data-state="good"] .state-mark { color:#052E16; background:var(--color-success); }
+[data-state="poor"] .state-mark { color:#422006; background:var(--color-warning); }
+[data-state="stale"] .state-mark { color:#450A0A; background:var(--color-error); }
+.sensor-name strong,.sensor-name span { display:block; }
+.sensor-name span,.state-label { color:var(--color-text-muted); font-size:.78rem; }
+.state-label { text-align:right; }
+.signal-tip { padding:14px 16px; border-left:3px solid var(--color-secondary); background:rgba(167,139,250,.06); }
+.signal-tip p { margin:4px 0 0; font-size:.86rem; line-height:1.55; }
