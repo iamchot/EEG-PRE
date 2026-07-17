@@ -4,21 +4,23 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 AxisLabel = Literal["negative", "positive", "low", "high"]
+ValenceLabel = Literal["negative", "positive"]
+ArousalLabel = Literal["low", "high"]
 
 
 class RatingInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    valence: int = Field(ge=1, le=9)
-    arousal: int = Field(ge=1, le=9)
-    confidence: int = Field(ge=1, le=5)
+    valence: int = Field(ge=1, le=9, strict=True)
+    arousal: int = Field(ge=1, le=9, strict=True)
+    confidence: int = Field(ge=1, le=5, strict=True)
 
 
 class DerivedLabels(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    valence_label: AxisLabel | None
-    arousal_label: AxisLabel | None
+    valence_label: ValenceLabel | None
+    arousal_label: ArousalLabel | None
     valid_valence_label: bool
     valid_arousal_label: bool
 
