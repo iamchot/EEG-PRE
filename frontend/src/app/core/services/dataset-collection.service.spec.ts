@@ -3,83 +3,116 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { environment } from '../../../environments/environment';
-import { DatasetCollectionService } from './dataset-collection.service';
+import {
+  CollectionList,
+  CollectionOverview,
+  CollectionSession,
+  DatasetCollectionService,
+  DatasetParticipant,
+  EmotionStimulus,
+} from './dataset-collection.service';
 
 describe('DatasetCollectionService', () => {
   let service: DatasetCollectionService;
   let http: HttpTestingController;
   const baseUrl = `${environment.apiUrl}/admin/dataset-collection`;
+  const participant: DatasetParticipant = {
+    id: 7, participant_code: 'P007', consent_confirmed_at: '2026-07-17T08:30:00Z',
+    state: 'active', withdrawn_at: null, created_at: '2026-07-17T08:31:00Z',
+  };
+  const stimulus: EmotionStimulus = {
+    id: 11, title: 'Calm lake', file_path: 'stimuli/calm-lake.mp4', checksum: 'abc123',
+    duration_seconds: 45, target_quadrant: 'positive_low', approval_state: 'approved',
+    stimulus_set_version: 'v1', created_at: '2026-07-17T09:00:00Z',
+  };
+  const session: CollectionSession = {
+    id: 13, participant_id: 7, device_id: 'muse-01', device_name: 'Muse 2',
+    completed_trials: 2, total_trials: 8, state: 'in_progress',
+    started_at: '2026-07-17T09:05:00Z', completed_at: null, created_at: '2026-07-17T09:04:00Z',
+  };
 
   beforeEach(() => {
-    TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
-    });
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
     service = TestBed.inject(DatasetCollectionService);
     http = TestBed.inject(HttpTestingController);
   });
 
   afterEach(() => http.verify());
 
-  it('gets the collection overview', () => {
-    service.getOverview().subscribe();
+  it('gets and emits the complete collection overview', () => {
+    const response: CollectionOverview = {
+      participants: 1, sessions: 2, trials: 3,
+      review_counts: { pending: 1, accepted: 1, rejected: 1 },
+      quadrant_counts: { positive_low: 2, positive_high: 1, negative_low: 3, negative_high: 4 },
+    };
+    let received: CollectionOverview | undefined;
+    service.getOverview().subscribe(value => received = value);
     const request = http.expectOne(`${baseUrl}/overview`);
     expect(request.request.method).toBe('GET');
-    request.flush({ participants: 1, sessions: 2, trials: 3, review_counts: {}, quadrant_counts: {} });
+    request.flush(response);
+    expect(received).toEqual(response);
   });
 
-  it('lists participants with skip and limit', () => {
-    service.listParticipants(10, 25).subscribe();
+  it('lists and emits complete participants with skip and limit', () => {
+    const response: CollectionList<DatasetParticipant> = { items: [participant] };
+    let received: CollectionList<DatasetParticipant> | undefined;
+    service.listParticipants(10, 25).subscribe(value => received = value);
     const request = http.expectOne(`${baseUrl}/participants?skip=10&limit=25`);
     expect(request.request.method).toBe('GET');
-    request.flush({ items: [] });
+    request.flush(response);
+    expect(received).toEqual(response);
   });
 
-  it('creates a participant with only consent_confirmed_at', () => {
+  it('creates and emits a complete participant while sending only consent_confirmed_at', () => {
     const body = { consent_confirmed_at: '2026-07-17T08:30:00Z' };
-    service.createParticipant(body).subscribe();
+    let received: DatasetParticipant | undefined;
+    service.createParticipant(body).subscribe(value => received = value);
     const request = http.expectOne(`${baseUrl}/participants`);
     expect(request.request.method).toBe('POST');
     expect(request.request.body).toEqual(body);
-    request.flush({});
+    request.flush(participant);
+    expect(received).toEqual(participant);
   });
 
-  it('lists stimuli with skip and limit', () => {
-    service.listStimuli(5, 50).subscribe();
+  it('lists and emits complete stimuli with skip and limit', () => {
+    const response: CollectionList<EmotionStimulus> = { items: [stimulus] };
+    let received: CollectionList<EmotionStimulus> | undefined;
+    service.listStimuli(5, 50).subscribe(value => received = value);
     const request = http.expectOne(`${baseUrl}/stimuli?skip=5&limit=50`);
     expect(request.request.method).toBe('GET');
-    request.flush({ items: [] });
+    request.flush(response);
+    expect(received).toEqual(response);
   });
 
-  it('creates a stimulus with the backend field names', () => {
-    const body = {
-      title: 'Calm lake',
-      file_path: 'stimuli/calm-lake.mp4',
-      checksum: 'sha256:abc123',
-      duration_seconds: 45,
-      target_quadrant: 'positive_low' as const,
-      approval_state: 'approved' as const,
-      stimulus_set_version: 'v1',
-    };
-    service.createStimulus(body).subscribe();
+  it('creates and emits a complete stimulus while sending exact backend fields', () => {
+    const { id, created_at, ...body } = stimulus;
+    let received: EmotionStimulus | undefined;
+    service.createStimulus(body).subscribe(value => received = value);
     const request = http.expectOne(`${baseUrl}/stimuli`);
     expect(request.request.method).toBe('POST');
     expect(request.request.body).toEqual(body);
-    request.flush({});
+    request.flush(stimulus);
+    expect(received).toEqual(stimulus);
   });
 
-  it('lists sessions with skip and limit', () => {
-    service.listSessions(0, 100).subscribe();
+  it('lists and emits complete sessions with skip and limit', () => {
+    const response: CollectionList<CollectionSession> = { items: [session] };
+    let received: CollectionList<CollectionSession> | undefined;
+    service.listSessions(0, 100).subscribe(value => received = value);
     const request = http.expectOne(`${baseUrl}/sessions?skip=0&limit=100`);
     expect(request.request.method).toBe('GET');
-    request.flush({ items: [] });
+    request.flush(response);
+    expect(received).toEqual(response);
   });
 
-  it('creates a session with participant and device details', () => {
+  it('creates and emits a complete session while sending exact device details', () => {
     const body = { participant_id: 7, device_id: 'muse-01', device_name: 'Muse 2' };
-    service.createSession(body).subscribe();
+    let received: CollectionSession | undefined;
+    service.createSession(body).subscribe(value => received = value);
     const request = http.expectOne(`${baseUrl}/sessions`);
     expect(request.request.method).toBe('POST');
     expect(request.request.body).toEqual(body);
-    request.flush({});
+    request.flush(session);
+    expect(received).toEqual(session);
   });
 });
