@@ -34,6 +34,15 @@ describe('LoginComponent', () => {
     expect(element.textContent).not.toContain('Login as Admin');
   });
 
+  it('shows the exact loading copy with the spinner while submitting', () => {
+    component.loading.set(true);
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+    expect(button?.textContent?.trim()).toBe('กำลังเข้าสู่ระบบ...');
+    expect(button?.querySelector('.spinner')).not.toBeNull();
+  });
+
   for (const [role, destination] of [['user', '/dashboard'], ['admin', '/admin']] as const) {
     it(`routes a ${role} response to ${destination}`, () => {
       submitWith(role);

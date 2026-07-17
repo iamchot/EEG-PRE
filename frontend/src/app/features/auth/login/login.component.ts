@@ -37,7 +37,7 @@ import { AuthService } from '../../../core/services/auth.service';
           }
           <button type="submit" class="btn btn-login" [disabled]="loading()">
             @if (loading()) { <span class="spinner" aria-hidden="true"></span> }
-            <span>เข้าสู่ระบบ</span>
+            <span>{{ loading() ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ' }}</span>
           </button>
         </form>
         <div class="auth-footer"><p>ยังไม่มีบัญชี? <a routerLink="/register" id="link-register">สมัครสมาชิก</a></p></div>

@@ -43,7 +43,9 @@ export class AuthService {
       tap((res) => {
         localStorage.setItem('access_token', res.access_token);
         localStorage.setItem('refresh_token', res.refresh_token);
-        this._fetchMe();
+        if (res.role === 'user' || res.role === 'admin') {
+          this._fetchMe();
+        }
       })
     );
   }

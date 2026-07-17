@@ -45,6 +45,34 @@ describe('AuthService', () => {
     me.flush({ id: 1, username: 'person', email: 'person@example.com', role: 'admin' });
   });
 
+  it('refreshes the current user for a user-role login response', () => {
+    const response: TokenResponse = {
+      access_token: 'access', refresh_token: 'refresh', token_type: 'bearer', role: 'user',
+    };
+
+    service.login({ email: 'person@example.com', password: 'secret' }).subscribe();
+    http.expectOne(`${environment.apiUrl}/auth/login`).flush(response);
+
+    const me = http.expectOne(`${environment.apiUrl}/auth/me`);
+    expect(me.request.method).toBe('GET');
+    me.flush({ id: 1, username: 'person', email: 'person@example.com', role: 'user' });
+  });
+
+  it('stores and emits an unsupported-role response without requesting the current user', () => {
+    const response: TokenResponse = {
+      access_token: 'access', refresh_token: 'refresh', token_type: 'bearer', role: 'guest',
+    };
+    let received: TokenResponse | undefined;
+
+    service.login({ email: 'person@example.com', password: 'secret' }).subscribe(value => received = value);
+    http.expectOne(`${environment.apiUrl}/auth/login`).flush(response);
+
+    expect(received).toEqual(response);
+    expect(localStorage.getItem('access_token')).toBe('access');
+    expect(localStorage.getItem('refresh_token')).toBe('refresh');
+    http.expectNone(`${environment.apiUrl}/auth/me`);
+  });
+
   it('clearSession removes both tokens and clears the current user', () => {
     localStorage.setItem('access_token', 'access');
     localStorage.setItem('refresh_token', 'refresh');
