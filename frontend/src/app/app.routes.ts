@@ -57,6 +57,13 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/admin/admin.component').then((m) => m.AdminComponent),
   },
+  {
+    path: 'admin/dataset-collection',
+    canActivate: [authGuard, adminGuard],
+    loadComponent: () =>
+      import('./features/dataset-collection/dataset-collection.component')
+        .then((m) => m.DatasetCollectionComponent),
+  },
 
   // Fallback
   { path: '**', redirectTo: 'dashboard' },
