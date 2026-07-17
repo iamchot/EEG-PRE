@@ -1,0 +1,1812 @@
+﻿COMMITS
+1d472c3 fix: reject invalid login roles safely
+60f27b9 feat: enforce role-aware Angular routes
+3e6250b fix: preserve Thai single login copy
+23b27d5 feat: route single login by account role
+f37112b feat: enforce user-only API boundaries
+87666a4 docs: plan single login role routing
+STAT
+ backend/app/middleware/auth_middleware.py          |  48 +++
+ backend/app/routers/auth.py                        |  71 ++++
+ backend/app/routers/comic.py                       | 149 +++++++
+ backend/app/routers/eeg_session.py                 | 202 +++++++++
+ backend/app/routers/persona.py                     |  57 +++
+ backend/tests/test_auth_role_boundaries.py         |  45 ++
+ backend/tests/test_role_dependencies.py            |  39 ++
+ .../plans/2026-07-17-single-login-role-routing.md  | 451 +++++++++++++++++++++
+ frontend/src/app/app.routes.ts                     |  63 +++
+ frontend/src/app/core/guards/auth.guard.spec.ts    | 106 +++++
+ frontend/src/app/core/guards/auth.guard.ts         |  66 +++
+ .../src/app/core/services/auth.service.spec.ts     | 103 +++++
+ frontend/src/app/core/services/auth.service.ts     |  92 +++++
+ .../app/features/auth/login/login.component.css    |  30 ++
+ .../features/auth/login/login.component.spec.ts    |  89 ++++
+ .../src/app/features/auth/login/login.component.ts |  79 ++++
+ 16 files changed, 1690 insertions(+)
+DIFF
+diff --git a/backend/app/middleware/auth_middleware.py b/backend/app/middleware/auth_middleware.py
+new file mode 100644
+index 0000000..9cb92af
+--- /dev/null
++++ b/backend/app/middleware/auth_middleware.py
+@@ -0,0 +1,48 @@
++from __future__ import annotations
++
++from typing import Annotated, Optional
++
++from fastapi import Depends, HTTPException, status
++from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
++
++from app.database import get_db
++from app.models.user import User
++from app.services.auth_service import decode_token, get_user_by_id
++from sqlalchemy.orm import Session
++
++bearer_scheme = HTTPBearer(auto_error=False)
++
++
++def get_current_user(
++    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(bearer_scheme)],
++    db: Session = Depends(get_db),
++) -> User:
++    if credentials is None:
++        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
++
++    payload = decode_token(credentials.credentials)
++    if payload is None or payload.get("type") != "access":
++        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
++
++    user_id = int(payload["sub"])
++    user = get_user_by_id(db, user_id)
++    if user is None or not user.is_active:
++        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
++    return user
++
++
++def require_admin(current_user: User = Depends(get_current_user)) -> User:
++    if not current_user.role or current_user.role.name != "admin":
++        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
++    return current_user
++
++
++def require_user(current_user: User = Depends(get_current_user)) -> User:
++    if not current_user.role or current_user.role.name != "user":
++        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User access required")
++    return current_user
++
++
++CurrentUser = Annotated[User, Depends(get_current_user)]
++AdminUser = Annotated[User, Depends(require_admin)]
++StandardUser = Annotated[User, Depends(require_user)]
+diff --git a/backend/app/routers/auth.py b/backend/app/routers/auth.py
+new file mode 100644
+index 0000000..c531c78
+--- /dev/null
++++ b/backend/app/routers/auth.py
+@@ -0,0 +1,71 @@
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException, status
++from sqlalchemy.orm import Session
++
++from app.database import get_db
++from app.middleware.auth_middleware import CurrentUser
++from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserPublic
++from app.services.auth_service import (
++    authenticate_user,
++    create_access_token,
++    create_refresh_token,
++    decode_token,
++    get_user_by_email,
++    get_user_by_id,
++    register_user,
++)
++
++router = APIRouter(prefix="/auth", tags=["auth"])
++
++
++def _role_name(user) -> str:
++    return user.role.name if user.role else ""
++
++
++@router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
++def register(body: RegisterRequest, db: Session = Depends(get_db)):
++    if get_user_by_email(db, body.email):
++        raise HTTPException(status_code=400, detail="Email already registered")
++    user = register_user(db, body.username, body.email, body.password)
++    return UserPublic(id=user.id, username=user.username, email=user.email, role=user.role.name)
++
++
++@router.post("/login", response_model=TokenResponse)
++def login(body: LoginRequest, db: Session = Depends(get_db)):
++    user = authenticate_user(db, body.email, body.password)
++    if not user:
++        raise HTTPException(status_code=401, detail="Invalid email or password")
++    role_name = _role_name(user)
++    return TokenResponse(
++        access_token=create_access_token(user.id, role_name),
++        refresh_token=create_refresh_token(user.id),
++        role=role_name,
++    )
++
++
++@router.post("/refresh", response_model=TokenResponse)
++def refresh(refresh_token: str, db: Session = Depends(get_db)):
++    payload = decode_token(refresh_token)
++    if payload is None or payload.get("type") != "refresh":
++        raise HTTPException(status_code=401, detail="Invalid refresh token")
++    user = get_user_by_id(db, int(payload["sub"]))
++    if not user or not user.is_active:
++        raise HTTPException(status_code=401, detail="User not found")
++    role_name = _role_name(user)
++    return TokenResponse(
++        access_token=create_access_token(user.id, role_name),
++        refresh_token=create_refresh_token(user.id),
++        role=role_name,
++    )
++
++
++@router.get("/me", response_model=UserPublic)
++def me(current_user: CurrentUser):
++    role_name = _role_name(current_user)
++    return UserPublic(
++        id=current_user.id,
++        username=current_user.username,
++        email=current_user.email,
++        role=role_name,
++    )
+diff --git a/backend/app/routers/comic.py b/backend/app/routers/comic.py
+new file mode 100644
+index 0000000..836fb77
+--- /dev/null
++++ b/backend/app/routers/comic.py
+@@ -0,0 +1,149 @@
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException, status
++from sqlalchemy.orm import Session, joinedload
++
++from app.database import get_db
++from app.middleware.auth_middleware import StandardUser
++from app.models.comic import Comic, Rating
++from app.models.eeg import EEGSession, EmotionResult
++from app.models.persona import Persona
++from app.schemas.comic import ComicGenerateRequest, ComicOut, RatingCreate, RatingOut
++from app.services.gemini_service import generate_comic_story
++from app.services.diffusion_service import generate_all_panels
++
++router = APIRouter(prefix="/comics", tags=["comics"])
++
++
++@router.post("/generate", response_model=ComicOut, status_code=status.HTTP_201_CREATED)
++async def generate_comic(
++    body: ComicGenerateRequest,
++    current_user: StandardUser,
++    db: Session = Depends(get_db),
++):
++    """
++    Generate a 4-panel comic from EEG emotion + story input.
++    Requires a completed EEG session with EmotionResult.
++    """
++    # Fetch emotion result from session
++    eeg_session = db.query(EEGSession).filter(
++        EEGSession.id == body.session_id,
++        EEGSession.user_id == current_user.id,
++    ).first()
++    if not eeg_session:
++        raise HTTPException(status_code=404, detail="EEG session not found")
++
++    emotion_result = db.query(EmotionResult).filter(
++        EmotionResult.session_id == body.session_id
++    ).first()
++    if not emotion_result:
++        raise HTTPException(status_code=400, detail="Emotion result not available for this session")
++
++    persona = None
++    if body.persona_id:
++        persona = db.query(Persona).filter(
++            Persona.id == body.persona_id,
++            Persona.user_id == current_user.id,
++        ).first()
++
++    # Generate story with Gemini
++    story = await generate_comic_story(
++        input_story=body.input_story,
++        emotion=emotion_result.final_emotion.value,
++        art_style=body.art_style,
++        persona_name=persona.persona_name if persona else None,
++        persona_appearance=persona.appearance if persona else None,
++    )
++
++    # Generate images with ComfyUI
++    descriptions = [p.scene_description for p in story.panels]
++    panel_urls = await generate_all_panels(descriptions, body.art_style)
++
++    # Persist comic
++    comic = Comic(
++        user_id=current_user.id,
++        session_id=body.session_id,
++        persona_id=body.persona_id,
++        input_story=body.input_story,
++        generated_prompt=story.full_prompt,
++        panel_1_url=panel_urls[0] if len(panel_urls) > 0 else None,
++        panel_2_url=panel_urls[1] if len(panel_urls) > 1 else None,
++        panel_3_url=panel_urls[2] if len(panel_urls) > 2 else None,
++        panel_4_url=panel_urls[3] if len(panel_urls) > 3 else None,
++        panel_1_dialogue=story.panels[0].dialogue if len(story.panels) > 0 else None,
++        panel_2_dialogue=story.panels[1].dialogue if len(story.panels) > 1 else None,
++        panel_3_dialogue=story.panels[2].dialogue if len(story.panels) > 2 else None,
++        panel_4_dialogue=story.panels[3].dialogue if len(story.panels) > 3 else None,
++    )
++    db.add(comic)
++    db.commit()
++    db.refresh(comic)
++
++    out = ComicOut.model_validate(comic)
++    out.emotion = emotion_result.final_emotion.value
++    out.persona_name = persona.persona_name if persona else None
++    return out
++
++
++@router.get("/", response_model=list[ComicOut])
++def list_comics(
++    current_user: StandardUser,
++    db: Session = Depends(get_db),
++    skip: int = 0,
++    limit: int = 20,
++):
++    comics = (
++        db.query(Comic)
++        .filter(Comic.user_id == current_user.id)
++        .order_by(Comic.created_at.desc())
++        .offset(skip)
++        .limit(limit)
++        .all()
++    )
++    results = []
++    for c in comics:
++        out = ComicOut.model_validate(c)
++        # JOIN emotion
++        if c.session_id:
++            er = db.query(EmotionResult).filter(EmotionResult.session_id == c.session_id).first()
++            if er:
++                out.emotion = er.final_emotion.value
++        # JOIN persona
++        if c.persona:
++            out.persona_name = c.persona.persona_name
++        results.append(out)
++    return results
++
++
++@router.get("/{comic_id}", response_model=ComicOut)
++def get_comic(comic_id: int, current_user: StandardUser, db: Session = Depends(get_db)):
++    comic = db.query(Comic).filter(
++        Comic.id == comic_id, Comic.user_id == current_user.id
++    ).first()
++    if not comic:
++        raise HTTPException(status_code=404, detail="Comic not found")
++    out = ComicOut.model_validate(comic)
++    if comic.session_id:
++        er = db.query(EmotionResult).filter(EmotionResult.session_id == comic.session_id).first()
++        if er:
++            out.emotion = er.final_emotion.value
++    return out
++
++
++@router.post("/ratings", response_model=RatingOut, status_code=status.HTTP_201_CREATED)
++def submit_rating(body: RatingCreate, current_user: StandardUser, db: Session = Depends(get_db)):
++    comic = db.query(Comic).filter(
++        Comic.id == body.comic_id, Comic.user_id == current_user.id
++    ).first()
++    if not comic:
++        raise HTTPException(status_code=404, detail="Comic not found")
++    rating = Rating(
++        comic_id=body.comic_id,
++        user_id=current_user.id,
++        stars=body.stars,
++        feedback=body.feedback,
++    )
++    db.add(rating)
++    db.commit()
++    db.refresh(rating)
++    return rating
+diff --git a/backend/app/routers/eeg_session.py b/backend/app/routers/eeg_session.py
+new file mode 100644
+index 0000000..27cae3c
+--- /dev/null
++++ b/backend/app/routers/eeg_session.py
+@@ -0,0 +1,202 @@
++from __future__ import annotations
++
++import uuid
++from datetime import datetime, timezone
++
++from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
++from sqlalchemy.orm import Session
++
++from app.database import get_db
++from app.middleware.auth_middleware import StandardUser
++from app.models.eeg import EEGSession, EEGFeature, EmotionResult, SessionStatus
++from app.schemas.eeg import EEGSessionOut, EmotionResultOut
++from app.services.eeg_service import EEGStateMachine, Phase, SessionState
++from app.ws import eeg_manager
++
++router = APIRouter(prefix="/sessions", tags=["eeg-sessions"])
++
++# In-memory store for active state machines (session_id → EEGStateMachine)
++_active_machines: dict[str, EEGStateMachine] = {}
++
++
++@router.post("/", response_model=EEGSessionOut, status_code=201)
++def create_session(current_user: StandardUser, db: Session = Depends(get_db)):
++    """Create a new EEG session record and initialize state machine."""
++    db_session = EEGSession(user_id=current_user.id, status=SessionStatus.baseline)
++    db.add(db_session)
++    db.commit()
++    db.refresh(db_session)
++
++    session_id = str(db_session.id)
++    state = SessionState(session_id=session_id, user_id=current_user.id)
++    _active_machines[session_id] = EEGStateMachine(state)
++
++    return db_session
++
++
++@router.get("/{session_id}", response_model=EEGSessionOut)
++def get_session(session_id: int, current_user: StandardUser, db: Session = Depends(get_db)):
++    s = db.query(EEGSession).filter(
++        EEGSession.id == session_id, EEGSession.user_id == current_user.id
++    ).first()
++    if not s:
++        raise HTTPException(status_code=404, detail="Session not found")
++    return s
++
++
++@router.post("/{session_id}/confirm-device")
++def confirm_device(
++    session_id: str,
++    device_name: str,
++    device_id: str,
++    current_user: StandardUser,
++):
++    """User confirms device selection (AC-EEG-01)."""
++    machine = _active_machines.get(session_id)
++    if not machine:
++        raise HTTPException(status_code=404, detail="Active session not found")
++    machine.confirm_device(device_name, device_id)
++    return {"status": "ok", "phase": machine.state.phase.value}
++
++
++@router.post("/{session_id}/start-baseline")
++def start_baseline(session_id: str, current_user: StandardUser):
++    machine = _active_machines.get(session_id)
++    if not machine:
++        raise HTTPException(status_code=404, detail="Active session not found")
++    machine.start_baseline()
++    return {"status": "ok", "phase": machine.state.phase.value}
++
++
++@router.post("/{session_id}/start-recording")
++def start_recording(session_id: str, current_user: StandardUser):
++    machine = _active_machines.get(session_id)
++    if not machine:
++        raise HTTPException(status_code=404, detail="Active session not found")
++    if machine.state.phase != Phase.READY:
++        raise HTTPException(status_code=400, detail="Not in READY state")
++    machine.start_recording()
++    return {"status": "ok", "phase": machine.state.phase.value}
++
++
++@router.post("/{session_id}/confirm-emotion")
++def confirm_emotion(session_id: str, current_user: StandardUser, db: Session = Depends(get_db)):
++    """User confirms emotion result and saves to DB."""
++    machine = _active_machines.get(session_id)
++    if not machine:
++        raise HTTPException(status_code=404, detail="Active session not found")
++    if machine.state.phase != Phase.EMOTION_CONFIRMATION:
++        raise HTTPException(status_code=400, detail="Not in EMOTION_CONFIRMATION state")
++
++    state = machine.state
++    machine.confirm_emotion()
++
++    # Persist results
++    db_session = db.query(EEGSession).filter(EEGSession.id == int(session_id)).first()
++    if db_session:
++        db_session.status = SessionStatus.completed
++        db_session.completed_at = datetime.now(timezone.utc)
++        db_session.wall_clock_duration = state.wall_clock_seconds
++        db_session.pause_count = state.pause_count
++        db_session.rejected_epoch_count = state.rejected_epoch_count
++        if state.device_name:
++            db_session.device_name = state.device_name
++        db.commit()
++
++    if state.recording_features and state.emotion:
++        rf = state.recording_features
++        ec = state.emotion
++        bl = state.baseline_features
++
++        feature = EEGFeature(
++            session_id=int(session_id),
++            baseline_faa=bl.faa if bl else None,
++            baseline_arousal=bl.arousal if bl else None,
++            baseline_log_alpha_af7=bl.log_alpha_af7 if bl else None,
++            baseline_log_alpha_af8=bl.log_alpha_af8 if bl else None,
++            baseline_log_beta_af7=bl.log_beta_af7 if bl else None,
++            baseline_log_beta_af8=bl.log_beta_af8 if bl else None,
++            recording_faa=rf.faa,
++            recording_arousal=rf.arousal,
++            delta_faa=rf.delta_faa,
++            delta_arousal=rf.delta_arousal,
++        )
++        db.add(feature)
++
++        emotion_result = EmotionResult(
++            session_id=int(session_id),
++            final_emotion=ec.emotion,
++            rule_version=ec.rule_version,
++            threshold_version=ec.threshold_version,
++            valence=ec.valence,
++            arousal=ec.arousal_value,
++            delta_faa=ec.delta_faa,
++            delta_arousal=ec.delta_arousal,
++            quality_score_avg=rf.quality_score_avg,
++            accepted_epochs=rf.accepted_epochs,
++            rejected_epochs=rf.rejected_epochs,
++        )
++        db.add(emotion_result)
++        db.commit()
++
++        return EmotionResultOut.model_validate(emotion_result)
++
++    return {"status": "ok"}
++
++
++@router.post("/{session_id}/cancel")
++def cancel_session(session_id: str, current_user: StandardUser, db: Session = Depends(get_db)):
++    machine = _active_machines.get(session_id)
++    if machine:
++        machine.cancel()
++    db_session = db.query(EEGSession).filter(EEGSession.id == int(session_id)).first()
++    if db_session:
++        db_session.status = SessionStatus.cancelled
++        db.commit()
++    _active_machines.pop(session_id, None)
++    return {"status": "cancelled"}
++
++
++# ─── WebSocket endpoint ────────────────────────────────────────────────────────
++
++@router.websocket("/ws/{session_id}")
++async def eeg_websocket(session_id: str, websocket: WebSocket):
++    """
++    Real-time WebSocket for EEG state updates.
++    Frontend connects here to receive live sensor/phase/progress data.
++    """
++    await eeg_manager.connect(session_id, websocket)
++    try:
++        machine = _active_machines.get(session_id)
++        if machine is None:
++            await eeg_manager.send_to(websocket, {"error": "Session not found"})
++            await websocket.close()
++            return
++
++        # Send immediate status
++        await eeg_manager.send_to(websocket, machine.to_ws_dict())
++
++        while True:
++            # Receive commands from client (e.g., confirm device, start recording)
++            try:
++                data = await websocket.receive_json()
++                cmd = data.get("cmd", "")
++                if cmd == "confirm_device":
++                    machine.confirm_device(data["device_name"], data["device_id"])
++                elif cmd == "start_fitting":
++                    machine.start_fitting()
++                elif cmd == "start_baseline":
++                    machine.start_baseline()
++                elif cmd == "start_recording":
++                    machine.start_recording()
++                elif cmd == "cancel":
++                    machine.cancel()
++                # Broadcast updated state
++                await eeg_manager.broadcast(session_id, machine.to_ws_dict())
++            except Exception:
++                break
++
++    except WebSocketDisconnect:
++        pass
++    finally:
++        eeg_manager.disconnect(session_id, websocket)
+diff --git a/backend/app/routers/persona.py b/backend/app/routers/persona.py
+new file mode 100644
+index 0000000..f91f8c7
+--- /dev/null
++++ b/backend/app/routers/persona.py
+@@ -0,0 +1,57 @@
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException, status
++from sqlalchemy.orm import Session
++
++from app.database import get_db
++from app.middleware.auth_middleware import StandardUser
++from app.models.persona import Persona
++from app.schemas.persona import PersonaCreate, PersonaOut, PersonaUpdate
++
++router = APIRouter(prefix="/personas", tags=["personas"])
++
++
++def _get_own_persona(persona_id: int, user_id: int, db: Session) -> Persona:
++    p = db.query(Persona).filter(Persona.id == persona_id, Persona.user_id == user_id).first()
++    if not p:
++        raise HTTPException(status_code=404, detail="Persona not found")
++    return p
++
++
++@router.get("/", response_model=list[PersonaOut])
++def list_personas(current_user: StandardUser, db: Session = Depends(get_db)):
++    return db.query(Persona).filter(Persona.user_id == current_user.id).all()
++
++
++@router.post("/", response_model=PersonaOut, status_code=status.HTTP_201_CREATED)
++def create_persona(body: PersonaCreate, current_user: StandardUser, db: Session = Depends(get_db)):
++    persona = Persona(user_id=current_user.id, **body.model_dump())
++    db.add(persona)
++    db.commit()
++    db.refresh(persona)
++    return persona
++
++
++@router.get("/{persona_id}", response_model=PersonaOut)
++def get_persona(persona_id: int, current_user: StandardUser, db: Session = Depends(get_db)):
++    return _get_own_persona(persona_id, current_user.id, db)
++
++
++@router.patch("/{persona_id}", response_model=PersonaOut)
++def update_persona(
++    persona_id: int, body: PersonaUpdate, current_user: StandardUser, db: Session = Depends(get_db)
++):
++    persona = _get_own_persona(persona_id, current_user.id, db)
++    update_data = body.model_dump(exclude_unset=True)
++    for key, value in update_data.items():
++        setattr(persona, key, value)
++    db.commit()
++    db.refresh(persona)
++    return persona
++
++
++@router.delete("/{persona_id}", status_code=status.HTTP_204_NO_CONTENT)
++def delete_persona(persona_id: int, current_user: StandardUser, db: Session = Depends(get_db)):
++    persona = _get_own_persona(persona_id, current_user.id, db)
++    db.delete(persona)
++    db.commit()
+diff --git a/backend/tests/test_auth_role_boundaries.py b/backend/tests/test_auth_role_boundaries.py
+new file mode 100644
+index 0000000..38f2e44
+--- /dev/null
++++ b/backend/tests/test_auth_role_boundaries.py
+@@ -0,0 +1,45 @@
++from types import SimpleNamespace
++
++from app.routers import auth
++from app.schemas.auth import LoginRequest
++
++
++def _user_without_role():
++    return SimpleNamespace(
++        id=7,
++        username="orphan",
++        email="orphan@example.com",
++        role=None,
++        is_active=True,
++    )
++
++
++def test_login_preserves_missing_role_as_invalid(monkeypatch):
++    user = _user_without_role()
++    monkeypatch.setattr(auth, "authenticate_user", lambda *_: user)
++    monkeypatch.setattr(auth, "create_access_token", lambda _id, role: f"access:{role}")
++    monkeypatch.setattr(auth, "create_refresh_token", lambda _id: "refresh")
++
++    response = auth.login(LoginRequest(email=user.email, password="secret"), object())
++
++    assert response.role == ""
++    assert response.access_token == "access:"
++
++
++def test_refresh_preserves_missing_role_as_invalid(monkeypatch):
++    user = _user_without_role()
++    monkeypatch.setattr(auth, "decode_token", lambda _token: {"type": "refresh", "sub": "7"})
++    monkeypatch.setattr(auth, "get_user_by_id", lambda *_: user)
++    monkeypatch.setattr(auth, "create_access_token", lambda _id, role: f"access:{role}")
++    monkeypatch.setattr(auth, "create_refresh_token", lambda _id: "refresh")
++
++    response = auth.refresh("refresh", object())
++
++    assert response.role == ""
++    assert response.access_token == "access:"
++
++
++def test_me_preserves_missing_role_as_invalid():
++    response = auth.me(_user_without_role())
++
++    assert response.role == ""
+diff --git a/backend/tests/test_role_dependencies.py b/backend/tests/test_role_dependencies.py
+new file mode 100644
+index 0000000..ac55178
+--- /dev/null
++++ b/backend/tests/test_role_dependencies.py
+@@ -0,0 +1,39 @@
++from types import SimpleNamespace
++
++import pytest
++from fastapi import HTTPException
++
++from app.middleware.auth_middleware import require_admin, require_user
++
++
++def _account(role_name):
++    role = None if role_name is None else SimpleNamespace(name=role_name)
++    return SimpleNamespace(role=role)
++
++
++def test_require_user_returns_same_user_role_account():
++    account = _account("user")
++
++    assert require_user(account) is account
++
++
++@pytest.mark.parametrize("role_name", ["admin", None, "editor"])
++def test_require_user_rejects_non_user_roles(role_name):
++    with pytest.raises(HTTPException) as exc_info:
++        require_user(_account(role_name))
++
++    assert exc_info.value.status_code == 403
++    assert exc_info.value.detail == "User access required"
++
++
++def test_require_admin_accepts_admin_role():
++    account = _account("admin")
++
++    assert require_admin(account) is account
++
++
++def test_require_admin_rejects_user_role():
++    with pytest.raises(HTTPException) as exc_info:
++        require_admin(_account("user"))
++
++    assert exc_info.value.status_code == 403
+diff --git a/docs/superpowers/plans/2026-07-17-single-login-role-routing.md b/docs/superpowers/plans/2026-07-17-single-login-role-routing.md
+new file mode 100644
+index 0000000..394be47
+--- /dev/null
++++ b/docs/superpowers/plans/2026-07-17-single-login-role-routing.md
+@@ -0,0 +1,451 @@
++# Single Login and Role Routing Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Replace role-selection login buttons with one login action and enforce strict User/Admin separation in Angular routes and FastAPI HTTP endpoints without changing the database.
++
++**Architecture:** The Login component routes immediately from `TokenResponse.role`, while `AuthService` continues loading `/auth/me` for the application shell. Angular uses role-aware `userGuard`, `adminGuard`, and `guestGuard`; FastAPI uses `StandardUser` and `AdminUser` dependencies at endpoint boundaries. Existing role tables, JWT claims, API shapes, and the EEG WebSocket contract remain unchanged.
++
++**Tech Stack:** Angular 19 standalone components, Angular Signals, RxJS, Jasmine/Karma, FastAPI, SQLAlchemy 2, pytest.
++
++## Global Constraints
++
++- Supported roles are exactly `user` and `admin`.
++- Login requests contain only `email` and `password`; the browser never submits a role.
++- `user` routes to `/dashboard`; `admin` routes to `/admin`.
++- Missing or unsupported roles clear credentials and return to `/login`.
++- User HTTP APIs reject Admin accounts with HTTP 403; Admin APIs continue rejecting User accounts.
++- Do not change database tables, columns, role seeds, JWT payload shape, or Login API URL/response shape.
++- Do not change EEG WebSocket authorization in this scope.
++- Preserve unrelated working-tree changes and stage only files listed by each task.
++- Any CSS changed in the Login component must live in `login.component.css`, not inline component metadata.
++
++## File Structure
++
++- Create `backend/tests/test_role_dependencies.py`: direct tests for `require_user` and `require_admin`.
++- Modify `backend/app/middleware/auth_middleware.py`: add `require_user` and `StandardUser`.
++- Modify `backend/app/routers/persona.py`: use `StandardUser` for Persona endpoints.
++- Modify `backend/app/routers/eeg_session.py`: use `StandardUser` for HTTP endpoints while leaving WebSocket unchanged.
++- Modify `backend/app/routers/comic.py`: use `StandardUser` for User comic and rating endpoints.
++- Create `frontend/src/app/core/services/auth.service.spec.ts`: token persistence and login-response tests.
++- Modify `frontend/src/app/core/services/auth.service.ts`: expose `TokenResponse`, centralize credential clearing.
++- Create `frontend/src/app/features/auth/login/login.component.spec.ts`: one-button and role-routing tests.
++- Modify `frontend/src/app/features/auth/login/login.component.ts`: one submit action and role-based routing.
++- Create `frontend/src/app/features/auth/login/login.component.css`: extracted Login styles.
++- Create `frontend/src/app/core/guards/auth.guard.spec.ts`: loaded-user and refresh-fetch role-guard tests.
++- Modify `frontend/src/app/core/guards/auth.guard.ts`: add `userGuard` and make all guards role-aware.
++- Modify `frontend/src/app/app.routes.ts`: attach `userGuard` to User routes.
++
++---
++
++### Task 1: FastAPI User/Admin HTTP Boundary
++
++**Files:**
++
++- Create: `backend/tests/test_role_dependencies.py`
++- Modify: `backend/app/middleware/auth_middleware.py`
++- Modify: `backend/app/routers/persona.py`
++- Modify: `backend/app/routers/eeg_session.py`
++- Modify: `backend/app/routers/comic.py`
++
++**Interfaces:**
++
++- Produces: `require_user(current_user: User) -> User` and `StandardUser = Annotated[User, Depends(require_user)]`.
++- Preserves: `require_admin`, `CurrentUser`, `AdminUser`, HTTP endpoint paths, request/response models, and `eeg_websocket` signature.
++
++- [ ] **Step 1: Write failing dependency tests**
++
++Create `backend/tests/test_role_dependencies.py`:
++
++```python
++from types import SimpleNamespace
++
++import pytest
++from fastapi import HTTPException
++
++from app.middleware.auth_middleware import require_admin, require_user
++
++
++def account(role_name: str | None):
++    role = SimpleNamespace(name=role_name) if role_name else None
++    return SimpleNamespace(id=1, role=role)
++
++
++def test_require_user_accepts_user():
++    user = account("user")
++    assert require_user(user) is user
++
++
++@pytest.mark.parametrize("role_name", ["admin", None, "editor"])
++def test_require_user_rejects_non_user_roles(role_name):
++    with pytest.raises(HTTPException) as exc:
++        require_user(account(role_name))
++    assert exc.value.status_code == 403
++    assert exc.value.detail == "User access required"
++
++
++def test_require_admin_accepts_admin_and_rejects_user():
++    admin = account("admin")
++    assert require_admin(admin) is admin
++    with pytest.raises(HTTPException) as exc:
++        require_admin(account("user"))
++    assert exc.value.status_code == 403
++```
++
++- [ ] **Step 2: Run tests and verify RED**
++
++Run:
++
++```powershell
++cd backend
++python -m pytest tests/test_role_dependencies.py -q
++```
++
++Expected: collection/import failure because `require_user` does not exist.
++
++- [ ] **Step 3: Implement `require_user`**
++
++Add to `auth_middleware.py`:
++
++```python
++def require_user(current_user: User = Depends(get_current_user)) -> User:
++    if not current_user.role or current_user.role.name != "user":
++        raise HTTPException(
++            status_code=status.HTTP_403_FORBIDDEN,
++            detail="User access required",
++        )
++    return current_user
++
++
++StandardUser = Annotated[User, Depends(require_user)]
++```
++
++- [ ] **Step 4: Apply `StandardUser` to User HTTP endpoints**
++
++Replace `CurrentUser` with `StandardUser` in Persona CRUD and Comic/Rating endpoints. In `eeg_session.py`, use `StandardUser` only for normal HTTP endpoint parameters. Keep this exact WebSocket declaration unchanged:
++
++```python
++@router.websocket("/ws/{session_id}")
++async def eeg_websocket(session_id: str, websocket: WebSocket):
++```
++
++Update imports to:
++
++```python
++from app.middleware.auth_middleware import StandardUser
++```
++
++Do not change endpoint URLs, database filters, request bodies, or response types.
++
++- [ ] **Step 5: Run focused backend tests and source contract checks**
++
++Run:
++
++```powershell
++cd backend
++python -m pytest tests/test_role_dependencies.py -q
++rg -n "current_user: StandardUser" app/routers/persona.py app/routers/eeg_session.py app/routers/comic.py
++rg -n "async def eeg_websocket\(session_id: str, websocket: WebSocket\)" app/routers/eeg_session.py
++```
++
++Expected: dependency tests pass; User HTTP endpoints show `StandardUser`; WebSocket signature remains present.
++
++- [ ] **Step 6: Commit backend role boundary**
++
++```powershell
++git add -- backend/tests/test_role_dependencies.py backend/app/middleware/auth_middleware.py backend/app/routers/persona.py backend/app/routers/eeg_session.py backend/app/routers/comic.py
++git commit -m "feat: enforce user-only API boundaries"
++```
++
++---
++
++### Task 2: Auth Service and Single Login Action
++
++**Files:**
++
++- Create: `frontend/src/app/core/services/auth.service.spec.ts`
++- Modify: `frontend/src/app/core/services/auth.service.ts`
++- Create: `frontend/src/app/features/auth/login/login.component.spec.ts`
++- Modify: `frontend/src/app/features/auth/login/login.component.ts`
++- Create: `frontend/src/app/features/auth/login/login.component.css`
++
++**Interfaces:**
++
++- `AuthService.login(body: LoginRequest)` emits `TokenResponse` after storing tokens.
++- `AuthService.clearSession(): void` removes both tokens and clears `currentUser` without navigation.
++- `LoginComponent.onSubmit(): void` routes from `TokenResponse.role`.
++
++- [ ] **Step 1: Write failing Auth service tests**
++
++Create `auth.service.spec.ts` using `HttpTestingController`. Assert that `login()` POSTs only email/password, emits the complete response, stores both tokens, and calls `/auth/me`. Add a test that `clearSession()` removes both tokens and clears `currentUser`.
++
++Core expectations:
++
++```ts
++service.login({ email: 'admin@example.com', password: 'secret123' }).subscribe(response => {
++  expect(response.role).toBe('admin');
++});
++
++const login = http.expectOne(`${environment.apiUrl}/auth/login`);
++expect(login.request.body).toEqual({ email: 'admin@example.com', password: 'secret123' });
++login.flush({ access_token: 'a', refresh_token: 'r', token_type: 'bearer', role: 'admin' });
++
++expect(localStorage.getItem('access_token')).toBe('a');
++expect(localStorage.getItem('refresh_token')).toBe('r');
++```
++
++- [ ] **Step 2: Write failing Login component tests**
++
++Create `login.component.spec.ts` with Auth/Router doubles. Assert:
++
++```ts
++expect(element.querySelectorAll('button[type="submit"]').length).toBe(1);
++expect(element.textContent).not.toContain('Login as User');
++expect(element.textContent).not.toContain('Login as Admin');
++```
++
++For `onSubmit()`:
++
++```ts
++auth.login.and.returnValue(of(tokenResponse('user')));
++component.email = 'user@example.com';
++component.password = 'secret123';
++component.onSubmit();
++expect(router.navigate).toHaveBeenCalledWith(['/dashboard']);
++
++auth.login.and.returnValue(of(tokenResponse('admin')));
++component.onSubmit();
++expect(router.navigate).toHaveBeenCalledWith(['/admin']);
++```
++
++For an unsupported role, assert `auth.clearSession()`, no protected navigation, and `บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบ`.
++
++- [ ] **Step 3: Run frontend tests and verify RED**
++
++Run with the bundled Node runtime:
++
++```powershell
++cd frontend
++& 'C:\Users\sirik\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' '.\node_modules\@angular\cli\bin\ng.js' test --watch=false --include='src/app/core/services/auth.service.spec.ts' --include='src/app/features/auth/login/login.component.spec.ts'
++```
++
++Expected: failures because `clearSession()` and the parameterless single-login behavior do not exist. If the repository's existing `app.component.spec.ts` blocks compilation, record that exact pre-existing failure and also run TypeScript compilation after implementation.
++
++- [ ] **Step 4: Implement Auth service contract**
++
++Keep `login()` returning the HTTP observable with `TokenResponse`:
++
++```ts
++login(body: LoginRequest) {
++  return this.http.post<TokenResponse>(`${this.apiUrl}/auth/login`, body).pipe(
++    tap((res) => {
++      localStorage.setItem('access_token', res.access_token);
++      localStorage.setItem('refresh_token', res.refresh_token);
++      this._fetchMe();
++    }),
++  );
++}
++
++clearSession() {
++  localStorage.removeItem('access_token');
++  localStorage.removeItem('refresh_token');
++  this.currentUser.set(null);
++}
++
++logout() {
++  this.clearSession();
++  this.router.navigate(['/login']);
++}
++```
++
++- [ ] **Step 5: Replace Login template and component logic**
++
++Use one form submit:
++
++```html
++<form (ngSubmit)="onSubmit()" novalidate>
++  <button type="submit" class="btn btn-login" id="btn-login" [disabled]="loading()">
++    @if (loading()) {
++      <span class="spinner" aria-hidden="true"></span>
++      <span>กำลังเข้าสู่ระบบ...</span>
++    } @else {
++      <span>เข้าสู่ระบบ</span>
++    }
++  </button>
++</form>
++```
++
++Treat this as a bounded replacement for the current `<form>` opening tag and the current `.btn-group` containing the two role buttons. Leave the existing email field, password field, and `@if (error())` alert between them unchanged; delete only the old `.btn-group`, role buttons, and mock note.
++
++Implement role routing:
++
++```ts
++onSubmit() {
++  if (!this.email || !this.password || this.loading()) return;
++  this.loading.set(true);
++  this.error.set('');
++
++  this.authService.login({ email: this.email, password: this.password }).subscribe({
++    next: ({ role }) => {
++      if (role === 'user') {
++        this.router.navigate(['/dashboard']);
++      } else if (role === 'admin') {
++        this.router.navigate(['/admin']);
++      } else {
++        this.authService.clearSession();
++        this.error.set('บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบ');
++        this.loading.set(false);
++      }
++    },
++    error: (err: { error?: { detail?: string } }) => {
++      this.error.set(err?.error?.detail ?? 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบอีเมลและรหัสผ่าน');
++      this.loading.set(false);
++    },
++  });
++}
++```
++
++Remove `loginMode`, role parameters, demo prefill, role-specific buttons, and mock note.
++
++- [ ] **Step 6: Extract Login CSS**
++
++Move the existing Login styles to `login.component.css`, remove the inline `styles` array, and set:
++
++```ts
++styleUrl: './login.component.css',
++```
++
++Replace `.btn-user`/`.btn-admin` rules with:
++
++```css
++.btn-login {
++  width: 100%;
++  min-height: 48px;
++  color: #fff;
++  background: #7c3aed;
++  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.3);
++}
++.btn-login:hover:not(:disabled) { background: #6d28d9; }
++.btn-login:focus-visible { outline: 3px solid rgba(196, 181, 253, 0.55); outline-offset: 3px; }
++```
++
++- [ ] **Step 7: Run focused checks and commit**
++
++Run focused tests, `tsc --noEmit -p tsconfig.spec.json`, and Angular development build. Expected: new specs type-check; build exits 0; any remaining `app.component.spec.ts` failure is reported separately.
++
++```powershell
++git add -- frontend/src/app/core/services/auth.service.ts frontend/src/app/core/services/auth.service.spec.ts frontend/src/app/features/auth/login/login.component.ts frontend/src/app/features/auth/login/login.component.css frontend/src/app/features/auth/login/login.component.spec.ts
++git commit -m "feat: route single login by account role"
++```
++
++---
++
++### Task 3: Role-Aware Angular Guards and Routes
++
++**Files:**
++
++- Create: `frontend/src/app/core/guards/auth.guard.spec.ts`
++- Modify: `frontend/src/app/core/guards/auth.guard.ts`
++- Modify: `frontend/src/app/app.routes.ts`
++
++**Interfaces:**
++
++- Produces: `userGuard`, revised `adminGuard`, revised `guestGuard`.
++- Consumes: `AuthService.currentUser`, `AuthService.getToken()`, `AuthService.clearSession()`, `/auth/me`.
++
++- [ ] **Step 1: Write failing guard tests**
++
++Use `TestBed.runInInjectionContext()` with Router, HttpClient testing, and an AuthService double. Cover:
++
++- loaded User: `userGuard` true, `adminGuard` returns `/dashboard`, `guestGuard` returns `/dashboard`
++- loaded Admin: `adminGuard` true, `userGuard` returns `/admin`, `guestGuard` returns `/admin`
++- stored token with null `currentUser`: each role-aware guard requests `/auth/me` before deciding
++- unsupported role: calls `clearSession()` and returns `/login` or allows the guest route
++- missing token: protected guards return `/login`; guest guard returns true
++
++- [ ] **Step 2: Run guard tests and verify RED**
++
++Expected: import/behavior failures because `userGuard` does not exist and `guestGuard` always returns `/dashboard`.
++
++- [ ] **Step 3: Implement shared role resolution**
++
++Add a private helper in `auth.guard.ts`:
++
++```ts
++type SupportedRole = 'user' | 'admin';
++
++function roleOf(user: UserPublic | null): SupportedRole | null {
++  return user?.role === 'user' || user?.role === 'admin' ? user.role : null;
++}
++```
++
++For refresh paths, request `/auth/me`, set `currentUser`, then map the supported role to the correct allow/redirect result. On request error, call `clearSession()` and return `/login`.
++
++- [ ] **Step 4: Implement and apply `userGuard`**
++
++Export `userGuard` and update User routes:
++
++```ts
++import { authGuard, adminGuard, guestGuard, userGuard } from './core/guards/auth.guard';
++
++{
++  path: 'dashboard',
++  canActivate: [authGuard, userGuard],
++  // existing loadComponent unchanged
++}
++```
++
++Apply the same `[authGuard, userGuard]` sequence to `/persona`, `/eeg-session`, `/comic/:id`, and `/history`. Keep `/admin` as `[authGuard, adminGuard]`.
++
++- [ ] **Step 5: Run guards, build, and route source checks**
++
++Run focused guard tests, TypeScript compilation, and development build. Then:
++
++```powershell
++rg -n "canActivate: \[authGuard, userGuard\]" src/app/app.routes.ts
++rg -n "canActivate: \[authGuard, adminGuard\]" src/app/app.routes.ts
++```
++
++Expected: five User routes and one Admin route.
++
++- [ ] **Step 6: Commit Angular role guards**
++
++```powershell
++git add -- frontend/src/app/core/guards/auth.guard.ts frontend/src/app/core/guards/auth.guard.spec.ts frontend/src/app/app.routes.ts
++git commit -m "feat: enforce role-aware Angular routes"
++```
++
++---
++
++### Task 4: End-to-End Verification
++
++**Files:** No planned production changes.
++
++- [ ] **Step 1: Run backend focused tests**
++
++```powershell
++cd backend
++python -m pytest tests/test_role_dependencies.py -q
++```
++
++Expected: all role-dependency tests pass.
++
++- [ ] **Step 2: Run Angular focused tests and development build**
++
++Run Login/Auth/Guard focused specs and the Angular development build with bundled Node. Record exact failures if Chrome/Karma is unavailable; do not claim test execution from compilation alone.
++
++- [ ] **Step 3: Verify database schema is untouched**
++
++```powershell
++git diff a52a937..HEAD -- backend/app/models backend/app/database.py backend/seed.py
++```
++
++Expected: no output.
++
++- [ ] **Step 4: Verify role boundary source contracts**
++
++Confirm one Login button, no role-specific labels, five User routes, one Admin route, `StandardUser` on User HTTP endpoints, and unchanged EEG WebSocket signature.
++
++- [ ] **Step 5: Final review**
++
++Review the complete diff against `docs/superpowers/specs/2026-07-17-single-login-role-routing-design.md`. Fix Critical and Important findings with a failing test before implementation changes.
+diff --git a/frontend/src/app/app.routes.ts b/frontend/src/app/app.routes.ts
+new file mode 100644
+index 0000000..3f34fec
+--- /dev/null
++++ b/frontend/src/app/app.routes.ts
+@@ -0,0 +1,63 @@
++import { Routes } from '@angular/router';
++import { authGuard, adminGuard, guestGuard, userGuard } from './core/guards/auth.guard';
++
++export const routes: Routes = [
++  { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
++
++  // Guest-only routes
++  {
++    path: 'login',
++    canActivate: [guestGuard],
++    loadComponent: () =>
++      import('./features/auth/login/login.component').then((m) => m.LoginComponent),
++  },
++  {
++    path: 'register',
++    canActivate: [guestGuard],
++    loadComponent: () =>
++      import('./features/auth/register/register.component').then((m) => m.RegisterComponent),
++  },
++
++  // User routes (authenticated)
++  {
++    path: 'dashboard',
++    canActivate: [authGuard, userGuard],
++    loadComponent: () =>
++      import('./features/dashboard/dashboard.component').then((m) => m.DashboardComponent),
++  },
++  {
++    path: 'persona',
++    canActivate: [authGuard, userGuard],
++    loadComponent: () =>
++      import('./features/persona/persona.component').then((m) => m.PersonaComponent),
++  },
++  {
++    path: 'eeg-session',
++    canActivate: [authGuard, userGuard],
++    loadComponent: () =>
++      import('./features/eeg-session/eeg-session.component').then((m) => m.EegSessionComponent),
++  },
++  {
++    path: 'comic/:id',
++    canActivate: [authGuard, userGuard],
++    loadComponent: () =>
++      import('./features/comic-generation/comic-view.component').then((m) => m.ComicViewComponent),
++  },
++  {
++    path: 'history',
++    canActivate: [authGuard, userGuard],
++    loadComponent: () =>
++      import('./features/history/history.component').then((m) => m.HistoryComponent),
++  },
++
++  // Admin routes
++  {
++    path: 'admin',
++    canActivate: [authGuard, adminGuard],
++    loadComponent: () =>
++      import('./features/admin/admin.component').then((m) => m.AdminComponent),
++  },
++
++  // Fallback
++  { path: '**', redirectTo: 'dashboard' },
++];
+diff --git a/frontend/src/app/core/guards/auth.guard.spec.ts b/frontend/src/app/core/guards/auth.guard.spec.ts
+new file mode 100644
+index 0000000..4ed8b2c
+--- /dev/null
++++ b/frontend/src/app/core/guards/auth.guard.spec.ts
+@@ -0,0 +1,106 @@
++import { TestBed } from '@angular/core/testing';
++import { HttpClient } from '@angular/common/http';
++import { provideHttpClient } from '@angular/common/http';
++import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
++import { Router } from '@angular/router';
++import { firstValueFrom, isObservable } from 'rxjs';
++import { signal } from '@angular/core';
++
++import { environment } from '../../../environments/environment';
++import { AuthService, UserPublic } from '../services/auth.service';
++import { adminGuard, guestGuard, userGuard } from './auth.guard';
++
++describe('role-aware guards', () => {
++  const user: UserPublic = { id: 1, username: 'user', email: 'u@test.dev', role: 'user' };
++  const admin: UserPublic = { id: 2, username: 'admin', email: 'a@test.dev', role: 'admin' };
++  let auth: {
++    currentUser: ReturnType<typeof signal<UserPublic | null>>;
++    getToken: jasmine.Spy;
++    clearSession: jasmine.Spy;
++  };
++  let http: HttpTestingController;
++
++  beforeEach(() => {
++    auth = {
++      currentUser: signal<UserPublic | null>(null),
++      getToken: jasmine.createSpy('getToken').and.returnValue('token'),
++      clearSession: jasmine.createSpy('clearSession'),
++    };
++    TestBed.configureTestingModule({
++      providers: [
++        provideHttpClient(),
++        provideHttpClientTesting(),
++        { provide: AuthService, useValue: auth },
++        { provide: Router, useValue: { createUrlTree: (commands: string[]) => commands.join('') } },
++      ],
++    });
++    http = TestBed.inject(HttpTestingController);
++  });
++
++  afterEach(() => http.verify());
++
++  function run(guard: typeof userGuard): unknown {
++    return TestBed.runInInjectionContext(() => guard({} as never, {} as never)) as unknown;
++  }
++
++  async function resolve(result: unknown): Promise<unknown> {
++    return isObservable(result) ? firstValueFrom(result) : result;
++  }
++
++  it('routes loaded users only to user pages', () => {
++    auth.currentUser.set(user);
++    expect(run(userGuard)).toBeTrue();
++    expect(run(adminGuard)).toBe('/dashboard');
++    expect(run(guestGuard)).toBe('/dashboard');
++  });
++
++  it('routes loaded admins only to admin pages', () => {
++    auth.currentUser.set(admin);
++    expect(run(adminGuard)).toBeTrue();
++    expect(run(userGuard)).toBe('/admin');
++    expect(run(guestGuard)).toBe('/admin');
++  });
++
++  for (const [name, guard, fetched, expected] of [
++    ['user guard', userGuard, user, true],
++    ['admin guard', adminGuard, admin, true],
++    ['guest guard', guestGuard, admin, '/admin'],
++  ] as const) {
++    it(`${name} fetches /auth/me before deciding after refresh`, async () => {
++      const pending = resolve(run(guard));
++      http.expectOne(`${environment.apiUrl}/auth/me`).flush(fetched);
++      expect(await pending).toBe(expected);
++      expect(auth.currentUser()).toEqual(fetched);
++    });
++  }
++
++  it('handles missing tokens for protected and guest routes', () => {
++    auth.getToken.and.returnValue(null);
++    expect(run(userGuard)).toBe('/login');
++    expect(run(adminGuard)).toBe('/login');
++    expect(run(guestGuard)).toBeTrue();
++  });
++
++  for (const role of [undefined, 'editor']) {
++    it(`clears a loaded ${role ?? 'missing'} role and applies safe redirects`, () => {
++      auth.currentUser.set({ ...user, role: role as string });
++      expect(run(userGuard)).toBe('/login');
++      expect(run(adminGuard)).toBe('/login');
++      expect(run(guestGuard)).toBeTrue();
++      expect(auth.clearSession).toHaveBeenCalledTimes(3);
++    });
++  }
++
++  for (const [name, guard, expected] of [
++    ['user guard', userGuard, '/login'],
++    ['admin guard', adminGuard, '/login'],
++    ['guest guard', guestGuard, true],
++  ] as const) {
++    it(`${name} clears the session when /auth/me fails`, async () => {
++      const pending = resolve(run(guard));
++      http.expectOne(`${environment.apiUrl}/auth/me`).flush('nope', { status: 401, statusText: 'Unauthorized' });
++      expect(await pending).toBe(expected);
++      expect(auth.clearSession).toHaveBeenCalled();
++    });
++  }
++});
+diff --git a/frontend/src/app/core/guards/auth.guard.ts b/frontend/src/app/core/guards/auth.guard.ts
+new file mode 100644
+index 0000000..8d67d1c
+--- /dev/null
++++ b/frontend/src/app/core/guards/auth.guard.ts
+@@ -0,0 +1,66 @@
++import { inject } from '@angular/core';
++import { CanActivateFn, Router } from '@angular/router';
++import { AuthService, UserPublic } from '../services/auth.service';
++import { map, catchError, of } from 'rxjs';
++import { HttpClient } from '@angular/common/http';
++import { environment } from '../../../environments/environment';
++
++export const authGuard: CanActivateFn = () => {
++  const auth = inject(AuthService);
++  const router = inject(Router);
++  if (auth.isLoggedIn()) return true;
++  return router.createUrlTree(['/login']);
++};
++
++/**
++ * adminGuard — waits for /auth/me on page reload before deciding access.
++ * Handles the race condition where currentUser signal is null right after reload.
++ */
++type GuardAudience = 'user' | 'admin' | 'guest';
++
++function roleGuard(audience: GuardAudience): ReturnType<CanActivateFn> {
++  const auth = inject(AuthService);
++  const http = inject(HttpClient);
++  const router = inject(Router);
++
++  if (!auth.getToken()) {
++    return audience === 'guest' ? true : router.createUrlTree(['/login']);
++  }
++
++  const decide = (user: UserPublic) => {
++    if (user.role !== 'user' && user.role !== 'admin') {
++      auth.clearSession();
++      return audience === 'guest' ? true : router.createUrlTree(['/login']);
++    }
++
++    if (audience === 'guest') {
++      return router.createUrlTree([user.role === 'admin' ? '/admin' : '/dashboard']);
++    }
++    if (audience === user.role) return true;
++    return router.createUrlTree([user.role === 'admin' ? '/admin' : '/dashboard']);
++  };
++
++  // Already fetched (SPA navigation, not reload)
++  const user = auth.currentUser();
++  if (user) return decide(user);
++
++  // Page reload — currentUser not yet set, fetch it first
++  return http.get<UserPublic>(`${environment.apiUrl}/auth/me`).pipe(
++    map((u) => {
++      auth.currentUser.set(u);
++      return decide(u);
++    }),
++    catchError(() => {
++      auth.clearSession();
++      return of(audience === 'guest' ? true : router.createUrlTree(['/login']));
++    }),
++  );
++}
++
++export const userGuard: CanActivateFn = () => roleGuard('user');
++
++export const adminGuard: CanActivateFn = () => roleGuard('admin');
++
++export const guestGuard: CanActivateFn = () => {
++  return roleGuard('guest');
++};
+diff --git a/frontend/src/app/core/services/auth.service.spec.ts b/frontend/src/app/core/services/auth.service.spec.ts
+new file mode 100644
+index 0000000..6ddb202
+--- /dev/null
++++ b/frontend/src/app/core/services/auth.service.spec.ts
+@@ -0,0 +1,103 @@
++import { TestBed } from '@angular/core/testing';
++import { provideHttpClient } from '@angular/common/http';
++import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
++import { provideRouter } from '@angular/router';
++import { Router } from '@angular/router';
++import { AuthService, TokenResponse } from './auth.service';
++import { environment } from '../../../environments/environment';
++
++describe('AuthService', () => {
++  let service: AuthService;
++  let http: HttpTestingController;
++
++  beforeEach(() => {
++    localStorage.clear();
++    TestBed.configureTestingModule({
++      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
++    });
++    service = TestBed.inject(AuthService);
++    http = TestBed.inject(HttpTestingController);
++  });
++
++  afterEach(() => {
++    http.verify();
++    localStorage.clear();
++  });
++
++  it('posts exactly the credentials, emits the complete response, stores tokens, and refreshes the user', () => {
++    const response: TokenResponse = {
++      access_token: 'access', refresh_token: 'refresh', token_type: 'bearer', role: 'admin',
++    };
++    let received: TokenResponse | undefined;
++
++    service.login({ email: 'person@example.com', password: 'secret' }).subscribe(value => received = value);
++
++    const login = http.expectOne(`${environment.apiUrl}/auth/login`);
++    expect(login.request.method).toBe('POST');
++    expect(login.request.body).toEqual({ email: 'person@example.com', password: 'secret' });
++    login.flush(response);
++
++    expect(received).toEqual(response);
++    expect(localStorage.getItem('access_token')).toBe('access');
++    expect(localStorage.getItem('refresh_token')).toBe('refresh');
++    const me = http.expectOne(`${environment.apiUrl}/auth/me`);
++    expect(me.request.method).toBe('GET');
++    me.flush({ id: 1, username: 'person', email: 'person@example.com', role: 'admin' });
++  });
++
++  it('refreshes the current user for a user-role login response', () => {
++    const response: TokenResponse = {
++      access_token: 'access', refresh_token: 'refresh', token_type: 'bearer', role: 'user',
++    };
++
++    service.login({ email: 'person@example.com', password: 'secret' }).subscribe();
++    http.expectOne(`${environment.apiUrl}/auth/login`).flush(response);
++
++    const me = http.expectOne(`${environment.apiUrl}/auth/me`);
++    expect(me.request.method).toBe('GET');
++    me.flush({ id: 1, username: 'person', email: 'person@example.com', role: 'user' });
++  });
++
++  it('stores and emits an unsupported-role response without requesting the current user', () => {
++    const response: TokenResponse = {
++      access_token: 'access', refresh_token: 'refresh', token_type: 'bearer', role: 'guest',
++    };
++    let received: TokenResponse | undefined;
++
++    service.login({ email: 'person@example.com', password: 'secret' }).subscribe(value => received = value);
++    http.expectOne(`${environment.apiUrl}/auth/login`).flush(response);
++
++    expect(received).toEqual(response);
++    expect(localStorage.getItem('access_token')).toBe('access');
++    expect(localStorage.getItem('refresh_token')).toBe('refresh');
++    http.expectNone(`${environment.apiUrl}/auth/me`);
++  });
++
++  it('clearSession removes both tokens and clears the current user', () => {
++    localStorage.setItem('access_token', 'access');
++    localStorage.setItem('refresh_token', 'refresh');
++    service.currentUser.set({ id: 1, username: 'person', email: 'person@example.com', role: 'user' });
++
++    service.clearSession();
++
++    expect(localStorage.getItem('access_token')).toBeNull();
++    expect(localStorage.getItem('refresh_token')).toBeNull();
++    expect(service.currentUser()).toBeNull();
++  });
++
++  it('logout clears the session before navigating to login', () => {
++    const router = TestBed.inject(Router);
++    const calls: string[] = [];
++    const clearSession = spyOn(service, 'clearSession').and.callFake(() => calls.push('clear'));
++    const navigate = spyOn(router, 'navigate').and.callFake(() => {
++      calls.push('navigate');
++      return Promise.resolve(true);
++    });
++
++    service.logout();
++
++    expect(clearSession).toHaveBeenCalledTimes(1);
++    expect(navigate).toHaveBeenCalledOnceWith(['/login']);
++    expect(calls).toEqual(['clear', 'navigate']);
++  });
++});
+diff --git a/frontend/src/app/core/services/auth.service.ts b/frontend/src/app/core/services/auth.service.ts
+new file mode 100644
+index 0000000..20142c7
+--- /dev/null
++++ b/frontend/src/app/core/services/auth.service.ts
+@@ -0,0 +1,92 @@
++import { Injectable, signal } from '@angular/core';
++import { HttpClient } from '@angular/common/http';
++import { Router } from '@angular/router';
++import { environment } from '../../../environments/environment';
++import { tap } from 'rxjs/operators';
++
++export interface LoginRequest {
++  email: string;
++  password: string;
++}
++
++export interface RegisterRequest {
++  username: string;
++  email: string;
++  password: string;
++}
++
++export interface TokenResponse {
++  access_token: string;
++  refresh_token: string;
++  token_type: string;
++  role: string;
++}
++
++export interface UserPublic {
++  id: number;
++  username: string;
++  email: string;
++  role: string;
++}
++
++@Injectable({ providedIn: 'root' })
++export class AuthService {
++  private readonly apiUrl = environment.apiUrl;
++  readonly currentUser = signal<UserPublic | null>(null);
++
++  constructor(private http: HttpClient, private router: Router) {
++    this._loadStoredUser();
++  }
++
++  login(body: LoginRequest) {
++    return this.http.post<TokenResponse>(`${this.apiUrl}/auth/login`, body).pipe(
++      tap((res) => {
++        localStorage.setItem('access_token', res.access_token);
++        localStorage.setItem('refresh_token', res.refresh_token);
++        if (res.role === 'user' || res.role === 'admin') {
++          this._fetchMe();
++        }
++      })
++    );
++  }
++
++  register(body: RegisterRequest) {
++    return this.http.post<UserPublic>(`${this.apiUrl}/auth/register`, body);
++  }
++
++  logout() {
++    this.clearSession();
++    this.router.navigate(['/login']);
++  }
++
++  clearSession(): void {
++    localStorage.removeItem('access_token');
++    localStorage.removeItem('refresh_token');
++    this.currentUser.set(null);
++  }
++
++  getToken(): string | null {
++    return localStorage.getItem('access_token');
++  }
++
++  isLoggedIn(): boolean {
++    return !!this.getToken();
++  }
++
++  isAdmin(): boolean {
++    return this.currentUser()?.role === 'admin';
++  }
++
++  private _fetchMe() {
++    this.http.get<UserPublic>(`${this.apiUrl}/auth/me`).subscribe({
++      next: (user) => this.currentUser.set(user),
++      error: () => this.logout(),
++    });
++  }
++
++  private _loadStoredUser() {
++    if (this.getToken()) {
++      this._fetchMe();
++    }
++  }
++}
+diff --git a/frontend/src/app/features/auth/login/login.component.css b/frontend/src/app/features/auth/login/login.component.css
+new file mode 100644
+index 0000000..53fd7d2
+--- /dev/null
++++ b/frontend/src/app/features/auth/login/login.component.css
+@@ -0,0 +1,30 @@
++.auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow: hidden; background: #080d21; }
++.auth-bg { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
++.bg-orb { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .18; }
++.bg-orb-1 { width: 500px; height: 500px; background: #7c3aed; top: -150px; right: -120px; }
++.bg-orb-2 { width: 350px; height: 350px; background: #a78bfa; bottom: -80px; left: -80px; }
++.auth-card { width: 100%; max-width: 480px; position: relative; z-index: 1; display: flex; flex-direction: column; gap: 20px; background: rgba(15,23,42,.85); backdrop-filter: blur(20px); border: 1px solid rgba(124,58,237,.2); border-radius: 20px; padding: 40px; }
++.auth-header { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; }
++.auth-logo-wrap { width: 72px; height: 72px; background: linear-gradient(135deg,#7c3aed,#a78bfa); border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 2rem; box-shadow: 0 8px 32px rgba(124,58,237,.4); }
++.auth-header h1 { font-size: 1.75rem; font-weight: 700; color: #f8fafc; margin: 0; }
++.auth-header p { color: #94a3b8; font-size: .9375rem; margin: 0; }
++form { display: flex; flex-direction: column; gap: 16px; }
++.form-group { display: flex; flex-direction: column; gap: 8px; }
++.form-label { font-size: .875rem; font-weight: 500; color: #cbd5e1; }
++.input-wrap { position: relative; display: flex; align-items: center; }
++.input-icon { position: absolute; left: 14px; font-size: 1rem; pointer-events: none; z-index: 1; }
++.form-input { width: 100%; padding: 12px 14px 12px 42px; background: rgba(15,23,42,.8); border: 1px solid #334155; border-radius: 10px; color: #f8fafc; font-size: .9375rem; transition: border-color 200ms; box-sizing: border-box; }
++.form-input::placeholder { color: #475569; }
++.form-input:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.2); }
++.alert-error { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.4); color: #fca5a5; font-size: .875rem; }
++.btn { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 20px; border-radius: 10px; font-size: .9375rem; font-weight: 600; border: none; cursor: pointer; transition: background 200ms ease; }
++.btn-login { background: #7c3aed; color: white; box-shadow: 0 4px 20px rgba(124,58,237,.35); }
++.btn-login:hover:not(:disabled) { background: #6d28d9; }
++.btn-login:focus-visible { outline: 3px solid #c4b5fd; outline-offset: 3px; }
++.btn:disabled { opacity: .6; cursor: not-allowed; }
++.spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: white; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; }
++@keyframes spin { to { transform: rotate(360deg); } }
++.auth-footer { text-align: center; }
++.auth-footer p { color: #64748b; font-size: .875rem; margin: 0; }
++.auth-footer a { color: #a78bfa; text-decoration: none; font-weight: 600; }
++.auth-footer a:hover { text-decoration: underline; }
+diff --git a/frontend/src/app/features/auth/login/login.component.spec.ts b/frontend/src/app/features/auth/login/login.component.spec.ts
+new file mode 100644
+index 0000000..205a00e
+--- /dev/null
++++ b/frontend/src/app/features/auth/login/login.component.spec.ts
+@@ -0,0 +1,89 @@
++import { ComponentFixture, TestBed } from '@angular/core/testing';
++import { Router } from '@angular/router';
++import { of } from 'rxjs';
++import { AuthService, TokenResponse } from '../../../core/services/auth.service';
++import { LoginComponent } from './login.component';
++
++describe('LoginComponent', () => {
++  let fixture: ComponentFixture<LoginComponent>;
++  let component: LoginComponent;
++  let auth: jasmine.SpyObj<AuthService>;
++  let router: jasmine.SpyObj<Router>;
++
++  beforeEach(async () => {
++    auth = jasmine.createSpyObj<AuthService>('AuthService', ['login', 'clearSession']);
++    router = jasmine.createSpyObj<Router>('Router', ['navigate']);
++    await TestBed.configureTestingModule({
++      imports: [LoginComponent],
++      providers: [
++        { provide: AuthService, useValue: auth },
++        { provide: Router, useValue: router },
++      ],
++    }).compileComponents();
++    fixture = TestBed.createComponent(LoginComponent);
++    component = fixture.componentInstance;
++    fixture.detectChanges();
++  });
++
++  it('renders exactly one submit button without role-specific login text', () => {
++    const element: HTMLElement = fixture.nativeElement;
++    const buttons = element.querySelectorAll<HTMLButtonElement>('button[type="submit"]');
++    expect(buttons.length).toBe(1);
++    expect(buttons[0].textContent?.trim()).toBe('เข้าสู่ระบบ');
++    expect(element.textContent).not.toContain('Login as User');
++    expect(element.textContent).not.toContain('Login as Admin');
++  });
++
++  it('shows the exact loading copy with the spinner while submitting', () => {
++    component.loading.set(true);
++    fixture.detectChanges();
++
++    const button = fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement | null;
++    expect(button?.textContent?.trim()).toBe('กำลังเข้าสู่ระบบ...');
++    expect(button?.querySelector('.spinner')).not.toBeNull();
++  });
++
++  for (const [role, destination] of [['user', '/dashboard'], ['admin', '/admin']] as const) {
++    it(`routes a ${role} response to ${destination}`, () => {
++      submitWith(role);
++      expect(router.navigate).toHaveBeenCalledOnceWith([destination]);
++    });
++  }
++
++  for (const role of ['guest', undefined]) {
++    it(`clears a ${role ?? 'missing'} role session, avoids protected navigation, and shows the access error`, () => {
++      submitWith(role);
++      fixture.detectChanges();
++      expect(auth.clearSession).toHaveBeenCalled();
++      expect(router.navigate).not.toHaveBeenCalled();
++      expect(component.error()).toBe('บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบ');
++      expect(fixture.nativeElement.textContent).toContain('บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบ');
++      expect(component.loading()).toBeFalse();
++    });
++  }
++
++  it('does nothing with empty credentials', () => {
++    component.onSubmit();
++    expect(auth.login).not.toHaveBeenCalled();
++    expect(router.navigate).not.toHaveBeenCalled();
++  });
++
++  it('does nothing while already loading', () => {
++    component.email = 'person@example.com';
++    component.password = 'secret';
++    component.loading.set(true);
++    component.onSubmit();
++    expect(auth.login).not.toHaveBeenCalled();
++    expect(router.navigate).not.toHaveBeenCalled();
++  });
++
++  function submitWith(role: string | undefined): void {
++    const response = {
++      access_token: 'access', refresh_token: 'refresh', token_type: 'bearer', role,
++    } as TokenResponse;
++    auth.login.and.returnValue(of(response));
++    component.email = 'person@example.com';
++    component.password = 'secret';
++    component.onSubmit();
++  }
++});
+diff --git a/frontend/src/app/features/auth/login/login.component.ts b/frontend/src/app/features/auth/login/login.component.ts
+new file mode 100644
+index 0000000..3a10087
+--- /dev/null
++++ b/frontend/src/app/features/auth/login/login.component.ts
+@@ -0,0 +1,79 @@
++import { Component, signal } from '@angular/core';
++import { FormsModule } from '@angular/forms';
++import { Router, RouterLink } from '@angular/router';
++import { AuthService } from '../../../core/services/auth.service';
++
++@Component({
++  selector: 'app-login',
++  standalone: true,
++  imports: [FormsModule, RouterLink],
++  template: `
++    <div class="auth-page">
++      <div class="auth-bg" aria-hidden="true">
++        <div class="bg-orb bg-orb-1"></div><div class="bg-orb bg-orb-2"></div>
++      </div>
++      <div class="auth-card animate-fade-in">
++        <div class="auth-header">
++          <div class="auth-logo-wrap" aria-hidden="true"><span class="auth-logo">🧠</span></div>
++          <h1>Dream Comicverse</h1><p>Login to explore your subconscious</p>
++        </div>
++        <form (ngSubmit)="onSubmit()" novalidate>
++          <div class="form-group">
++            <label class="form-label" for="login-email">Email Address</label>
++            <div class="input-wrap"><span class="input-icon" aria-hidden="true">👤</span>
++              <input id="login-email" type="email" class="form-input" [(ngModel)]="email" name="email"
++                placeholder="you@example.com" required autocomplete="email" />
++            </div>
++          </div>
++          <div class="form-group">
++            <label class="form-label" for="login-password">Password</label>
++            <div class="input-wrap"><span class="input-icon" aria-hidden="true">🔒</span>
++              <input id="login-password" type="password" class="form-input" [(ngModel)]="password" name="password"
++                placeholder="••••••••" required autocomplete="current-password" />
++            </div>
++          </div>
++          @if (error()) {
++            <div class="alert-error" role="alert" aria-live="polite"><span aria-hidden="true">⚠️</span><span>{{ error() }}</span></div>
++          }
++          <button type="submit" class="btn btn-login" [disabled]="loading()">
++            @if (loading()) { <span class="spinner" aria-hidden="true"></span> }
++            <span>{{ loading() ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ' }}</span>
++          </button>
++        </form>
++        <div class="auth-footer"><p>ยังไม่มีบัญชี? <a routerLink="/register" id="link-register">สมัครสมาชิก</a></p></div>
++      </div>
++    </div>
++  `,
++  styleUrl: './login.component.css',
++})
++export class LoginComponent {
++  email = '';
++  password = '';
++  loading = signal(false);
++  error = signal('');
++
++  constructor(private authService: AuthService, private router: Router) {}
++
++  onSubmit(): void {
++    if (!this.email || !this.password || this.loading()) return;
++    this.loading.set(true);
++    this.error.set('');
++    this.authService.login({ email: this.email, password: this.password }).subscribe({
++      next: (response) => {
++        if (response.role === 'user') {
++          this.router.navigate(['/dashboard']);
++        } else if (response.role === 'admin') {
++          this.router.navigate(['/admin']);
++        } else {
++          this.authService.clearSession();
++          this.error.set('บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบ');
++          this.loading.set(false);
++        }
++      },
++      error: (err: { error?: { detail?: string } }) => {
++        this.error.set(err?.error?.detail ?? 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบอีเมลและรหัสผ่าน');
++        this.loading.set(false);
++      },
++    });
++  }
++}

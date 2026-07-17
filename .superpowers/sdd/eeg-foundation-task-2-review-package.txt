@@ -1,0 +1,108 @@
+﻿COMMITS
+2c478cd feat: define EEG dataset label rules
+STAT
+ backend/app/services/dataset_labels.py | 46 ++++++++++++++++++++++++++++++++++
+ backend/tests/test_dataset_labels.py   | 43 +++++++++++++++++++++++++++++++
+ 2 files changed, 89 insertions(+)
+DIFF
+diff --git a/backend/app/services/dataset_labels.py b/backend/app/services/dataset_labels.py
+new file mode 100644
+index 0000000..321e2cc
+--- /dev/null
++++ b/backend/app/services/dataset_labels.py
+@@ -0,0 +1,46 @@
++from typing import Literal
++
++from pydantic import BaseModel, ConfigDict, Field
++
++
++AxisLabel = Literal["negative", "positive", "low", "high"]
++
++
++class RatingInput(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    valence: int = Field(ge=1, le=9)
++    arousal: int = Field(ge=1, le=9)
++    confidence: int = Field(ge=1, le=5)
++
++
++class DerivedLabels(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    valence_label: AxisLabel | None
++    arousal_label: AxisLabel | None
++    valid_valence_label: bool
++    valid_arousal_label: bool
++
++
++def derive_labels(valence: int, arousal: int, confidence: int) -> DerivedLabels:
++    rating = RatingInput(
++        valence=valence,
++        arousal=arousal,
++        confidence=confidence,
++    )
++    confident = rating.confidence >= 3
++    return DerivedLabels(
++        valence_label=(
++            None
++            if rating.valence == 5
++            else ("negative" if rating.valence <= 4 else "positive")
++        ),
++        arousal_label=(
++            None
++            if rating.arousal == 5
++            else ("low" if rating.arousal <= 4 else "high")
++        ),
++        valid_valence_label=confident and rating.valence != 5,
++        valid_arousal_label=confident and rating.arousal != 5,
++    )
+diff --git a/backend/tests/test_dataset_labels.py b/backend/tests/test_dataset_labels.py
+new file mode 100644
+index 0000000..f116fc6
+--- /dev/null
++++ b/backend/tests/test_dataset_labels.py
+@@ -0,0 +1,43 @@
++import pytest
++from pydantic import ValidationError
++
++from app.services.dataset_labels import derive_labels
++
++
++@pytest.mark.parametrize(
++    "score,label",
++    [(1, "negative"), (4, "negative"), (6, "positive"), (9, "positive")],
++)
++def test_valence_boundaries(score, label):
++    result = derive_labels(score, 6, 5)
++    assert result.valence_label == label
++    assert result.valid_valence_label is True
++
++
++def test_score_five_invalidates_only_its_axis():
++    result = derive_labels(5, 8, 5)
++    assert result.valence_label is None
++    assert result.valid_valence_label is False
++    assert result.arousal_label == "high"
++    assert result.valid_arousal_label is True
++
++
++def test_low_confidence_invalidates_both_axes():
++    result = derive_labels(8, 8, 2)
++    assert result.valid_valence_label is False
++    assert result.valid_arousal_label is False
++
++
++@pytest.mark.parametrize(
++    "valence,arousal",
++    [(0, 6), (10, 6), (6, 0), (6, 10)],
++)
++def test_rejects_scores_outside_one_through_nine(valence, arousal):
++    with pytest.raises(ValidationError):
++        derive_labels(valence, arousal, 5)
++
++
++@pytest.mark.parametrize("confidence", [0, 6])
++def test_rejects_confidence_outside_one_through_five(confidence):
++    with pytest.raises(ValidationError):
++        derive_labels(6, 6, confidence)

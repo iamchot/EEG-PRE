@@ -1,0 +1,13 @@
+{
+  "extends": "../frontend/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../frontend/out-tsc/single-login-spec",
+    "types": ["jasmine"],
+    "typeRoots": ["../frontend/node_modules/@types"]
+  },
+  "include": [
+    "../frontend/src/app/core/services/auth.service.spec.ts",
+    "../frontend/src/app/features/auth/login/login.component.spec.ts",
+    "../frontend/src/**/*.d.ts"
+  ]
+}

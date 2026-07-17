@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/horseshoe-spec",
+    "types": [
+      "jasmine"
+    ]
+  },
+  "include": [
+    "src/app/shared/components/horseshoe-sensor/horseshoe-sensor.component.spec.ts",
+    "src/**/*.d.ts"
+  ]
+}

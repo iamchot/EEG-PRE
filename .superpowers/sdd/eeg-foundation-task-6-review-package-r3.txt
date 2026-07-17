@@ -1,0 +1,508 @@
+﻿COMMITS
+e8eb70b fix: complete overview loading state
+51bd068 test: strengthen dataset collection interactions
+1208e96 feat: add dataset collection foundation UI
+STAT
+ .../scripts/check-dataset-collection-source.mjs    |   7 +
+ .../dataset-collection.component.css               |  24 +++
+ .../dataset-collection.component.spec.ts           | 205 +++++++++++++++++++
+ .../dataset-collection.component.ts                | 219 +++++++++++++++++++++
+ frontend/tsconfig.dataset-collection.spec.json     |  11 ++
+ 5 files changed, 466 insertions(+)
+DIFF
+diff --git a/frontend/scripts/check-dataset-collection-source.mjs b/frontend/scripts/check-dataset-collection-source.mjs
+new file mode 100644
+index 0000000..0977fde
+--- /dev/null
++++ b/frontend/scripts/check-dataset-collection-source.mjs
+@@ -0,0 +1,7 @@
++import { readFileSync } from 'node:fs';
++import { strict as assert } from 'node:assert';
++
++const source = readFileSync(new URL('../src/app/features/dataset-collection/dataset-collection.component.ts', import.meta.url), 'utf8');
++assert.match(source, /styleUrl:\s*['"]\.\/dataset-collection\.component\.css['"]/);
++assert.doesNotMatch(source, /\bstyles\s*:/);
++console.log('Dataset collection source metadata check passed.');
+diff --git a/frontend/src/app/features/dataset-collection/dataset-collection.component.css b/frontend/src/app/features/dataset-collection/dataset-collection.component.css
+new file mode 100644
+index 0000000..fdae4ce
+--- /dev/null
++++ b/frontend/src/app/features/dataset-collection/dataset-collection.component.css
+@@ -0,0 +1,24 @@
++:host { display: block; min-height: 100vh; background: #090d1f; color: #e8eaf6; }
++.collection-shell { max-width: 1200px; margin: 0 auto; padding: 32px 24px 64px; }
++.page-header { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; margin-bottom: 28px; }
++h1 { margin: 8px 0; font-size: clamp(1.8rem, 4vw, 2.7rem); } h2 { margin-top: 0; }
++p { color: #aeb5d0; line-height: 1.55; } .back-link { color: #bca7ff; text-decoration: none; }
++.notice { max-width: 390px; padding: 14px 18px; border: 1px solid #694bc1; border-radius: 12px; background: #171331; color: #d9ceff; line-height: 1.5; }
++.tabs { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 22px; padding: 6px; border: 1px solid #28304f; border-radius: 14px; background: #11162b; }
++.tabs button { min-height: 44px; padding: 0 20px; border: 0; border-radius: 9px; background: transparent; color: #aeb5d0; font: inherit; cursor: pointer; }
++.tabs button.active { background: #6f4bd8; color: white; }
++.panel { padding: 24px; border: 1px solid #28304f; border-radius: 16px; background: #11162b; box-shadow: 0 15px 40px #03051355; }
++.stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
++.stat-card { display: flex; flex-direction: column; gap: 8px; padding: 22px; border-radius: 13px; background: linear-gradient(145deg, #1b2140, #171432); }
++.stat-card span { color: #aeb5d0; } .stat-card strong { font-size: 2rem; color: #c4b5fd; }
++.split { display: grid; grid-template-columns: minmax(290px, .85fr) minmax(340px, 1.15fr); gap: 20px; align-items: start; }
++.form-card { display: grid; gap: 16px; } label { display: grid; gap: 7px; color: #d9dded; font-weight: 600; }
++input, select, button { min-height: 44px; } input, select { box-sizing: border-box; width: 100%; padding: 10px 12px; border: 1px solid #3a4265; border-radius: 9px; background: #0c1125; color: #f5f3ff; font: inherit; }
++.check-row { grid-template-columns: 24px 1fr; align-items: center; min-height: 44px; font-weight: 400; cursor: pointer; } .check-row input { width: 20px; min-height: 20px; }
++.primary { padding: 10px 18px; border: 0; border-radius: 9px; background: #7654dc; color: white; font: inherit; font-weight: 700; cursor: pointer; }
++.primary:disabled { opacity: .48; cursor: not-allowed; } :focus-visible { outline: 3px solid #b99cff; outline-offset: 3px; }
++.error { margin-bottom: 18px; padding: 14px 18px; border: 1px solid #d34f73; border-radius: 10px; background: #381526; color: #ffb7c9; }
++.list { display: grid; gap: 10px; } .list-row { display: flex; justify-content: space-between; align-items: center; gap: 18px; min-height: 44px; padding: 12px 14px; border-radius: 10px; background: #181e38; }
++.list-row div { display: grid; gap: 5px; } small { color: #9fa7c8; } .badge { padding: 5px 9px; border-radius: 999px; background: #30275a; color: #cfc1ff; font-size: .8rem; }
++@media (max-width: 800px) { .page-header { flex-direction: column; } .notice { max-width: none; } .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .split { grid-template-columns: 1fr; } }
++@media (max-width: 480px) { .collection-shell { padding: 22px 14px 48px; } .stat-grid { grid-template-columns: 1fr; } .panel { padding: 18px; } }
+diff --git a/frontend/src/app/features/dataset-collection/dataset-collection.component.spec.ts b/frontend/src/app/features/dataset-collection/dataset-collection.component.spec.ts
+new file mode 100644
+index 0000000..0a6c1ac
+--- /dev/null
++++ b/frontend/src/app/features/dataset-collection/dataset-collection.component.spec.ts
+@@ -0,0 +1,205 @@
++import { ComponentFixture, TestBed } from '@angular/core/testing';
++import { provideRouter } from '@angular/router';
++import { of, Subject, throwError } from 'rxjs';
++
++import { DatasetCollectionService } from '../../core/services/dataset-collection.service';
++import { DatasetCollectionComponent } from './dataset-collection.component';
++
++describe('DatasetCollectionComponent', () => {
++  let fixture: ComponentFixture<DatasetCollectionComponent>;
++  let component: DatasetCollectionComponent;
++  let service: jasmine.SpyObj<DatasetCollectionService>;
++
++  beforeEach(async () => {
++    service = jasmine.createSpyObj<DatasetCollectionService>('DatasetCollectionService', [
++      'getOverview', 'listParticipants', 'createParticipant', 'listStimuli',
++      'createStimulus', 'listSessions', 'createSession',
++    ]);
++    service.getOverview.and.returnValue(of({
++      participants: 12,
++      sessions: 7,
++      trials: 48,
++      review_counts: { pending: 3, accepted: 40, rejected: 5 },
++      quadrant_counts: { positive_low: 10, positive_high: 12, negative_low: 14, negative_high: 12 },
++    }));
++    service.listParticipants.and.returnValue(of({ items: [] }));
++    service.listStimuli.and.returnValue(of({ items: [] }));
++    service.listSessions.and.returnValue(of({ items: [] }));
++    service.createParticipant.and.returnValue(of({ id: 1, participant_code: 'P001', consent_confirmed_at: '2026-01-01T00:00:00Z', state: 'active', withdrawn_at: null, created_at: '2026-01-01T00:00:00Z' }));
++    service.createStimulus.and.returnValue(of({ id: 1, ...({ title: 'Clip', file_path: '/media/clip.mp4', checksum: 'a'.repeat(64), duration_seconds: 45, target_quadrant: 'positive_low', approval_state: 'draft', stimulus_set_version: 'v1' } as const), created_at: '2026-01-01T00:00:00Z' }));
++    service.createSession.and.returnValue(of({ id: 1, participant_id: 1, device_id: null, device_name: null, completed_trials: 0, total_trials: 0, state: 'preparation', started_at: null, completed_at: null, created_at: '2026-01-01T00:00:00Z' }));
++
++    await TestBed.configureTestingModule({
++      imports: [DatasetCollectionComponent],
++      providers: [provideRouter([]), { provide: DatasetCollectionService, useValue: service }],
++    }).compileComponents();
++
++    fixture = TestBed.createComponent(DatasetCollectionComponent);
++    component = fixture.componentInstance;
++    fixture.detectChanges();
++  });
++
++  it('loads the overview and renders its counts', () => {
++    expect(service.getOverview).toHaveBeenCalled();
++    const text = fixture.nativeElement.textContent;
++    expect(text).toContain('12');
++    expect(text).toContain('7');
++    expect(text).toContain('48');
++  });
++
++  it('clears overview loading and renders an unavailable state after an overview error', () => {
++    service.getOverview.and.returnValue(throwError(() => ({ error: { detail: 'Overview unavailable' } })));
++    const local = TestBed.createComponent(DatasetCollectionComponent); local.detectChanges();
++    expect(local.componentInstance.overviewLoading()).toBeFalse();
++    expect(local.nativeElement.textContent).toContain('Overview unavailable');
++    expect(local.nativeElement.textContent).toContain('Overview data is unavailable');
++    expect(local.nativeElement.textContent).not.toContain('Loading overview');
++    local.componentInstance.switchTab('participants'); local.detectChanges();
++    expect(local.nativeElement.textContent).toContain('Overview unavailable');
++  });
++
++  it('never asks participants for name, email, or phone data', () => {
++    component.switchTab('participants');
++    fixture.detectChanges();
++    const form: HTMLFormElement = fixture.nativeElement.querySelector('#participant-form');
++    expect(form.querySelector('[name="name"], [name="email"], [name="phone"]')).toBeNull();
++    expect(form.textContent?.toLowerCase()).not.toMatch(/name|email|phone/);
++  });
++
++  it('requires consent before participant submission', () => {
++    component.switchTab('participants');
++    fixture.detectChanges();
++    const consent: HTMLInputElement = fixture.nativeElement.querySelector('#consent-confirmed');
++    const submit: HTMLButtonElement = fixture.nativeElement.querySelector('#register-participant');
++    expect(consent.required).toBeTrue();
++    expect(submit.disabled).toBeTrue();
++    component.consentConfirmed = true;
++    fixture.detectChanges();
++    expect(submit.disabled).toBeFalse();
++  });
++
++  it('blocks participant creation at the action boundary and sends the exact consent body', () => {
++    component.registerParticipant();
++    expect(service.createParticipant).not.toHaveBeenCalled();
++    component.consentConfirmed = true;
++    component.registerParticipant();
++    const body = service.createParticipant.calls.mostRecent().args[0];
++    expect(Object.keys(body)).toEqual(['consent_confirmed_at']);
++    expect(new Date(body.consent_confirmed_at).toISOString()).toBe(body.consent_confirmed_at);
++  });
++
++  [45, 60].forEach((duration) => it(`accepts a ${duration}-second stimulus`, () => {
++    component.stimulus.duration_seconds = duration;
++    expect(component.isStimulusDurationValid()).toBeTrue();
++  }));
++
++  [44, 61].forEach((duration) => it(`rejects a ${duration}-second stimulus`, () => {
++    component.stimulus.duration_seconds = duration;
++    expect(component.isStimulusDurationValid()).toBeFalse();
++  }));
++
++  it('blocks invalid stimulus submissions and sends the exact valid body at both duration boundaries', () => {
++    const base = { title: 'Clip', file_path: '/media/clip.mp4', checksum: 'a'.repeat(64), target_quadrant: 'negative_high' as const, approval_state: 'approved' as const, stimulus_set_version: 'set-2' };
++    for (const duration_seconds of [44, 61]) { component.stimulus = { ...base, duration_seconds }; component.registerStimulus(); }
++    expect(service.createStimulus).not.toHaveBeenCalled();
++    for (const duration_seconds of [45, 60]) {
++      component.stimulus = { ...base, duration_seconds }; component.registerStimulus();
++      expect(service.createStimulus).toHaveBeenCalledWith({ ...base, duration_seconds });
++    }
++  });
++
++  it('renders exactly the four supported quadrant options', () => {
++    component.switchTab('stimuli');
++    fixture.detectChanges();
++    const values = Array.from(fixture.nativeElement.querySelectorAll('#target-quadrant option'))
++      .map((option) => (option as HTMLOptionElement).value);
++    expect(values).toEqual(['positive_low', 'positive_high', 'negative_low', 'negative_high']);
++  });
++
++  it('requires an active participant to start a session', () => {
++    component.switchTab('sessions');
++    fixture.detectChanges();
++    const submit: HTMLButtonElement = fixture.nativeElement.querySelector('#create-session');
++    expect(submit.disabled).toBeTrue();
++  });
++
++  it('does not create a session for a withdrawn participant id', () => {
++    component.participants.set([{ id: 9, participant_code: 'P009', state: 'withdrawn', consent_confirmed_at: '2026-01-01T00:00:00Z', withdrawn_at: '2026-02-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z' }]);
++    component.sessionParticipantId = 9;
++    component.createSession();
++    expect(service.createSession).not.toHaveBeenCalled();
++  });
++
++  it('creates a session with the exact body for an active participant', () => {
++    component.participants.set([{ id: 1, participant_code: 'P001', state: 'active', consent_confirmed_at: '2026-01-01T00:00:00Z', withdrawn_at: null, created_at: '2026-01-01T00:00:00Z' }]);
++    component.sessionParticipantId = 1; component.deviceId = ' muse-1 '; component.deviceName = ' Lab Muse ';
++    component.createSession();
++    expect(service.createSession).toHaveBeenCalledWith({ participant_id: 1, device_id: 'muse-1', device_name: 'Lab Muse' });
++  });
++
++  it('guards duplicate participant submissions', () => {
++    const pending = new Subject<never>(); service.createParticipant.and.returnValue(pending);
++    component.consentConfirmed = true; component.registerParticipant(); component.registerParticipant();
++    expect(service.createParticipant).toHaveBeenCalledTimes(1);
++  });
++
++  it('shows resource loading before empty content and clears loading after completion', () => {
++    const participants = new Subject<any>(); service.listParticipants.and.returnValue(participants);
++    const local = TestBed.createComponent(DatasetCollectionComponent); local.detectChanges();
++    local.componentInstance.switchTab('participants'); local.detectChanges();
++    expect(local.nativeElement.textContent).toContain('Loading participants');
++    expect(local.nativeElement.textContent).not.toContain('No participants registered');
++    participants.next({ items: [] }); participants.complete(); local.detectChanges();
++    expect(local.nativeElement.textContent).toContain('No participants registered');
++  });
++
++  it('keeps stimuli and session empty messages hidden until each request completes', () => {
++    const stimuli = new Subject<any>(); const sessions = new Subject<any>();
++    service.listStimuli.and.returnValue(stimuli); service.listSessions.and.returnValue(sessions);
++    const local = TestBed.createComponent(DatasetCollectionComponent); local.detectChanges();
++    local.componentInstance.switchTab('stimuli'); local.detectChanges();
++    expect(local.nativeElement.textContent).toContain('Loading stimuli');
++    expect(local.nativeElement.textContent).not.toContain('No stimuli registered');
++    stimuli.next({ items: [] }); stimuli.complete(); local.detectChanges();
++    expect(local.nativeElement.textContent).toContain('No stimuli registered');
++    local.componentInstance.switchTab('sessions'); local.detectChanges();
++    expect(local.nativeElement.textContent).toContain('Loading sessions');
++    sessions.next({ items: [] }); sessions.complete(); local.detectChanges();
++    expect(local.nativeElement.textContent).toContain('No sessions created');
++  });
++
++  it('clears resource loading and renders the server error on failure', () => {
++    service.listParticipants.and.returnValue(throwError(() => ({ error: { detail: 'Participants unavailable' } })));
++    const local = TestBed.createComponent(DatasetCollectionComponent); local.detectChanges();
++    local.componentInstance.switchTab('participants'); local.detectChanges();
++    expect(local.componentInstance.participantsLoading()).toBeFalse();
++    expect(local.nativeElement.textContent).toContain('Participants unavailable');
++  });
++
++  it('links tabs and panels and moves focus with keyboard navigation', () => {
++    const tabs = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
++    expect(tabs[0].id).toBe('collection-tab-overview');
++    expect(tabs[0].getAttribute('aria-controls')).toBe('collection-panel-overview');
++    expect(tabs[0].tabIndex).toBe(0); expect(tabs[1].tabIndex).toBe(-1);
++    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })); fixture.detectChanges();
++    expect(document.activeElement).toBe(tabs[1]);
++    expect(fixture.nativeElement.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby')).toBe('collection-tab-participants');
++    tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End' })); fixture.detectChanges();
++    expect(document.activeElement).toBe(tabs[3]);
++    tabs[3].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home' })); fixture.detectChanges();
++    expect(document.activeElement).toBe(tabs[0]);
++    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })); fixture.detectChanges();
++    expect(document.activeElement).toBe(tabs[3]);
++  });
++
++  it('shows an entertainment-only non-medical notice', () => {
++    const notice = fixture.nativeElement.querySelector('[data-testid="non-medical-notice"]');
++    expect(notice.textContent.toLowerCase()).toContain('entertainment');
++    expect(notice.textContent.toLowerCase()).toContain('not medical');
++  });
++
++  it('loads component styles from styleUrl metadata', () => {
++    const definition = (DatasetCollectionComponent as unknown as { ɵcmp: { styles: string[] } }).ɵcmp;
++    expect(definition.styles.join(' ')).toMatch(/max-width:\s*1200px/);
++  });
++});
+diff --git a/frontend/src/app/features/dataset-collection/dataset-collection.component.ts b/frontend/src/app/features/dataset-collection/dataset-collection.component.ts
+new file mode 100644
+index 0000000..313fe66
+--- /dev/null
++++ b/frontend/src/app/features/dataset-collection/dataset-collection.component.ts
+@@ -0,0 +1,219 @@
++import { CommonModule } from '@angular/common';
++import { Component, OnInit, signal } from '@angular/core';
++import { FormsModule } from '@angular/forms';
++import { RouterLink } from '@angular/router';
++
++import {
++  CollectionOverview,
++  CollectionSession,
++  DatasetCollectionService,
++  DatasetParticipant,
++  EmotionQuadrant,
++  EmotionStimulus,
++  StimulusApprovalState,
++} from '../../core/services/dataset-collection.service';
++
++type CollectionTab = 'overview' | 'participants' | 'stimuli' | 'sessions';
++
++@Component({
++  selector: 'app-dataset-collection',
++  standalone: true,
++  imports: [CommonModule, FormsModule, RouterLink],
++  template: `
++    <main class="collection-shell">
++      <header class="page-header">
++        <div>
++          <a routerLink="/admin" class="back-link">← Admin dashboard</a>
++          <h1>EEG Dataset Collection</h1>
++          <p>Prepare pseudonymous participants, stimuli, and collection sessions.</p>
++        </div>
++        <aside class="notice" data-testid="non-medical-notice">
++          Entertainment and prototype research only — not medical diagnosis or treatment.
++        </aside>
++      </header>
++
++      <nav class="tabs" role="tablist" aria-label="Dataset collection sections">
++        @for (tab of tabs; track tab.key) {
++          <button type="button" role="tab" [attr.aria-selected]="activeTab() === tab.key"
++            [id]="'collection-tab-' + tab.key" [attr.aria-controls]="'collection-panel-' + tab.key"
++            [tabIndex]="activeTab() === tab.key ? 0 : -1" [class.active]="activeTab() === tab.key"
++            (click)="switchTab(tab.key)" (keydown)="onTabKeydown($event, tab.key)">{{ tab.label }}</button>
++        }
++      </nav>
++
++      @if (error()) { <div class="error" role="alert">{{ error() }}</div> }
++
++      @if (activeTab() === 'overview') {
++        <section id="collection-panel-overview" aria-labelledby="collection-tab-overview" class="panel" role="tabpanel">
++          <h2>Collection overview</h2>
++          @if (overviewLoading()) {
++            <p role="status">Loading overview…</p>
++          } @else {
++            @if (overview(); as stats) {
++              <div class="stat-grid">
++                <article class="stat-card"><span>Participants</span><strong>{{ stats.participants }}</strong></article>
++                <article class="stat-card"><span>Sessions</span><strong>{{ stats.sessions }}</strong></article>
++                <article class="stat-card"><span>Trials</span><strong>{{ stats.trials }}</strong></article>
++                <article class="stat-card"><span>Pending review</span><strong>{{ stats.review_counts.pending }}</strong></article>
++              </div>
++            } @else { <p>Overview data is unavailable.</p> }
++          }
++        </section>
++      }
++
++      @if (activeTab() === 'participants') {
++        <section id="collection-panel-participants" aria-labelledby="collection-tab-participants" class="split" role="tabpanel">
++          <form id="participant-form" class="panel form-card" (ngSubmit)="registerParticipant()">
++            <h2>Register participant</h2>
++            <p>A pseudonymous participant code such as P001 is generated by the server.</p>
++            <label class="check-row" for="consent-confirmed">
++              <input id="consent-confirmed" name="consent_confirmed" type="checkbox" required
++                [(ngModel)]="consentConfirmed">
++              <span>Consent has been confirmed and documented.</span>
++            </label>
++            <button id="register-participant" class="primary" type="submit"
++              [disabled]="!consentConfirmed || participantSubmitting()">
++              {{ participantSubmitting() ? 'Registering…' : 'Register participant' }}
++            </button>
++          </form>
++          <section class="panel"><h2>Participants</h2>
++            <div class="list">@if (participantsLoading()) { <p role="status">Loading participants…</p> } @else { @for (item of participants(); track item.id) {
++              <div class="list-row"><strong>{{ item.participant_code }}</strong><span class="badge">{{ item.state }}</span></div>
++            } @empty { <p>No participants registered.</p> } }</div>
++          </section>
++        </section>
++      }
++
++      @if (activeTab() === 'stimuli') {
++        <section id="collection-panel-stimuli" aria-labelledby="collection-tab-stimuli" class="split" role="tabpanel">
++          <form class="panel form-card" (ngSubmit)="registerStimulus()">
++            <h2>Register stimulus</h2>
++            <label>Title<input name="title" required [(ngModel)]="stimulus.title"></label>
++            <label>Media file reference<input name="file_path" required [(ngModel)]="stimulus.file_path"></label>
++            <label>SHA-256 checksum<input name="checksum" required minlength="64" maxlength="64" [(ngModel)]="stimulus.checksum"></label>
++            <label>Duration (45–60 seconds)<input name="duration" type="number" min="45" max="60" required [(ngModel)]="stimulus.duration_seconds"></label>
++            <label>Target quadrant<select id="target-quadrant" name="quadrant" required [(ngModel)]="stimulus.target_quadrant">
++              @for (quadrant of quadrants; track quadrant) { <option [value]="quadrant">{{ quadrant }}</option> }
++            </select></label>
++            <label>Approval state<select name="approval" [(ngModel)]="stimulus.approval_state"><option value="draft">draft</option><option value="approved">approved</option><option value="retired">retired</option></select></label>
++            <label>Stimulus set version<input name="version" required [(ngModel)]="stimulus.stimulus_set_version"></label>
++            <button class="primary" type="submit" [disabled]="stimulusSubmitting() || !isStimulusReady()">{{ stimulusSubmitting() ? 'Registering…' : 'Register stimulus' }}</button>
++          </form>
++          <section class="panel"><h2>Stimuli</h2><div class="list">@if (stimuliLoading()) { <p role="status">Loading stimuli…</p> } @else { @for (item of stimuli(); track item.id) {
++            <div class="list-row"><div><strong>{{ item.title }}</strong><small>{{ item.target_quadrant }} · {{ item.duration_seconds }}s</small></div><span class="badge">{{ item.approval_state }}</span></div>
++          } @empty { <p>No stimuli registered.</p> } }</div></section>
++        </section>
++      }
++
++      @if (activeTab() === 'sessions') {
++        <section id="collection-panel-sessions" aria-labelledby="collection-tab-sessions" class="split" role="tabpanel">
++          <form class="panel form-card" (ngSubmit)="createSession()">
++            <h2>Create collection session</h2>
++            <label>Active participant<select name="participant" required [(ngModel)]="sessionParticipantId">
++              <option [ngValue]="null">Select a participant</option>
++              @for (item of activeParticipants(); track item.id) { <option [ngValue]="item.id">{{ item.participant_code }}</option> }
++            </select></label>
++            <label>Device ID (optional)<input name="device_id" [(ngModel)]="deviceId"></label>
++            <label>Device label (optional)<input name="device_name" [(ngModel)]="deviceName"></label>
++            <button id="create-session" class="primary" type="submit" [disabled]="!hasActiveParticipant() || sessionSubmitting()">{{ sessionSubmitting() ? 'Creating…' : 'Create session' }}</button>
++          </form>
++          <section class="panel"><h2>Sessions</h2><div class="list">@if (sessionsLoading()) { <p role="status">Loading sessions…</p> } @else { @for (item of sessions(); track item.id) {
++            <div class="list-row"><strong>Session {{ item.id }}</strong><span class="badge">{{ item.state }}</span></div>
++          } @empty { <p>No sessions created.</p> } }</div></section>
++        </section>
++      }
++    </main>
++  `,
++  styleUrl: './dataset-collection.component.css',
++})
++export class DatasetCollectionComponent implements OnInit {
++  readonly tabs: { key: CollectionTab; label: string }[] = [
++    { key: 'overview', label: 'Overview' }, { key: 'participants', label: 'Participants' },
++    { key: 'stimuli', label: 'Stimuli' }, { key: 'sessions', label: 'Sessions' },
++  ];
++  readonly quadrants: EmotionQuadrant[] = ['positive_low', 'positive_high', 'negative_low', 'negative_high'];
++  readonly activeTab = signal<CollectionTab>('overview');
++  readonly overview = signal<CollectionOverview | null>(null);
++  readonly overviewLoading = signal(true);
++  readonly participants = signal<DatasetParticipant[]>([]);
++  readonly stimuli = signal<EmotionStimulus[]>([]);
++  readonly sessions = signal<CollectionSession[]>([]);
++  readonly participantsLoading = signal(true);
++  readonly stimuliLoading = signal(true);
++  readonly sessionsLoading = signal(true);
++  readonly error = signal('');
++  readonly participantSubmitting = signal(false);
++  readonly stimulusSubmitting = signal(false);
++  readonly sessionSubmitting = signal(false);
++
++  consentConfirmed = false;
++  stimulus = { title: '', file_path: '', checksum: '', duration_seconds: 45, target_quadrant: 'positive_low' as EmotionQuadrant, approval_state: 'draft' as StimulusApprovalState, stimulus_set_version: 'v1' };
++  sessionParticipantId: number | null = null;
++  deviceId = '';
++  deviceName = '';
++
++  constructor(private readonly api: DatasetCollectionService) {}
++
++  ngOnInit(): void { this.loadOverview(); this.loadParticipants(); this.loadStimuli(); this.loadSessions(); }
++  switchTab(tab: CollectionTab): void { this.activeTab.set(tab); }
++  onTabKeydown(event: KeyboardEvent, current: CollectionTab): void {
++    const index = this.tabs.findIndex((tab) => tab.key === current);
++    let next = index;
++    if (event.key === 'ArrowRight') next = (index + 1) % this.tabs.length;
++    else if (event.key === 'ArrowLeft') next = (index - 1 + this.tabs.length) % this.tabs.length;
++    else if (event.key === 'Home') next = 0;
++    else if (event.key === 'End') next = this.tabs.length - 1;
++    else return;
++    event.preventDefault();
++    const key = this.tabs[next].key;
++    this.switchTab(key);
++    document.getElementById(`collection-tab-${key}`)?.focus();
++  }
++  activeParticipants(): DatasetParticipant[] { return this.participants().filter((item) => item.state === 'active'); }
++  hasActiveParticipant(): boolean { return this.sessionParticipantId !== null && this.activeParticipants().some((item) => item.id === this.sessionParticipantId); }
++  isStimulusDurationValid(): boolean { return this.stimulus.duration_seconds >= 45 && this.stimulus.duration_seconds <= 60; }
++  isStimulusReady(): boolean { return !!(this.stimulus.title.trim() && this.stimulus.file_path.trim() && this.stimulus.checksum.length === 64 && this.stimulus.stimulus_set_version.trim() && this.isStimulusDurationValid()); }
++
++  registerParticipant(): void {
++    if (!this.consentConfirmed || this.participantSubmitting()) return;
++    this.participantSubmitting.set(true); this.error.set('');
++    this.api.createParticipant({ consent_confirmed_at: new Date().toISOString() }).subscribe({
++      next: (item) => { this.participants.update((items) => [item, ...items]); this.consentConfirmed = false; this.participantSubmitting.set(false); },
++      error: (err) => this.fail(err, this.participantSubmitting),
++    });
++  }
++
++  registerStimulus(): void {
++    if (!this.isStimulusReady() || this.stimulusSubmitting()) return;
++    this.stimulusSubmitting.set(true); this.error.set('');
++    this.api.createStimulus({ ...this.stimulus }).subscribe({
++      next: (item) => { this.stimuli.update((items) => [item, ...items]); this.stimulusSubmitting.set(false); },
++      error: (err) => this.fail(err, this.stimulusSubmitting),
++    });
++  }
++
++  createSession(): void {
++    if (!this.hasActiveParticipant() || this.sessionParticipantId === null || this.sessionSubmitting()) return;
++    this.sessionSubmitting.set(true); this.error.set('');
++    this.api.createSession({ participant_id: this.sessionParticipantId, device_id: this.deviceId.trim() || null, device_name: this.deviceName.trim() || null }).subscribe({
++      next: (item) => { this.sessions.update((items) => [item, ...items]); this.sessionSubmitting.set(false); },
++      error: (err) => this.fail(err, this.sessionSubmitting),
++    });
++  }
++
++  private loadOverview(): void {
++    this.overviewLoading.set(true);
++    this.api.getOverview().subscribe({
++      next: (value) => { this.overview.set(value); this.overviewLoading.set(false); },
++      error: (err) => { this.overviewLoading.set(false); this.fail(err); },
++    });
++  }
++  private loadParticipants(): void { this.participantsLoading.set(true); this.api.listParticipants().subscribe({ next: (value) => { this.participants.set(value.items); this.participantsLoading.set(false); }, error: (err) => { this.participantsLoading.set(false); this.fail(err); } }); }
++  private loadStimuli(): void { this.stimuliLoading.set(true); this.api.listStimuli().subscribe({ next: (value) => { this.stimuli.set(value.items); this.stimuliLoading.set(false); }, error: (err) => { this.stimuliLoading.set(false); this.fail(err); } }); }
++  private loadSessions(): void { this.sessionsLoading.set(true); this.api.listSessions().subscribe({ next: (value) => { this.sessions.set(value.items); this.sessionsLoading.set(false); }, error: (err) => { this.sessionsLoading.set(false); this.fail(err); } }); }
++  private fail(err: unknown, busy?: { set(value: boolean): void }): void {
++    busy?.set(false);
++    const response = err as { error?: { detail?: string } | string; message?: string };
++    this.error.set(typeof response.error === 'string' ? response.error : response.error?.detail ?? response.message ?? 'The request could not be completed.');
++  }
++}
+diff --git a/frontend/tsconfig.dataset-collection.spec.json b/frontend/tsconfig.dataset-collection.spec.json
+new file mode 100644
+index 0000000..e7c49a0
+--- /dev/null
++++ b/frontend/tsconfig.dataset-collection.spec.json
+@@ -0,0 +1,11 @@
++{
++  "extends": "./tsconfig.json",
++  "compilerOptions": {
++    "outDir": "./out-tsc/dataset-collection-spec",
++    "types": ["jasmine"]
++  },
++  "files": [
++    "src/app/features/dataset-collection/dataset-collection.component.spec.ts",
++    "src/app/core/services/dataset-collection.service.spec.ts"
++  ]
++}
