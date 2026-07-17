@@ -47,6 +47,17 @@ describe('DatasetCollectionComponent', () => {
     expect(text).toContain('48');
   });
 
+  it('clears overview loading and renders an unavailable state after an overview error', () => {
+    service.getOverview.and.returnValue(throwError(() => ({ error: { detail: 'Overview unavailable' } })));
+    const local = TestBed.createComponent(DatasetCollectionComponent); local.detectChanges();
+    expect(local.componentInstance.overviewLoading()).toBeFalse();
+    expect(local.nativeElement.textContent).toContain('Overview unavailable');
+    expect(local.nativeElement.textContent).toContain('Overview data is unavailable');
+    expect(local.nativeElement.textContent).not.toContain('Loading overview');
+    local.componentInstance.switchTab('participants'); local.detectChanges();
+    expect(local.nativeElement.textContent).toContain('Overview unavailable');
+  });
+
   it('never asks participants for name, email, or phone data', () => {
     component.switchTab('participants');
     fixture.detectChanges();

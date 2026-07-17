@@ -46,14 +46,18 @@ type CollectionTab = 'overview' | 'participants' | 'stimuli' | 'sessions';
       @if (activeTab() === 'overview') {
         <section id="collection-panel-overview" aria-labelledby="collection-tab-overview" class="panel" role="tabpanel">
           <h2>Collection overview</h2>
-          @if (overview(); as stats) {
-            <div class="stat-grid">
-              <article class="stat-card"><span>Participants</span><strong>{{ stats.participants }}</strong></article>
-              <article class="stat-card"><span>Sessions</span><strong>{{ stats.sessions }}</strong></article>
-              <article class="stat-card"><span>Trials</span><strong>{{ stats.trials }}</strong></article>
-              <article class="stat-card"><span>Pending review</span><strong>{{ stats.review_counts.pending }}</strong></article>
-            </div>
-          } @else { <p>Loading overview…</p> }
+          @if (overviewLoading()) {
+            <p role="status">Loading overview…</p>
+          } @else {
+            @if (overview(); as stats) {
+              <div class="stat-grid">
+                <article class="stat-card"><span>Participants</span><strong>{{ stats.participants }}</strong></article>
+                <article class="stat-card"><span>Sessions</span><strong>{{ stats.sessions }}</strong></article>
+                <article class="stat-card"><span>Trials</span><strong>{{ stats.trials }}</strong></article>
+                <article class="stat-card"><span>Pending review</span><strong>{{ stats.review_counts.pending }}</strong></article>
+              </div>
+            } @else { <p>Overview data is unavailable.</p> }
+          }
         </section>
       }
 
@@ -130,6 +134,7 @@ export class DatasetCollectionComponent implements OnInit {
   readonly quadrants: EmotionQuadrant[] = ['positive_low', 'positive_high', 'negative_low', 'negative_high'];
   readonly activeTab = signal<CollectionTab>('overview');
   readonly overview = signal<CollectionOverview | null>(null);
+  readonly overviewLoading = signal(true);
   readonly participants = signal<DatasetParticipant[]>([]);
   readonly stimuli = signal<EmotionStimulus[]>([]);
   readonly sessions = signal<CollectionSession[]>([]);
@@ -196,7 +201,13 @@ export class DatasetCollectionComponent implements OnInit {
     });
   }
 
-  private loadOverview(): void { this.api.getOverview().subscribe({ next: (value) => this.overview.set(value), error: (err) => this.fail(err) }); }
+  private loadOverview(): void {
+    this.overviewLoading.set(true);
+    this.api.getOverview().subscribe({
+      next: (value) => { this.overview.set(value); this.overviewLoading.set(false); },
+      error: (err) => { this.overviewLoading.set(false); this.fail(err); },
+    });
+  }
   private loadParticipants(): void { this.participantsLoading.set(true); this.api.listParticipants().subscribe({ next: (value) => { this.participants.set(value.items); this.participantsLoading.set(false); }, error: (err) => { this.participantsLoading.set(false); this.fail(err); } }); }
   private loadStimuli(): void { this.stimuliLoading.set(true); this.api.listStimuli().subscribe({ next: (value) => { this.stimuli.set(value.items); this.stimuliLoading.set(false); }, error: (err) => { this.stimuliLoading.set(false); this.fail(err); } }); }
   private loadSessions(): void { this.sessionsLoading.set(true); this.api.listSessions().subscribe({ next: (value) => { this.sessions.set(value.items); this.sessionsLoading.set(false); }, error: (err) => { this.sessionsLoading.set(false); this.fail(err); } }); }
