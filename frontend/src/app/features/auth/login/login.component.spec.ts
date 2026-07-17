@@ -27,7 +27,9 @@ describe('LoginComponent', () => {
 
   it('renders exactly one submit button without role-specific login text', () => {
     const element: HTMLElement = fixture.nativeElement;
-    expect(element.querySelectorAll('button[type="submit"]').length).toBe(1);
+    const buttons = element.querySelectorAll<HTMLButtonElement>('button[type="submit"]');
+    expect(buttons.length).toBe(1);
+    expect(buttons[0].textContent?.trim()).toBe('เข้าสู่ระบบ');
     expect(element.textContent).not.toContain('Login as User');
     expect(element.textContent).not.toContain('Login as Admin');
   });
@@ -39,20 +41,37 @@ describe('LoginComponent', () => {
     });
   }
 
-  it('clears an unsupported session, avoids protected navigation, and shows the access error', () => {
-    submitWith('guest');
-    fixture.detectChanges();
-    expect(auth.clearSession).toHaveBeenCalled();
+  for (const role of ['guest', undefined]) {
+    it(`clears a ${role ?? 'missing'} role session, avoids protected navigation, and shows the access error`, () => {
+      submitWith(role);
+      fixture.detectChanges();
+      expect(auth.clearSession).toHaveBeenCalled();
+      expect(router.navigate).not.toHaveBeenCalled();
+      expect(component.error()).toBe('บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบ');
+      expect(fixture.nativeElement.textContent).toContain('บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานระบบ');
+      expect(component.loading()).toBeFalse();
+    });
+  }
+
+  it('does nothing with empty credentials', () => {
+    component.onSubmit();
+    expect(auth.login).not.toHaveBeenCalled();
     expect(router.navigate).not.toHaveBeenCalled();
-    expect(component.error()).toBe('à¸šà¸±à¸à¸Šà¸µà¸™à¸µà¹‰à¹„à¸¡à¹ˆà¸¡à¸µà¸ªà¸´à¸—à¸˜à¸´à¹Œà¹€à¸‚à¹‰à¸²à¹ƒà¸Šà¹‰à¸‡à¸²à¸™à¸£à¸°à¸šà¸š');
-    expect(fixture.nativeElement.textContent).toContain(component.error());
-    expect(component.loading()).toBeFalse();
   });
 
-  function submitWith(role: string): void {
-    const response: TokenResponse = {
+  it('does nothing while already loading', () => {
+    component.email = 'person@example.com';
+    component.password = 'secret';
+    component.loading.set(true);
+    component.onSubmit();
+    expect(auth.login).not.toHaveBeenCalled();
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  function submitWith(role: string | undefined): void {
+    const response = {
       access_token: 'access', refresh_token: 'refresh', token_type: 'bearer', role,
-    };
+    } as TokenResponse;
     auth.login.and.returnValue(of(response));
     component.email = 'person@example.com';
     component.password = 'secret';
