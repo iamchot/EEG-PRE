@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/dataset-collection-spec",
+    "types": ["jasmine"]
+  },
+  "files": [
+    "src/app/features/dataset-collection/dataset-collection.component.spec.ts",
+    "src/app/core/services/dataset-collection.service.spec.ts"
+  ]
+}
