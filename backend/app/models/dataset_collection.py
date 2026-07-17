@@ -74,7 +74,7 @@ class CollectionSession(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     participant_id: Mapped[int] = mapped_column(ForeignKey("dataset_participants.id"), index=True)
-    device_id: Mapped[str] = mapped_column(String(100))
+    device_id: Mapped[str | None] = mapped_column(String(100))
     device_name: Mapped[str | None] = mapped_column(String(100))
     eyes_open_baseline_path: Mapped[str | None] = mapped_column(String(500))
     eyes_open_baseline_checksum: Mapped[str | None] = mapped_column(String(64))

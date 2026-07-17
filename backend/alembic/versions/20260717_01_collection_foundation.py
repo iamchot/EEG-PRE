@@ -34,7 +34,7 @@ def upgrade() -> None:
         sa.Column("artifact_checksum", sa.String(64), unique=True, nullable=False), sa.Column("metadata_json", sa.Text(), nullable=False), sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False))
     op.create_table("collection_sessions",
         sa.Column("id", sa.Integer(), primary_key=True), sa.Column("participant_id", sa.Integer(), sa.ForeignKey("dataset_participants.id"), nullable=False),
-        sa.Column("device_id", sa.String(100), nullable=False), sa.Column("device_name", sa.String(100)),
+        sa.Column("device_id", sa.String(100)), sa.Column("device_name", sa.String(100)),
         sa.Column("eyes_open_baseline_path", sa.String(500)), sa.Column("eyes_open_baseline_checksum", sa.String(64)),
         sa.Column("eyes_closed_baseline_path", sa.String(500)), sa.Column("eyes_closed_baseline_checksum", sa.String(64)),
         sa.Column("completed_trials", sa.Integer(), nullable=False), sa.Column("total_trials", sa.Integer(), nullable=False),

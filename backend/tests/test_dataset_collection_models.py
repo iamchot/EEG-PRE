@@ -43,6 +43,10 @@ def test_stimulus_checksum_is_unique():
     assert EmotionStimulus.__table__.c.checksum.unique is True
 
 
+def test_collection_session_device_id_is_optional():
+    assert CollectionSession.__table__.c.device_id.nullable is True
+
+
 def test_collection_tables_do_not_contain_direct_identity_columns():
     forbidden = {"name", "email", "phone", "password"}
     for model in COLLECTION_MODELS:

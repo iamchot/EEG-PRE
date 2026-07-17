@@ -74,13 +74,17 @@ def create_collection_session(
 
     collection_session = CollectionSession(
         participant_id=participant_id,
-        device_id=device_id or "",
+        device_id=device_id,
         device_name=device_name,
         completed_trials=0,
         total_trials=0,
         state=CollectionSessionState.preparation,
     )
     db.add(collection_session)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise DatasetConflictError("Unable to create collection session") from exc
     db.refresh(collection_session)
     return collection_session
