@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -78,8 +78,14 @@ def collection_overview(admin: AdminUser, db: Session = Depends(get_db)):
 
 
 @router.get("/participants", response_model=ParticipantListResponse)
-def list_participants(admin: AdminUser, db: Session = Depends(get_db)):
-    return ParticipantListResponse(items=list(db.scalars(select(DatasetParticipant).order_by(DatasetParticipant.id))))
+def list_participants(
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    query = select(DatasetParticipant).order_by(DatasetParticipant.id).offset(skip).limit(limit)
+    return ParticipantListResponse(items=list(db.scalars(query)))
 
 
 @router.post("/participants", response_model=ParticipantResponse, status_code=status.HTTP_201_CREATED)
@@ -91,8 +97,14 @@ def add_participant(body: ParticipantCreate, admin: AdminUser, db: Session = Dep
 
 
 @router.get("/stimuli", response_model=StimulusListResponse)
-def list_stimuli(admin: AdminUser, db: Session = Depends(get_db)):
-    return StimulusListResponse(items=list(db.scalars(select(EmotionStimulus).order_by(EmotionStimulus.id))))
+def list_stimuli(
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    query = select(EmotionStimulus).order_by(EmotionStimulus.id).offset(skip).limit(limit)
+    return StimulusListResponse(items=list(db.scalars(query)))
 
 
 @router.post("/stimuli", response_model=StimulusResponse, status_code=status.HTTP_201_CREATED)
@@ -104,8 +116,14 @@ def add_stimulus(body: StimulusCreate, admin: AdminUser, db: Session = Depends(g
 
 
 @router.get("/sessions", response_model=CollectionSessionListResponse)
-def list_sessions(admin: AdminUser, db: Session = Depends(get_db)):
-    return CollectionSessionListResponse(items=list(db.scalars(select(CollectionSession).order_by(CollectionSession.id))))
+def list_sessions(
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    query = select(CollectionSession).order_by(CollectionSession.id).offset(skip).limit(limit)
+    return CollectionSessionListResponse(items=list(db.scalars(query)))
 
 
 @router.post("/sessions", response_model=CollectionSessionResponse, status_code=status.HTTP_201_CREATED)

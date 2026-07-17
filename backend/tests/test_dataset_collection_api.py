@@ -1,16 +1,16 @@
 from datetime import datetime
-from types import SimpleNamespace
-
 import pytest
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.middleware.auth_middleware import require_admin
+from app.models.dataset_collection import CollectionSession, DatasetParticipant, EmotionStimulus
+from app.models.user import Role, User
 from app.routers import dataset_collection
+from app.services.auth_service import create_access_token
 
 
 @pytest.fixture
@@ -23,6 +23,22 @@ def client():
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine)
 
+    with session_factory() as db:
+        user_role = Role(name="user")
+        admin_role = Role(name="admin")
+        db.add_all([user_role, admin_role])
+        db.flush()
+        ordinary_user = User(
+            username="user", email="user@example.com", password_hash="unused", role_id=user_role.id
+        )
+        admin_user = User(
+            username="admin", email="admin@example.com", password_hash="unused", role_id=admin_role.id
+        )
+        db.add_all([ordinary_user, admin_user])
+        db.commit()
+        user_token = create_access_token(ordinary_user.id, "user")
+        admin_token = create_access_token(admin_user.id, "admin")
+
     def override_db():
         db = session_factory()
         try:
@@ -30,47 +46,58 @@ def client():
         finally:
             db.close()
 
-    def override_admin(x_test_role: str | None = Header(default=None)):
-        if x_test_role is None:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        if x_test_role != "admin":
-            raise HTTPException(status_code=403, detail="Admin access required")
-        return SimpleNamespace(id=1)
-
     app = FastAPI()
     app.include_router(dataset_collection.router, prefix="/api/v1")
     app.dependency_overrides[get_db] = override_db
-    app.dependency_overrides[require_admin] = override_admin
+    app.state.session_factory = session_factory
+    app.state.admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    app.state.user_headers = {"Authorization": f"Bearer {user_token}"}
     with TestClient(app) as test_client:
         yield test_client
     engine.dispose()
 
 
-ADMIN = {"X-Test-Role": "admin"}
 BASE = "/api/v1/admin/dataset-collection"
 
 
-@pytest.mark.parametrize("path", ["overview", "participants", "stimuli", "sessions"])
-def test_collection_endpoints_require_authentication(client, path):
-    assert client.get(f"{BASE}/{path}").status_code == 401
+def admin_headers(client):
+    return client.app.state.admin_headers
 
 
-@pytest.mark.parametrize("path", ["overview", "participants", "stimuli", "sessions"])
-def test_collection_endpoints_reject_standard_users(client, path):
-    assert client.get(f"{BASE}/{path}", headers={"X-Test-Role": "user"}).status_code == 403
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("get", "participants", None),
+        ("post", "participants", {"consent_confirmed_at": "2026-01-01T10:00:00"}),
+    ],
+)
+def test_collection_get_and_post_require_authentication(client, method, path, body):
+    assert client.request(method, f"{BASE}/{path}", json=body).status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("get", "participants", None),
+        ("post", "participants", {"consent_confirmed_at": "2026-01-01T10:00:00"}),
+    ],
+)
+def test_collection_get_and_post_reject_standard_users(client, method, path, body):
+    response = client.request(method, f"{BASE}/{path}", headers=client.app.state.user_headers, json=body)
+    assert response.status_code == 403
 
 
 def test_admin_creates_and_lists_pseudonymous_participants_without_pii(client):
     response = client.post(
         f"{BASE}/participants",
-        headers=ADMIN,
+        headers=admin_headers(client),
         json={"consent_confirmed_at": "2026-01-01T10:00:00"},
     )
 
     assert response.status_code == 201
     assert response.json()["participant_code"] == "P001"
     assert set(response.json()).isdisjoint({"name", "email", "phone"})
-    listed = client.get(f"{BASE}/participants", headers=ADMIN)
+    listed = client.get(f"{BASE}/participants", headers=admin_headers(client))
     assert listed.status_code == 200
     assert listed.json()["items"][0]["participant_code"] == "P001"
     assert set(listed.json()["items"][0]).isdisjoint({"name", "email", "phone"})
@@ -80,7 +107,7 @@ def test_admin_creates_and_lists_45_to_60_second_stimuli(client):
     for index, duration in enumerate((45, 60)):
         response = client.post(
             f"{BASE}/stimuli",
-            headers=ADMIN,
+            headers=admin_headers(client),
             json={
                 "title": f"Stimulus {index}",
                 "file_path": f"stimuli/{index}.mp4",
@@ -93,7 +120,7 @@ def test_admin_creates_and_lists_45_to_60_second_stimuli(client):
         )
         assert response.status_code == 201
 
-    listed = client.get(f"{BASE}/stimuli", headers=ADMIN)
+    listed = client.get(f"{BASE}/stimuli", headers=admin_headers(client))
     assert [item["duration_seconds"] for item in listed.json()["items"]] == [45, 60]
 
 
@@ -107,12 +134,12 @@ def test_duplicate_stimulus_checksum_returns_conflict(client):
         "approval_state": "draft",
         "stimulus_set_version": "v1",
     }
-    assert client.post(f"{BASE}/stimuli", headers=ADMIN, json=body).status_code == 201
-    assert client.post(f"{BASE}/stimuli", headers=ADMIN, json=body).status_code == 409
+    assert client.post(f"{BASE}/stimuli", headers=admin_headers(client), json=body).status_code == 201
+    assert client.post(f"{BASE}/stimuli", headers=admin_headers(client), json=body).status_code == 409
 
 
 def test_overview_has_zero_defaults_for_all_collection_counts(client):
-    response = client.get(f"{BASE}/overview", headers=ADMIN)
+    response = client.get(f"{BASE}/overview", headers=admin_headers(client))
 
     assert response.status_code == 200
     assert response.json() == {
@@ -132,27 +159,75 @@ def test_overview_has_zero_defaults_for_all_collection_counts(client):
 def test_admin_creates_preparation_session_for_active_participant(client):
     participant = client.post(
         f"{BASE}/participants",
-        headers=ADMIN,
+        headers=admin_headers(client),
         json={"consent_confirmed_at": datetime(2026, 1, 1).isoformat()},
     ).json()
 
     response = client.post(
         f"{BASE}/sessions",
-        headers=ADMIN,
+        headers=admin_headers(client),
         json={"participant_id": participant["id"], "device_id": "muse-1", "device_name": "Muse 2"},
     )
 
     assert response.status_code == 201
     assert response.json()["state"] == "preparation"
     assert response.json()["completed_trials"] == 0
-    assert client.get(f"{BASE}/sessions", headers=ADMIN).json()["items"][0]["id"] == response.json()["id"]
+    assert client.get(f"{BASE}/sessions", headers=admin_headers(client)).json()["items"][0]["id"] == response.json()["id"]
 
 
 def test_session_for_missing_participant_returns_not_found(client):
     response = client.post(
         f"{BASE}/sessions",
-        headers=ADMIN,
+        headers=admin_headers(client),
         json={"participant_id": 999},
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize("resource", ["participants", "stimuli", "sessions"])
+def test_collection_lists_default_to_first_50_in_ascending_id_order(client, resource):
+    _seed_list_records(client, 105)
+
+    response = client.get(f"{BASE}/{resource}", headers=admin_headers(client))
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == list(range(1, 51))
+
+
+@pytest.mark.parametrize("resource", ["participants", "stimuli", "sessions"])
+def test_collection_lists_support_explicit_bounded_pagination(client, resource):
+    _seed_list_records(client, 105)
+
+    response = client.get(f"{BASE}/{resource}?skip=50&limit=100", headers=admin_headers(client))
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == list(range(51, 106))
+    assert client.get(f"{BASE}/{resource}?limit=101", headers=admin_headers(client)).status_code == 422
+    assert client.get(f"{BASE}/{resource}?skip=-1", headers=admin_headers(client)).status_code == 422
+
+
+def _seed_list_records(client, count):
+    with client.app.state.session_factory() as db:
+        db.add_all(
+            DatasetParticipant(
+                participant_code=f"P{index:03d}",
+                consent_confirmed_at=datetime(2026, 1, 1),
+                state="active",
+            )
+            for index in range(1, count + 1)
+        )
+        db.add_all(
+            EmotionStimulus(
+                title=f"Stimulus {index}",
+                file_path=f"stimuli/{index}.mp4",
+                checksum=f"{index:064x}",
+                duration_seconds=45,
+                target_quadrant="positive_low",
+                approval_state="draft",
+                stimulus_set_version="v1",
+            )
+            for index in range(1, count + 1)
+        )
+        db.add_all(CollectionSession(participant_id=index) for index in range(1, count + 1))
+        db.commit()
