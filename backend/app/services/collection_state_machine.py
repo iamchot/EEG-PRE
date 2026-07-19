@@ -115,10 +115,7 @@ class CollectionStateMachine:
         **kwargs,
     ) -> CollectionStateMachine:
         runner = cls(db, collection_session, **kwargs)
-        in_flight = collection_session.state in {
-            CollectionSessionState.baseline,
-            CollectionSessionState.in_progress,
-        }
+        in_flight = collection_session.active_baseline is not None
         trial = runner._current_trial()
         if trial is not None and trial.state in {TrialState.rest, TrialState.stimulus, TrialState.rating}:
             trial.state = TrialState.interrupted
@@ -388,19 +385,34 @@ class CollectionStateMachine:
             and self.session.state in {CollectionSessionState.baseline, CollectionSessionState.in_progress},
             "only an active baseline or Trial can be interrupted",
         )
-        if self._writer is not None:
-            self._writer.abort()
-            self._clear_capture()
         trial = self._current_trial()
+        trial_id = trial.id if trial is not None else None
+        session_id = self.session.id
+        abort_error: Exception | None = None
+        assert self._writer is not None
+        try:
+            self._writer.abort()
+        except Exception as exc:
+            abort_error = exc
+        self._clear_capture()
+        safe_reason = reason
+        if abort_error is not None:
+            safe_reason = f"{reason}; Raw EEG abort failed"
         if trial is not None and trial.state in {TrialState.rest, TrialState.stimulus, TrialState.rating}:
             trial.state = TrialState.interrupted
-            trial.failure_reason = reason
+            trial.failure_reason = safe_reason
         self.session.state = CollectionSessionState.interrupted
-        self.session.interruption_reason = reason
+        self.session.interruption_reason = safe_reason
         self.session.recovery_at = self._now()
         self.session.active_baseline = None
         self._capture_attempt_token = secrets.token_hex(6)
-        self._commit_boundary()
+        try:
+            self.db.commit()
+        except Exception as exc:
+            self._fail_active_boundary(safe_reason, trial_id, session_id=session_id)
+            raise CollectionPersistenceError("Collection interruption could not be persisted") from exc
+        if abort_error is not None:
+            raise CollectionStateError("Raw EEG capture could not be cleanly aborted") from abort_error
         return self.state()
 
     def resume(self) -> CollectionRunnerState:

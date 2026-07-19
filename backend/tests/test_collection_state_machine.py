@@ -21,6 +21,7 @@ from app.models.dataset_collection import (
 )
 from app.services.collection_state_machine import (
     CollectionPersistenceError,
+    CollectionStateError,
     CollectionStateMachine,
     InvalidTransitionError,
 )
@@ -51,6 +52,7 @@ class FakeWriter:
         self.path = None
         self.fail_append = False
         self.fail_marker = None
+        self.fail_abort = False
 
     def start(self, path):
         self.path = tuple(path)
@@ -74,6 +76,8 @@ class FakeWriter:
 
     def abort(self):
         self.events.append(("abort", self.path))
+        if self.fail_abort:
+            raise OSError("abort failed")
 
 
 @pytest.fixture
@@ -570,6 +574,98 @@ def test_interrupt_rejects_inactive_ready_session(setup_runner):
     with pytest.raises(InvalidTransitionError):
         runner.interrupt("not actually active")
     assert session.state is CollectionSessionState.ready
+
+
+def test_baseline_interrupt_commit_failure_still_persists_recovery(setup_runner, monkeypatch):
+    runner, _, _, events, _ = setup_runner
+    runner.select_device("muse-1", "Muse 2")
+    runner.start_baseline(BaselineKind.eyes_open)
+    real_commit = runner.db.commit
+    attempts = 0
+
+    def fail_once():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("commit failed")
+        real_commit()
+
+    monkeypatch.setattr(runner.db, "commit", fail_once)
+    with pytest.raises(CollectionPersistenceError):
+        runner.interrupt("Muse disconnected")
+
+    assert any(event[0] == "abort" for event in events)
+    assert runner.session.state is CollectionSessionState.interrupted
+    assert runner.session.active_baseline is None
+    runner.resume()
+    assert runner.start_baseline(BaselineKind.eyes_open).active_baseline is BaselineKind.eyes_open
+
+
+def test_trial_interrupt_commit_failure_still_persists_recovery(setup_runner, monkeypatch):
+    runner, _, clock, events, _ = setup_runner
+    prepare_ready(runner, clock)
+    active = runner.start_trial_rest()
+    real_commit = runner.db.commit
+    attempts = 0
+
+    def fail_once():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("commit failed")
+        real_commit()
+
+    monkeypatch.setattr(runner.db, "commit", fail_once)
+    with pytest.raises(CollectionPersistenceError):
+        runner.interrupt("Muse disconnected")
+
+    assert any(event[0] == "abort" for event in events)
+    trial = runner.db.get(CollectionTrial, active.current_trial_id)
+    assert trial.state is TrialState.interrupted
+    assert runner.session.state is CollectionSessionState.interrupted
+    runner.resume()
+    assert runner.start_trial_rest().current_trial_order == active.current_trial_order
+
+
+def test_interrupt_abort_failure_clears_writer_and_persists_safe_state(setup_runner):
+    runner, _, clock, _, writers = setup_runner
+    prepare_ready(runner, clock)
+    active = runner.start_trial_rest()
+    writers[-1].fail_abort = True
+
+    with pytest.raises(CollectionStateError, match="cleanly aborted"):
+        runner.interrupt("Muse disconnected")
+
+    assert runner.session.state is CollectionSessionState.interrupted
+    assert "abort failed" in runner.session.interruption_reason
+    assert runner.db.get(CollectionTrial, active.current_trial_id).state is TrialState.interrupted
+    with pytest.raises(InvalidTransitionError):
+        runner.interrupt("duplicate")
+
+
+def test_recover_preserves_valid_between_trial_post_rating_rest(setup_runner):
+    runner, session, clock, _, _ = setup_runner
+    prepare_ready(runner, clock)
+    first = runner.start_trial_rest()
+    clock.advance(10)
+    runner.start_stimulus(first.current_trial_id)
+    clock.advance(45)
+    runner.finish_stimulus(first.current_trial_id)
+    runner.submit_rating(first.current_trial_id, valence=7, arousal=7, confidence=5)
+
+    recovered = CollectionStateMachine.recover(
+        runner.db,
+        session,
+        writer_factory=lambda marker_clock: FakeWriter([]),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    state = recovered.state()
+    assert state.state is CollectionSessionState.in_progress
+    assert state.current_trial_id is None
+    assert state.interruption_reason is None
+    clock.advance(20)
+    assert recovered.start_trial_rest().current_trial_order == 2
 
 
 def test_rest_and_stimulus_enforce_early_and_late_bounds(setup_runner):
