@@ -152,6 +152,33 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect((fixture.nativeElement.querySelector('[data-stage="device"] button:last-of-type') as HTMLButtonElement).disabled).toBeFalse();
   });
 
+  it('recovers a persisted device from a scheduled baseline state and restarts eyes-closed without reselecting', () => {
+    ws.isConnected.set(true);
+    component.applyState(runnerState({ state: 'baseline', active_baseline: null, total_trials: 12 }));
+    for (const key of component.sensorKeys) component.setContact(key, true);
+    expect(component.devicePersisted()).toBeTrue();
+    expect(component.canStartBaseline()).toBeTrue();
+    component.startBaseline('eyes_closed');
+    expect(api.selectDevice).not.toHaveBeenCalled();
+    expect(api.startBaseline).toHaveBeenCalledOnceWith(13, 'eyes_closed');
+  });
+
+  it('does not infer a device for a pristine unscheduled preparation state', () => {
+    component.applyState(runnerState({ state: 'preparation', total_trials: 0 }));
+    expect(component.devicePersisted()).toBeFalse();
+  });
+
+  it('resets all contact confirmations when selecting a different Muse', () => {
+    component.applyState(runnerState({ state: 'preparation', total_trials: 12 }));
+    for (const key of component.sensorKeys) component.setContact(key, true);
+    ws.isConnected.set(true);
+    expect(component.canStartBaseline()).toBeTrue();
+    component.deviceId = 'Muse-B';
+    component.selectDevice();
+    for (const key of component.sensorKeys) expect(component.sensorStatus(key).state).toBe('unknown');
+    expect(component.canStartBaseline()).toBeFalse();
+  });
+
   it('creates and revokes authenticated media object URLs and blocks playback after load failure', () => {
     const create = spyOn(URL, 'createObjectURL').and.returnValue('blob:clip');
     const revoke = spyOn(URL, 'revokeObjectURL');
@@ -217,6 +244,24 @@ describe('DatasetCollectionRunnerComponent', () => {
     component.artifactNote = 'participant blinked';
     component.markArtifact('blink');
     expect(api.markArtifact).toHaveBeenCalledOnceWith(13, 21, { event_type: 'blink', note: 'participant blinked' });
+  });
+
+  it('disables artifact buttons while a marker is pending and preserves its note until accepted', () => {
+    const pending = new Subject<CollectionRunnerState>();
+    api.markArtifact.and.returnValue(pending);
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'stimulus' }));
+    component.artifactNote = 'keep this note';
+    component.markArtifact('blink');
+    fixture.detectChanges();
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('.artifact-grid button')) as HTMLButtonElement[];
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.every(button => button.disabled)).toBeTrue();
+    component.markArtifact('cough');
+    expect(api.markArtifact).toHaveBeenCalledTimes(1);
+    expect(component.artifactNote).toBe('keep this note');
+    pending.next(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'stimulus' }));
+    pending.complete();
+    expect(component.artifactNote).toBe('');
   });
 
   it('enforces 1–9, 1–9, 1–5 ratings and sends the exact request body', () => {

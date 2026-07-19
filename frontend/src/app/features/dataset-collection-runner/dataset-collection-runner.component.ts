@@ -107,7 +107,7 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
         @case ('stimulus') {
           <section class="media-layout" data-stage="stimulus"><ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
             <aside class="artifact-card"><h2>Artifact marker</h2><label for="artifact-note">หมายเหตุ (ไม่บังคับ)<input id="artifact-note" [(ngModel)]="artifactNote"></label>
-              <div class="artifact-grid">@for (item of artifacts; track item.type) { <button type="button" (click)="markArtifact(item.type)">{{ item.label }}</button> }</div>
+              <div class="artifact-grid">@for (item of artifacts; track item.type) { <button type="button" (click)="markArtifact(item.type)" [disabled]="busy()">{{ item.label }}</button> }</div>
             </aside>
           </section>
         }
@@ -206,6 +206,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void { this.destroyed = true; this.ws.disconnect(); this.initialSubscription?.unsubscribe(); this.actionSubscription?.unsubscribe(); this.releaseMedia(); }
 
   applyState(state: CollectionRunnerState): void {
+    if (state.state !== 'preparation' || state.total_trials === 12) this.devicePersisted.set(true);
     this.runnerState.set(state);
     this.stage.set(this.resolveStage(state));
     const stimulusId = state.current_stimulus_id;
@@ -228,6 +229,8 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
 
   selectDevice(): void {
     if (!this.deviceId.trim()) return;
+    this.contacts.set({ tp9: false, af7: false, af8: false, tp10: false });
+    this.devicePersisted.set(false);
     this.run(
       this.api.selectDevice(this.sessionId, { device_id: this.deviceId.trim(), device_name: this.deviceName.trim() || 'Muse 2' }),
       undefined,
@@ -280,10 +283,14 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
 
   markArtifact(eventType: string): void {
     const state = this.runnerState();
-    if (state?.trial_state !== 'stimulus' || !state.current_trial_id) return;
-    const body: ArtifactRequest = { event_type: eventType, note: this.artifactNote.trim() || null };
-    this.run(this.api.markArtifact(this.sessionId, state.current_trial_id, body));
-    this.artifactNote = '';
+    if (this.busy() || state?.trial_state !== 'stimulus' || !state.current_trial_id) return;
+    const submittedNote = this.artifactNote;
+    const body: ArtifactRequest = { event_type: eventType, note: submittedNote.trim() || null };
+    this.run(
+      this.api.markArtifact(this.sessionId, state.current_trial_id, body),
+      undefined,
+      () => { if (this.artifactNote === submittedNote) this.artifactNote = ''; },
+    );
   }
 
   ratingsValid(): boolean { return this.inRange(this.valence, 1, 9) && this.inRange(this.arousal, 1, 9) && this.inRange(this.confidence, 1, 5); }
