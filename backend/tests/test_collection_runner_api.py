@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -29,7 +31,7 @@ from app.models.user import Role, User
 from app.routers import dataset_collection
 from app.services.auth_service import create_access_token
 from app.services.collection_state_machine import CollectionRunnerState
-from app.services.muse_stream import LSLMuseStreamSource, MuseStreamError
+from app.services.muse_stream import LSLMuseStreamSource, MuseDevice, MuseStreamError
 from app.services.raw_eeg_writer import EEGSample
 from app.ws.collection_manager import CollectionConnectionManager
 
@@ -132,6 +134,9 @@ def test_runner_state_and_commands_are_admin_only_and_validate_trial_session(cli
     assert client.get(f"{BASE}/sessions/{session_id}/runner-state", headers=auth(client, "user")).status_code == 403
 
     class FakeRunner:
+        def __init__(self, db):
+            self.db = db
+
         def state(self):
             return type("State", (), dict(
                 session_id=session_id, state="ready", active_baseline=None, current_trial_id=None,
@@ -143,7 +148,11 @@ def test_runner_state_and_commands_are_admin_only_and_validate_trial_session(cli
         def start_stimulus(self, trial_id):
             raise AssertionError("wrong-session Trial must not reach state machine")
 
-    monkeypatch.setattr(dataset_collection.collection_manager, "get_runner", lambda db, session: FakeRunner())
+    monkeypatch.setattr(
+        dataset_collection.collection_manager,
+        "run",
+        lambda db, session, operation: operation(FakeRunner(db)),
+    )
     response = client.get(f"{BASE}/sessions/{session_id}/runner-state", headers=auth(client))
     assert response.status_code == 200
     assert response.json()["state"] == "ready"
@@ -187,7 +196,11 @@ def test_runner_state_identifies_current_stimulus_without_exposing_its_path(clie
                 file_recovery_required=False,
             ))()
 
-    monkeypatch.setattr(dataset_collection.collection_manager, "get_runner", lambda db, session: FakeRunner())
+    monkeypatch.setattr(
+        dataset_collection.collection_manager,
+        "run",
+        lambda db, session, operation: operation(FakeRunner()),
+    )
     response = client.get(f"{BASE}/sessions/{session_id}/runner-state", headers=auth(client))
     assert response.status_code == 200
     assert response.json()["current_stimulus_id"] == stimulus_id
@@ -206,6 +219,9 @@ def test_ready_runner_state_identifies_next_trial_without_revealing_quadrant(cli
         trial_id = trial.id
 
     class FakeRunner:
+        def __init__(self, db):
+            self.db = db
+
         def state(self):
             return type("State", (), dict(
                 session_id=session_id, state="ready", active_baseline=None,
@@ -215,7 +231,11 @@ def test_ready_runner_state_identifies_next_trial_without_revealing_quadrant(cli
                 file_recovery_required=False,
             ))()
 
-    monkeypatch.setattr(dataset_collection.collection_manager, "get_runner", lambda db, session: FakeRunner())
+    monkeypatch.setattr(
+        dataset_collection.collection_manager,
+        "run",
+        lambda db, session, operation: operation(FakeRunner(db)),
+    )
     response = client.get(f"{BASE}/sessions/{session_id}/runner-state", headers=auth(client))
     assert response.status_code == 200
     assert response.json()["next_trial_id"] == trial_id
@@ -240,6 +260,9 @@ def test_rest_start_rejects_a_non_next_trial_before_transition(client, monkeypat
     called = False
 
     class FakeRunner:
+        def __init__(self, db):
+            self.db = db
+
         def state(self):
             return type("State", (), {"next_trial_order": 1})()
 
@@ -247,7 +270,11 @@ def test_rest_start_rejects_a_non_next_trial_before_transition(client, monkeypat
             nonlocal called
             called = True
 
-    monkeypatch.setattr(dataset_collection.collection_manager, "get_runner", lambda db, session: FakeRunner())
+    monkeypatch.setattr(
+        dataset_collection.collection_manager,
+        "run",
+        lambda db, session, operation: operation(FakeRunner(db)),
+    )
     response = client.post(
         f"{BASE}/sessions/{session_id}/trials/{second_id}/rest/start", headers=auth(client)
     )
@@ -321,9 +348,8 @@ def test_collection_manager_owns_a_session_that_survives_request_cleanup(client,
     manager = CollectionConnectionManager()
     monkeypatch.setattr("app.ws.collection_manager.get_settings", lambda: client.app.state.collection_settings)
     with client.app.state.factory() as request_db:
-        runner = manager.get_runner(request_db, request_db.get(CollectionSession, session_id))
-
-    runner.select_device("muse-owned", "Muse 2")
+        collection_session = request_db.get(CollectionSession, session_id)
+        manager.run(request_db, collection_session, lambda runner: runner.select_device("muse-owned", "Muse 2"))
     with client.app.state.factory() as verification_db:
         persisted = verification_db.get(CollectionSession, session_id)
         assert persisted.device_id == "muse-owned"
@@ -425,3 +451,272 @@ def test_muse_stream_ending_interrupts_an_active_capture():
 
     asyncio.run(manager._pump(4, EndingSource(), FakeRunner()))
     assert interrupted == ["Muse disconnected"]
+
+
+def test_runner_access_is_serialized_per_session_without_overlap():
+    manager = CollectionConnectionManager()
+    manager._runners[11] = object()
+    active = 0
+    maximum = 0
+    barrier = threading.Barrier(3)
+
+    def operation(_runner):
+        nonlocal active, maximum
+        active += 1
+        maximum = max(maximum, active)
+        time.sleep(0.03)
+        active -= 1
+
+    def worker():
+        barrier.wait()
+        manager.run_active(11, operation)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join()
+    assert maximum == 1
+
+
+def test_device_selected_after_websocket_starts_source_task():
+    async def scenario():
+        started = asyncio.Event()
+
+        class WaitingSource:
+            async def connect(self, device_id):
+                started.set()
+
+            async def samples(self):
+                await asyncio.Event().wait()
+                yield None
+
+            async def disconnect(self):
+                return None
+
+        class FakeRunner:
+            session = type("Session", (), {"device_id": "muse-late"})()
+
+        manager = CollectionConnectionManager(source_factory=WaitingSource)
+        manager._runners[12] = FakeRunner()
+        manager._clients[12].add(object())
+        await manager.ensure_source(12)
+        await asyncio.wait_for(started.wait(), timeout=0.2)
+        assert 12 in manager._tasks
+        await manager.stop_source(12)
+
+    asyncio.run(scenario())
+
+
+def test_natural_stream_end_cleans_up_and_can_restart():
+    async def scenario():
+        sources = []
+
+        class EndingSource:
+            def __init__(self):
+                self.disconnected = 0
+                sources.append(self)
+
+            async def connect(self, device_id):
+                return None
+
+            async def samples(self):
+                if False:
+                    yield None
+
+            async def disconnect(self):
+                self.disconnected += 1
+
+        class FakeRunner:
+            session = type("Session", (), {"device_id": "muse-restart"})()
+
+            def state(self):
+                return CollectionRunnerState(
+                    session_id=13, state=CollectionSessionState.preparation, active_baseline=None,
+                    current_trial_id=None, current_trial_order=None, trial_state=None,
+                    completed_trials=0, total_trials=12, next_trial_order=1, break_required=False,
+                    interruption_reason=None, accepted_clean_seconds=0, wall_clock_seconds=0,
+                )
+
+        class WebSocket:
+            async def send_json(self, payload):
+                return None
+
+        manager = CollectionConnectionManager(source_factory=EndingSource)
+        manager._runners[13] = FakeRunner()
+        manager._clients[13].add(WebSocket())
+        await manager.ensure_source(13)
+        await asyncio.sleep(0.02)
+        assert 13 not in manager._tasks
+        assert 13 not in manager._sources
+        assert sources[0].disconnected == 1
+        await manager.ensure_source(13)
+        await asyncio.sleep(0.02)
+        assert len(sources) == 2
+
+    asyncio.run(scenario())
+
+
+def test_late_lsl_open_is_closed_after_connection_timeout(monkeypatch):
+    async def scenario():
+        source = LSLMuseStreamSource(discovery_timeout=0.01)
+        released = threading.Event()
+        closed = threading.Event()
+        inlet = object()
+
+        async def discover():
+            return [MuseDevice("muse", "Muse")]
+
+        def delayed_open(_device_id):
+            released.wait(timeout=1)
+            return inlet, ("TP9", "AF7", "AF8", "TP10")
+
+        monkeypatch.setattr(source, "discover", discover)
+        monkeypatch.setattr(source, "_open_inlet", delayed_open)
+        monkeypatch.setattr(source, "_close_inlet", lambda value: closed.set() if value is inlet else None)
+        with pytest.raises(MuseStreamError, match="timed out"):
+            await source.connect("muse")
+        released.set()
+        await asyncio.sleep(0.05)
+        assert closed.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_unexpected_stream_exception_is_not_broadcast_to_clients():
+    async def scenario():
+        messages = []
+
+        class WebSocket:
+            async def send_json(self, payload):
+                messages.append(payload)
+
+        class SecretFailureSource:
+            async def connect(self, device_id):
+                raise RuntimeError("database-password=secret")
+
+        class FakeRunner:
+            session = type("Session", (), {"device_id": "muse"})()
+
+            def state(self):
+                return CollectionRunnerState(
+                    session_id=14, state=CollectionSessionState.preparation, active_baseline=None,
+                    current_trial_id=None, current_trial_order=None, trial_state=None,
+                    completed_trials=0, total_trials=12, next_trial_order=1, break_required=False,
+                    interruption_reason=None, accepted_clean_seconds=0, wall_clock_seconds=0,
+                )
+
+        manager = CollectionConnectionManager()
+        manager._clients[14].add(WebSocket())
+        await manager._pump(14, SecretFailureSource(), FakeRunner())
+        assert messages[-1]["stream_error"] == "Muse stream failed"
+        assert "secret" not in str(messages)
+
+    asyncio.run(scenario())
+
+
+def test_http_device_command_broadcasts_returned_state(client, monkeypatch):
+    session_id, _ = client.app.state.ids
+    published = []
+
+    class FakeRunner:
+        def select_device(self, device_id, device_name):
+            return self.state()
+
+        def state(self):
+            return CollectionRunnerState(
+                session_id=session_id, state=CollectionSessionState.preparation, active_baseline=None,
+                current_trial_id=None, current_trial_order=None, trial_state=None,
+                completed_trials=0, total_trials=0, next_trial_order=None, break_required=False,
+                interruption_reason=None, accepted_clean_seconds=0, wall_clock_seconds=0,
+            )
+
+    monkeypatch.setattr(
+        dataset_collection.collection_manager,
+        "run",
+        lambda db, collection_session, command: command(FakeRunner()),
+        raising=False,
+    )
+
+    async def publish(session_id, payload):
+        published.append((session_id, payload))
+
+    monkeypatch.setattr(dataset_collection.collection_manager, "publish", publish)
+    monkeypatch.setattr(dataset_collection.collection_manager, "ensure_source", lambda _id: asyncio.sleep(0), raising=False)
+    response = client.post(
+        f"{BASE}/sessions/{session_id}/device",
+        headers=auth(client),
+        json={"device_id": "late", "device_name": "Muse 2"},
+    )
+    assert response.status_code == 200
+    assert published and published[-1][0] == session_id
+    assert published[-1][1].state is CollectionSessionState.preparation
+
+
+def test_http_rating_command_broadcasts_completed_state(client, monkeypatch):
+    session_id, stimulus_id = client.app.state.ids
+    with client.app.state.factory() as db:
+        trial = CollectionTrial(
+            session_id=session_id,
+            stimulus_id=stimulus_id,
+            randomized_order=1,
+            state=TrialState.rating,
+        )
+        db.add(trial)
+        db.commit()
+        trial_id = trial.id
+    published = []
+
+    class FakeRunner:
+        def __init__(self, db):
+            self.db = db
+
+        def submit_rating(self, trial_id, **rating):
+            assert rating == {"valence": 8, "arousal": 7, "confidence": 5}
+            return CollectionRunnerState(
+                session_id=session_id, state=CollectionSessionState.completed, active_baseline=None,
+                current_trial_id=None, current_trial_order=None, trial_state=None,
+                completed_trials=12, total_trials=12, next_trial_order=None, break_required=False,
+                interruption_reason=None, accepted_clean_seconds=0, wall_clock_seconds=0,
+            )
+
+    monkeypatch.setattr(
+        dataset_collection.collection_manager,
+        "run",
+        lambda db, collection_session, command: command(FakeRunner(db)),
+    )
+
+    async def publish(session_id, payload):
+        published.append((session_id, payload))
+
+    monkeypatch.setattr(dataset_collection.collection_manager, "publish", publish)
+    response = client.post(
+        f"{BASE}/sessions/{session_id}/trials/{trial_id}/rating",
+        headers=auth(client),
+        json={"valence": 8, "arousal": 7, "confidence": 5},
+    )
+    assert response.status_code == 200
+    assert published[-1][1].state is CollectionSessionState.completed
+
+
+def test_lsl_unexpected_errors_are_translated_without_secret_details(monkeypatch):
+    discovery = LSLMuseStreamSource(discovery_timeout=0.01)
+    monkeypatch.setattr(discovery, "_resolve_streams", lambda: (_ for _ in ()).throw(RuntimeError("secret")))
+    with pytest.raises(MuseStreamError, match="discovery failed") as discovered:
+        asyncio.run(discovery.discover())
+    assert "secret" not in str(discovered.value)
+
+    async def open_failure():
+        source = LSLMuseStreamSource(discovery_timeout=0.05)
+
+        async def found():
+            return [MuseDevice("muse", "Muse")]
+
+        monkeypatch.setattr(source, "discover", found)
+        monkeypatch.setattr(source, "_open_inlet", lambda _id: (_ for _ in ()).throw(RuntimeError("secret")))
+        with pytest.raises(MuseStreamError, match="connection failed") as connected:
+            await source.connect("muse")
+        assert "secret" not in str(connected.value)
+
+    asyncio.run(open_failure())

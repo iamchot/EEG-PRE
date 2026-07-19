@@ -58,11 +58,18 @@ class LSLMuseStreamSource:
         try:
             streams = await asyncio.wait_for(
                 asyncio.to_thread(self._resolve_streams),
-                timeout=self.discovery_timeout + 0.5,
+                timeout=max(self.discovery_timeout, 0.01),
             )
         except (TimeoutError, asyncio.TimeoutError) as exc:
             raise MuseStreamError("Muse discovery timed out") from exc
-        return [MuseDevice(self._stream_id(stream), self._stream_name(stream)) for stream in streams]
+        except MuseStreamError:
+            raise
+        except Exception as exc:
+            raise MuseStreamError("Muse discovery failed") from exc
+        try:
+            return [MuseDevice(self._stream_id(stream), self._stream_name(stream)) for stream in streams]
+        except Exception as exc:
+            raise MuseStreamError("Muse discovery failed") from exc
 
     async def connect(self, device_id: str) -> None:
         if not device_id.strip():
@@ -71,15 +78,28 @@ class LSLMuseStreamSource:
         selected = next((item for item in streams if item.id == device_id), None)
         if selected is None:
             raise MuseStreamError("Muse device not found")
+        open_task = asyncio.create_task(asyncio.to_thread(self._open_inlet, device_id))
         try:
             inlet, names = await asyncio.wait_for(
-                asyncio.to_thread(self._open_inlet, device_id),
-                timeout=self.discovery_timeout + 0.5,
+                asyncio.shield(open_task),
+                timeout=max(self.discovery_timeout, 0.01),
             )
         except (TimeoutError, asyncio.TimeoutError) as exc:
+            open_task.add_done_callback(self._close_late_open)
             raise MuseStreamError("Muse connection timed out") from exc
+        except asyncio.CancelledError:
+            open_task.add_done_callback(self._close_late_open)
+            raise
+        except MuseStreamError:
+            raise
+        except Exception as exc:
+            raise MuseStreamError("Muse connection failed") from exc
         self._inlet = inlet
-        self._channel_names = self._validate_channel_names(names)
+        try:
+            self._channel_names = self._validate_channel_names(names)
+        except Exception:
+            await self.disconnect()
+            raise
         self._connected = True
 
     async def samples(self) -> AsyncIterator[MuseSample]:
@@ -93,6 +113,10 @@ class LSLMuseStreamSource:
                 )
             except (TimeoutError, asyncio.TimeoutError):
                 continue
+            except MuseStreamError:
+                raise
+            except Exception as exc:
+                raise MuseStreamError("Muse sample read failed") from exc
             if values is None or timestamp is None:
                 continue
             try:
@@ -105,10 +129,15 @@ class LSLMuseStreamSource:
         self._connected = False
         inlet, self._inlet = self._inlet, None
         if inlet is not None:
-            await asyncio.wait_for(
-                asyncio.to_thread(self._close_inlet, inlet),
-                timeout=self.pull_timeout + 0.5,
-            )
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(self._close_inlet, inlet),
+                    timeout=max(self.pull_timeout, 0.01),
+                )
+            except (TimeoutError, asyncio.TimeoutError) as exc:
+                raise MuseStreamError("Muse disconnect timed out") from exc
+            except Exception as exc:
+                raise MuseStreamError("Muse disconnect failed") from exc
 
     def map_sample(self, values: Sequence[float], timestamp: float) -> MuseSample:
         names = self._validate_channel_names(self._channel_names)
@@ -152,6 +181,21 @@ class LSLMuseStreamSource:
 
     def _pull_sample(self):
         return self._inlet.pull_sample(timeout=self.pull_timeout)
+
+    def _close_late_open(self, task: asyncio.Future) -> None:
+        if task.cancelled():
+            return
+        try:
+            inlet, _names = task.result()
+        except Exception:
+            return
+        asyncio.create_task(self._close_late_inlet(inlet))
+
+    async def _close_late_inlet(self, inlet) -> None:
+        try:
+            await asyncio.to_thread(self._close_inlet, inlet)
+        except Exception:
+            pass
 
     @staticmethod
     def _close_inlet(inlet) -> None:

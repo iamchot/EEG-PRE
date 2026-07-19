@@ -1,24 +1,29 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
+from typing import TypeVar
 
 from fastapi import WebSocket
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models.dataset_collection import CollectionSession, CollectionSessionState, TrialState
-from app.services.collection_state_machine import (
-    CollectionStateMachine,
-    InvalidTransitionError,
-)
-from app.services.muse_stream import LSLMuseStreamSource, MuseStreamSource
+from app.services.collection_state_machine import CollectionStateMachine, InvalidTransitionError
+from app.services.muse_stream import LSLMuseStreamSource, MuseStreamError, MuseStreamSource
 from app.services.raw_eeg_writer import AtomicEEGWriter
 
 
+T = TypeVar("T")
+
+
 class CollectionConnectionManager:
+    """Own and serialize every access to an active collection runner."""
+
     def __init__(self, source_factory: Callable[[], MuseStreamSource] = LSLMuseStreamSource):
         self._source_factory = source_factory
         self._clients: dict[int, set[WebSocket]] = defaultdict(set)
@@ -27,11 +32,220 @@ class CollectionConnectionManager:
         self._sources: dict[int, MuseStreamSource] = {}
         self._tasks: dict[int, asyncio.Task] = {}
         self._sequences: dict[int, int] = defaultdict(int)
+        self._locks: dict[int, threading.RLock] = defaultdict(threading.RLock)
 
-    def get_runner(self, db: Session, session: CollectionSession) -> CollectionStateMachine:
+    def run(
+        self,
+        db: Session,
+        session: CollectionSession,
+        operation: Callable[[CollectionStateMachine], T],
+    ) -> T:
+        """Run one request operation under the Session's per-runner lock."""
+        with self._locks[session.id]:
+            runner = self._get_runner_unlocked(db, session)
+            return operation(runner)
+
+    def run_active(self, session_id: int, operation: Callable[[CollectionStateMachine], T]) -> T:
+        """Run one stream/lifecycle operation against an existing runner."""
+        with self._locks[session_id]:
+            runner = self._runners.get(session_id)
+            if runner is None:
+                raise LookupError("Collection runner is not active")
+            return operation(runner)
+
+    async def connect(self, session_id: int, websocket: WebSocket, db: Session) -> None:
+        session = db.get(CollectionSession, session_id)
+        if session is None:
+            raise LookupError("Collection session not found")
+        with self._locks[session_id]:
+            self._clients[session_id].add(websocket)
+        state = self.run(db, session, lambda runner: runner.state())
+        await self.broadcast(session_id, state)
+        await self.ensure_source(session_id)
+
+    async def disconnect(self, session_id: int, websocket: WebSocket) -> None:
+        with self._locks[session_id]:
+            clients = self._clients.get(session_id)
+            if clients is not None:
+                clients.discard(websocket)
+            if clients:
+                return
+            self._clients.pop(session_id, None)
+        await self.stop_source(session_id)
+        with self._locks[session_id]:
+            runner = self._runners.get(session_id)
+            if runner is not None:
+                self._interrupt_if_active_unlocked(runner)
+            self._drop_runner_unlocked(session_id)
+
+    async def ensure_source(self, session_id: int) -> None:
+        """Start or restart acquisition when a client and selected device exist."""
+        with self._locks[session_id]:
+            if not self._clients.get(session_id):
+                return
+            existing = self._tasks.get(session_id)
+            if existing is not None and not existing.done():
+                return
+            runner = self._runners.get(session_id)
+            if runner is None or not runner.session.device_id:
+                return
+            device_id = runner.session.device_id
+            source = self._source_factory()
+            self._sources[session_id] = source
+            self._tasks[session_id] = asyncio.create_task(
+                self._pump(session_id, source, device_id=device_id)
+            )
+
+    async def stop_source(self, session_id: int) -> None:
+        with self._locks[session_id]:
+            task = self._tasks.pop(session_id, None)
+            source = self._sources.pop(session_id, None)
+        if source is not None:
+            try:
+                await source.disconnect()
+            except Exception:
+                pass
+        current = asyncio.current_task()
+        if task is not None and task is not current:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def publish(self, session_id: int, state=None) -> None:
+        if state is None:
+            try:
+                state = self.run_active(session_id, lambda runner: runner.state())
+            except LookupError:
+                return
+        await self.broadcast(session_id, state)
+
+    async def broadcast(self, session_id: int, state, *, error: str | None = None) -> None:
+        self._sequences[session_id] += 1
+        if isinstance(state, BaseModel):
+            payload = state.model_dump(mode="json")
+        elif isinstance(state, dict):
+            payload = dict(state)
+        elif is_dataclass(state):
+            payload = {
+                key: (value.value if hasattr(value, "value") else value)
+                for key, value in asdict(state).items()
+            }
+        else:
+            raise TypeError("collection state must be a DTO, mapping, or Pydantic model")
+        payload = {"sequence": self._sequences[session_id], **payload}
+        if error:
+            payload["stream_error"] = error
+        dead = []
+        with self._locks[session_id]:
+            clients = tuple(self._clients.get(session_id, ()))
+        for websocket in clients:
+            try:
+                await websocket.send_json(payload)
+            except Exception:
+                dead.append(websocket)
+        with self._locks[session_id]:
+            for websocket in dead:
+                self._clients[session_id].discard(websocket)
+
+    async def _pump(
+        self,
+        session_id: int,
+        source: MuseStreamSource,
+        runner: CollectionStateMachine | None = None,
+        *,
+        device_id: str | None = None,
+    ) -> None:
+        # Supplying runner is useful for isolated adapter tests; production
+        # always registers it before starting the task.
+        if runner is not None:
+            with self._locks[session_id]:
+                self._runners.setdefault(session_id, runner)
+        try:
+            if device_id is None:
+                device_id = self.run_active(session_id, lambda active: active.session.device_id)
+            if not device_id:
+                return
+            await source.connect(device_id)
+            async for incoming in source.samples():
+                state, captured = self.run_active(
+                    session_id,
+                    lambda active: self._accept_sample_unlocked(active, incoming),
+                )
+                if captured:
+                    await self.broadcast(session_id, state)
+            state = self.run_active(
+                session_id,
+                lambda active: self._interrupt_and_state_unlocked(active),
+            )
+            await self.broadcast(session_id, state, error="Muse disconnected")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            try:
+                state = self.run_active(
+                    session_id,
+                    lambda active: self._interrupt_and_state_unlocked(active),
+                )
+            except Exception:
+                return
+            safe_error = str(exc) if isinstance(exc, MuseStreamError) else "Muse stream failed"
+            await self.broadcast(session_id, state, error=safe_error)
+        finally:
+            try:
+                await source.disconnect()
+            except Exception:
+                pass
+            current = asyncio.current_task()
+            with self._locks[session_id]:
+                if self._tasks.get(session_id) is current:
+                    self._tasks.pop(session_id, None)
+                if self._sources.get(session_id) is source:
+                    self._sources.pop(session_id, None)
+
+    @staticmethod
+    def _accept_sample_unlocked(runner: CollectionStateMachine, incoming) -> tuple[object, bool]:
+        before = runner.state()
+        capture_active = before.active_baseline is not None or before.trial_state in {
+            TrialState.rest,
+            TrialState.stimulus,
+            TrialState.rating,
+        }
+        if not capture_active:
+            return before, False
+        runner.accept_sample(incoming.sample, sensor_timestamps=incoming.sensor_timestamps)
+        state = runner.state()
+        settings = get_settings()
+        if (
+            state.state is CollectionSessionState.baseline
+            and state.wall_clock_seconds >= settings.collection_baseline_wall_seconds
+            and state.accepted_clean_seconds >= settings.collection_baseline_min_clean_seconds
+        ):
+            state = runner.finish_baseline()
+        return state, True
+
+    @classmethod
+    def _interrupt_and_state_unlocked(cls, runner: CollectionStateMachine):
+        cls._interrupt_if_active_unlocked(runner)
+        return runner.state()
+
+    @staticmethod
+    def _interrupt_if_active_unlocked(runner: CollectionStateMachine) -> None:
+        if runner.state().state in {CollectionSessionState.baseline, CollectionSessionState.in_progress}:
+            try:
+                runner.interrupt("Muse disconnected")
+            except InvalidTransitionError:
+                pass
+
+    def _get_runner_unlocked(
+        self,
+        db: Session,
+        session: CollectionSession,
+    ) -> CollectionStateMachine:
         runner = self._runners.get(session.id)
         if runner is not None and runner.db.get_bind() is not db.get_bind():
-            self._drop_runner(session.id)
+            self._drop_runner_unlocked(session.id)
             runner = None
         if runner is None:
             settings = get_settings()
@@ -52,119 +266,7 @@ class CollectionConnectionManager:
             self._runner_sessions[session.id] = runner_db
         return runner
 
-    async def connect(self, session_id: int, websocket: WebSocket, db: Session) -> None:
-        session = db.get(CollectionSession, session_id)
-        if session is None:
-            raise LookupError("Collection session not found")
-        self._clients[session_id].add(websocket)
-        runner = self.get_runner(db, session)
-        await self.broadcast(session_id, runner.state())
-        if session.device_id and session_id not in self._tasks:
-            source = self._source_factory()
-            self._sources[session_id] = source
-            self._tasks[session_id] = asyncio.create_task(self._pump(session_id, source, runner))
-
-    async def disconnect(self, session_id: int, websocket: WebSocket) -> None:
-        clients = self._clients.get(session_id)
-        if clients is not None:
-            clients.discard(websocket)
-        if clients:
-            return
-        self._clients.pop(session_id, None)
-        task = self._tasks.pop(session_id, None)
-        source = self._sources.pop(session_id, None)
-        if source is not None:
-            try:
-                await source.disconnect()
-            except Exception:
-                pass
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
-        runner = self._runners.get(session_id)
-        if runner is not None and runner.state().state in {
-            CollectionSessionState.baseline,
-            CollectionSessionState.in_progress,
-        }:
-            try:
-                runner.interrupt("Muse disconnected")
-            except InvalidTransitionError:
-                pass
-        self._drop_runner(session_id)
-
-    async def publish(self, session_id: int) -> None:
-        runner = self._runners.get(session_id)
-        if runner is not None:
-            await self.broadcast(session_id, runner.state())
-
-    async def broadcast(self, session_id: int, state, *, error: str | None = None) -> None:
-        self._sequences[session_id] += 1
-        payload = state if isinstance(state, dict) else {
-            key: (value.value if hasattr(value, "value") else value)
-            for key, value in asdict(state).items()
-        }
-        payload = {"sequence": self._sequences[session_id], **payload}
-        if error:
-            payload["stream_error"] = error
-        dead = []
-        for websocket in tuple(self._clients.get(session_id, ())):
-            try:
-                await websocket.send_json(payload)
-            except Exception:
-                dead.append(websocket)
-        for websocket in dead:
-            self._clients[session_id].discard(websocket)
-
-    async def _pump(
-        self,
-        session_id: int,
-        source: MuseStreamSource,
-        runner: CollectionStateMachine,
-    ) -> None:
-        try:
-            device_id = runner.session.device_id
-            if device_id is None:
-                return
-            await source.connect(device_id)
-            async for incoming in source.samples():
-                before = runner.state()
-                capture_active = before.active_baseline is not None or before.trial_state in {
-                    TrialState.rest,
-                    TrialState.stimulus,
-                    TrialState.rating,
-                }
-                if not capture_active:
-                    continue
-                runner.accept_sample(incoming.sample, sensor_timestamps=incoming.sensor_timestamps)
-                state = runner.state()
-                settings = get_settings()
-                if (
-                    state.state is CollectionSessionState.baseline
-                    and state.wall_clock_seconds >= settings.collection_baseline_wall_seconds
-                    and state.accepted_clean_seconds >= settings.collection_baseline_min_clean_seconds
-                ):
-                    state = runner.finish_baseline()
-                await self.broadcast(session_id, state)
-            self._interrupt_if_active(runner)
-            await self.broadcast(session_id, runner.state(), error="Muse disconnected")
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            self._interrupt_if_active(runner)
-            await self.broadcast(session_id, runner.state(), error=str(exc))
-
-    @staticmethod
-    def _interrupt_if_active(runner: CollectionStateMachine) -> None:
-        if runner.state().state in {CollectionSessionState.baseline, CollectionSessionState.in_progress}:
-            try:
-                runner.interrupt("Muse disconnected")
-            except Exception:
-                pass
-
-    def _drop_runner(self, session_id: int) -> None:
+    def _drop_runner_unlocked(self, session_id: int) -> None:
         self._runners.pop(session_id, None)
         runner_db = self._runner_sessions.pop(session_id, None)
         if runner_db is not None:
