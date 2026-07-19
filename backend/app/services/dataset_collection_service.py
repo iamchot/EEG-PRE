@@ -12,6 +12,7 @@ from app.models.dataset_collection import (
     ParticipantState,
 )
 from app.schemas.dataset_collection import StimulusCreate
+from app.services.trial_scheduler import ScheduleUnavailableError, create_trial_schedule
 
 
 class DatasetCollectionError(Exception):
