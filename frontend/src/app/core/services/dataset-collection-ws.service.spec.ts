@@ -33,7 +33,12 @@ class FakeWebSocket {
 
   unexpectedClose(): void {
     this.readyState = 3;
-    this.onclose?.({ code: 1006 } as CloseEvent);
+    this.onclose?.({ code: 1006, wasClean: false } as CloseEvent);
+  }
+
+  cleanClose(): void {
+    this.readyState = 3;
+    this.onclose?.({ code: 1000, wasClean: true } as CloseEvent);
   }
 
   close(): void {
@@ -139,6 +144,16 @@ describe('DatasetCollectionWsService', () => {
     service.disconnect();
     tick(3000);
     expect(FakeWebSocket.instances.length).toBe(1);
+    expect(service.isConnected()).toBeFalse();
+  }));
+
+  it('does not reconnect or refresh state after a clean expected server close', fakeAsync(() => {
+    service.connect(13);
+    FakeWebSocket.instances[0].open();
+    FakeWebSocket.instances[0].cleanClose();
+    tick(3000);
+    expect(FakeWebSocket.instances.length).toBe(1);
+    expect(runnerApi.getRunnerState).not.toHaveBeenCalled();
     expect(service.isConnected()).toBeFalse();
   }));
 

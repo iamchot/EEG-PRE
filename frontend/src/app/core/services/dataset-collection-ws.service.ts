@@ -107,11 +107,11 @@ export class DatasetCollectionWsService implements OnDestroy {
     socket.onerror = () => {
       if (this.socket === socket) this.isConnected.set(false);
     };
-    socket.onclose = () => {
+    socket.onclose = event => {
       if (this.socket !== socket) return;
       this.socket = null;
       this.isConnected.set(false);
-      this.scheduleReconnect(sessionId);
+      if (!event.wasClean || event.code !== 1000) this.scheduleReconnect(sessionId);
     };
   }
 
