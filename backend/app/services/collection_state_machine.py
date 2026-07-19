@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import secrets
 import time
 from collections.abc import Callable, Mapping
@@ -99,6 +100,7 @@ class CollectionStateMachine:
         self._capture_started_at: float | None = None
         self._last_sample_at: float | None = None
         self._last_sample_clean = False
+        self._last_capture_timestamp: float | None = None
         self._accepted_clean_seconds = 0.0
         self._file_recovery_required = False
         self._capture_attempt_token = (
@@ -192,7 +194,7 @@ class CollectionStateMachine:
     ) -> CollectionRunnerState:
         self._require(self._writer is not None, "sample ingestion requires an active capture")
         now = self._monotonic()
-        sample = replace(sample, timestamp=now)
+        sample = replace(sample, timestamp=self._capture_clock())
         try:
             self._writer.append(sample)
         except Exception:
@@ -436,7 +438,8 @@ class CollectionStateMachine:
         participant = self.db.get(DatasetParticipant, self.session.participant_id)
         if participant is None:
             raise CollectionStateError("collection participant is unavailable")
-        writer = self._writer_factory(self._monotonic)
+        self._last_capture_timestamp = None
+        writer = self._writer_factory(self._capture_clock)
         if self._capture_attempt_token is not None:
             capture_id = f"{capture_id}-recovery-{self._capture_attempt_token}"
         writer.start([participant.participant_code, str(self.session.id), capture_id])
@@ -510,6 +513,16 @@ class CollectionStateMachine:
     def _elapsed(self) -> float:
         return 0.0 if self._capture_started_at is None else max(0.0, self._monotonic() - self._capture_started_at)
 
+    def _capture_clock(self) -> float:
+        """Return a Backend-owned timestamp that is strict within one Raw capture."""
+        timestamp = float(self._monotonic())
+        if self._last_capture_timestamp is not None and timestamp <= self._last_capture_timestamp:
+            timestamp = math.nextafter(self._last_capture_timestamp, math.inf)
+        if not math.isfinite(timestamp):
+            raise ValueError("capture clock must produce finite timestamps")
+        self._last_capture_timestamp = timestamp
+        return timestamp
+
     def _write_marker(self, marker: str, trial_id: int | None = None) -> None:
         assert self._writer is not None
         try:
@@ -523,6 +536,7 @@ class CollectionStateMachine:
         self._capture_started_at = None
         self._last_sample_at = None
         self._last_sample_clean = False
+        self._last_capture_timestamp = None
 
     def _mark_capture_failed(self, reason: str, *, trial: CollectionTrial | None = None) -> None:
         session_id = self.session.id

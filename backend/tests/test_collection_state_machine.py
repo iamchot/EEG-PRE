@@ -730,6 +730,38 @@ def test_atomic_writer_uses_injected_backend_clock_for_markers_and_samples(tmp_p
     runner.interrupt("test cleanup")
 
 
+def test_atomic_writer_orders_adjacent_phase_markers_and_sample_with_coarse_clock(tmp_path, db, setup_runner):
+    _, session, clock, _, _ = setup_runner
+    preparation_runner = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: FakeWriter([]),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    prepare_ready(preparation_runner, clock)
+    runner = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: AtomicEEGWriter(tmp_path, clock=marker_clock),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    active = runner.start_trial_rest()
+    clock.advance(10)
+
+    # rest_end and stimulus_start are adjacent Backend-owned markers. The
+    # coarse clock intentionally does not advance between them or the sample.
+    runner.start_stimulus(active.current_trial_id)
+    runner.accept_sample(
+        good_sample(-999),
+        sensor_timestamps={name: clock.value for name in ("tp9", "af7", "af8", "tp10")},
+    )
+
+    assert runner.state().trial_state is TrialState.stimulus
+    runner.interrupt("test cleanup")
+
+
 def test_runner_consumes_collection_rest_timing_settings(db, setup_runner):
     _, session, clock, _, _ = setup_runner
     base_runner = CollectionStateMachine(
