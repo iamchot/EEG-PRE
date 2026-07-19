@@ -2,7 +2,7 @@ import random
 import secrets
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.dataset_collection import (
@@ -72,7 +72,7 @@ def create_trial_schedule(
     session.total_trials = TOTAL_TRIALS
     try:
         db.commit()
-    except IntegrityError as exc:
+    except SQLAlchemyError as exc:
         db.rollback()
         raise ScheduleUnavailableError("Unable to create trial schedule") from exc
     return trials

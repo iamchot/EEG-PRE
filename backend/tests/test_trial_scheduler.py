@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pytest
 from sqlalchemy import create_engine, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
@@ -174,4 +174,31 @@ def test_bulk_insert_failure_rolls_back_and_raises_safe_error(db, monkeypatch):
 
     assert rolled_back is True
     assert "secret bulk SQL" not in str(exc_info.value)
+    assert db.scalars(select(CollectionTrial).where(CollectionTrial.session_id == session.id)).all() == []
+
+
+def test_operational_failure_rolls_back_schedule_state_and_raises_safe_error(db, monkeypatch):
+    session = make_session(db)
+    add_stimuli(db, approved_per_quadrant=3)
+    real_rollback = db.rollback
+    rolled_back = False
+
+    def fail_commit():
+        raise OperationalError("secret connection SQL", {}, Exception("connection lost"))
+
+    def track_rollback():
+        nonlocal rolled_back
+        rolled_back = True
+        real_rollback()
+
+    monkeypatch.setattr(db, "commit", fail_commit)
+    monkeypatch.setattr(db, "rollback", track_rollback)
+
+    with pytest.raises(ScheduleUnavailableError, match="Unable to create trial schedule") as exc_info:
+        create_trial_schedule(db, session, seed=1)
+
+    assert rolled_back is True
+    assert "secret connection SQL" not in str(exc_info.value)
+    assert session.total_trials == 0
+    assert list(db.new) == []
     assert db.scalars(select(CollectionTrial).where(CollectionTrial.session_id == session.id)).all() == []
