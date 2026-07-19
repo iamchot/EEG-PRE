@@ -194,12 +194,12 @@ class CollectionStateMachine:
     ) -> CollectionRunnerState:
         self._require(self._writer is not None, "sample ingestion requires an active capture")
         now = self._monotonic()
-        sample = replace(sample, timestamp=self._capture_clock())
         try:
+            sample = replace(sample, timestamp=self._capture_clock())
             self._writer.append(sample)
-        except Exception:
+        except Exception as exc:
             self._fail_active_boundary("Raw EEG append failed", self.session.current_trial_id)
-            raise
+            raise CollectionStateError("Raw EEG sample could not be written") from exc
         clean = self._sample_is_clean(sample, sensor_timestamps, now)
         if self._last_sample_at is not None and clean and self._last_sample_clean:
             interval = max(0.0, now - self._last_sample_at)
@@ -527,9 +527,9 @@ class CollectionStateMachine:
         assert self._writer is not None
         try:
             self._writer.mark(marker)
-        except Exception:
+        except Exception as exc:
             self._fail_active_boundary("Raw EEG marker write failed", trial_id)
-            raise
+            raise CollectionStateError("Raw EEG marker could not be written") from exc
 
     def _clear_capture(self) -> None:
         self._writer = None

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import sys
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -509,7 +510,7 @@ def test_marker_write_failure_aborts_partial_and_interrupts(setup_runner):
     state = runner.start_trial_rest()
     writers[-1].fail_marker = "stimulus_start"
     clock.advance(10)
-    with pytest.raises(OSError, match="marker write failed"):
+    with pytest.raises(CollectionStateError, match="marker could not be written"):
         runner.start_stimulus(state.current_trial_id)
     assert any(event[0] == "abort" for event in events)
     assert runner.db.get(CollectionTrial, state.current_trial_id).state is TrialState.interrupted
@@ -547,7 +548,7 @@ def test_append_failure_aborts_and_interrupts_active_trial(setup_runner):
     state = runner.start_trial_rest()
     writers[-1].fail_append = True
 
-    with pytest.raises(OSError, match="stream write failed"):
+    with pytest.raises(CollectionStateError, match="sample could not be written"):
         runner.accept_sample(good_sample(clock.value))
 
     assert any(event[0] == "abort" for event in events)
@@ -760,6 +761,54 @@ def test_atomic_writer_orders_adjacent_phase_markers_and_sample_with_coarse_cloc
 
     assert runner.state().trial_state is TrialState.stimulus
     runner.interrupt("test cleanup")
+
+
+def test_capture_clock_overflow_during_baseline_sample_fails_closed(tmp_path, db, setup_runner):
+    _, session, clock, _, _ = setup_runner
+    fixed_max_clock = lambda: sys.float_info.max
+    runner = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: AtomicEEGWriter(tmp_path, clock=marker_clock),
+        monotonic=fixed_max_clock,
+        now=clock.now,
+    )
+    runner.select_device("muse-1", "Muse 2")
+    runner.start_baseline(BaselineKind.eyes_open)
+
+    with pytest.raises(CollectionStateError, match="sample could not be written"):
+        runner.accept_sample(good_sample(sys.float_info.max))
+
+    assert runner.session.state is CollectionSessionState.interrupted
+    assert runner.session.active_baseline is None
+    assert list(tmp_path.rglob("*.partial")) == []
+
+
+def test_capture_clock_overflow_during_trial_sample_fails_closed(tmp_path, db, setup_runner):
+    _, session, clock, _, _ = setup_runner
+    preparation_runner = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: FakeWriter([]),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    prepare_ready(preparation_runner, clock)
+    runner = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: AtomicEEGWriter(tmp_path, clock=marker_clock),
+        monotonic=lambda: sys.float_info.max,
+        now=clock.now,
+    )
+    active = runner.start_trial_rest()
+
+    with pytest.raises(CollectionStateError, match="sample could not be written"):
+        runner.accept_sample(good_sample(sys.float_info.max))
+
+    assert runner.session.state is CollectionSessionState.interrupted
+    assert runner.db.get(CollectionTrial, active.current_trial_id).state is TrialState.interrupted
+    assert list(tmp_path.rglob("*.partial")) == []
 
 
 def test_runner_consumes_collection_rest_timing_settings(db, setup_runner):
