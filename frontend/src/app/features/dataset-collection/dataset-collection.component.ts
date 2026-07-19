@@ -118,7 +118,7 @@ type CollectionTab = 'overview' | 'participants' | 'stimuli' | 'sessions';
             <button id="create-session" class="primary" type="submit" [disabled]="!hasActiveParticipant() || sessionSubmitting()">{{ sessionSubmitting() ? 'Creating…' : 'Create session' }}</button>
           </form>
           <section class="panel"><h2>Sessions</h2><div class="list">@if (sessionsLoading()) { <p role="status">Loading sessions…</p> } @else { @for (item of sessions(); track item.id) {
-            <div class="list-row"><strong>Session {{ item.id }}</strong><span class="badge">{{ item.state }}</span></div>
+            <div class="list-row"><div><strong>Session {{ item.id }}</strong>@if (sessionActionLabel(item); as action) { <a [routerLink]="['/admin/dataset-collection/sessions', item.id, 'run']">{{ action }}</a> }</div><span class="badge">{{ item.state }}</span></div>
           } @empty { <p>No sessions created.</p> } }</div></section>
         </section>
       }
@@ -173,6 +173,10 @@ export class DatasetCollectionComponent implements OnInit {
   hasActiveParticipant(): boolean { return this.sessionParticipantId !== null && this.activeParticipants().some((item) => item.id === this.sessionParticipantId); }
   isStimulusDurationValid(): boolean { return this.stimulus.duration_seconds >= 45 && this.stimulus.duration_seconds <= 60; }
   isStimulusReady(): boolean { return !!(this.stimulus.title.trim() && this.stimulus.file_path.trim() && this.stimulus.checksum.length === 64 && this.stimulus.stimulus_set_version.trim() && this.isStimulusDurationValid()); }
+  sessionActionLabel(item: CollectionSession): string | null {
+    if (item.state === 'completed') return 'View summary';
+    return ['preparation', 'baseline', 'ready', 'in_progress', 'interrupted'].includes(item.state) ? 'Start / Resume' : null;
+  }
 
   registerParticipant(): void {
     if (!this.consentConfirmed || this.participantSubmitting()) return;

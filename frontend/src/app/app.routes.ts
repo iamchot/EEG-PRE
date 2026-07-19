@@ -64,6 +64,13 @@ export const routes: Routes = [
       import('./features/dataset-collection/dataset-collection.component')
         .then((m) => m.DatasetCollectionComponent),
   },
+  {
+    path: 'admin/dataset-collection/sessions/:id/run',
+    canActivate: [authGuard, adminGuard],
+    loadComponent: () =>
+      import('./features/dataset-collection-runner/dataset-collection-runner.component')
+        .then((m) => m.DatasetCollectionRunnerComponent),
+  },
 
   // Fallback
   { path: '**', redirectTo: 'dashboard' },
