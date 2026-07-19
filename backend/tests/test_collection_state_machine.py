@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from app.config import Settings
 from app.database import Base
 from app.models.dataset_collection import (
     ArtifactEvent,
@@ -23,7 +24,7 @@ from app.services.collection_state_machine import (
     CollectionStateMachine,
     InvalidTransitionError,
 )
-from app.services.raw_eeg_writer import EEGSample, RawFileResult
+from app.services.raw_eeg_writer import AtomicEEGWriter, EEGSample, RawFileResult
 from app.services.trial_scheduler import create_trial_schedule
 
 
@@ -48,15 +49,21 @@ class FakeWriter:
         self.fail_finalize = fail_finalize
         self.samples = []
         self.path = None
+        self.fail_append = False
+        self.fail_marker = None
 
     def start(self, path):
         self.path = tuple(path)
         self.events.append(("start", self.path))
 
     def append(self, sample):
+        if self.fail_append:
+            raise OSError("stream write failed")
         self.samples.append(sample)
 
     def mark(self, marker):
+        if marker == self.fail_marker:
+            raise OSError("marker write failed")
         self.events.append(("marker", marker))
 
     def finalize(self):
@@ -109,7 +116,7 @@ def setup_runner(db):
     events = []
     writers = []
 
-    def factory():
+    def factory(marker_clock=None):
         writer = FakeWriter(events)
         writers.append(writer)
         return writer
@@ -149,6 +156,7 @@ def test_happy_path_reaches_second_trial_rest(setup_runner):
     clock.advance(45)
     runner.finish_stimulus(first.current_trial_id)
     runner.submit_rating(first.current_trial_id, valence=8, arousal=7, confidence=4)
+    clock.advance(20)
     second = runner.start_trial_rest()
 
     assert session.state is CollectionSessionState.in_progress
@@ -277,8 +285,60 @@ def test_db_failure_after_finalize_retains_file_and_marks_recovery(setup_runner,
     assert any(event[0] == "finalize" and "trial" in event[1][2] for event in events)
     assert trial.state is TrialState.interrupted
     assert trial.failure_reason == "Trial file finalized but metadata commit failed"
+    assert (trial.eeg_file_path, trial.eeg_checksum, trial.raw_size_bytes) == (
+        f"P001/{session.id}/trial-{trial.id}.csv",
+        "a" * 64,
+        123,
+    )
     assert runner.session.state is CollectionSessionState.interrupted
     assert runner.state().file_recovery_required is True
+
+    recreated = CollectionStateMachine(
+        runner.db,
+        runner.session,
+        writer_factory=lambda marker_clock: FakeWriter([]),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    assert recreated.state().file_recovery_required is True
+    assert recreated.resume().file_recovery_required is False
+
+
+def test_baseline_metadata_commit_failure_survives_recreation(setup_runner, monkeypatch):
+    runner, session, clock, _, _ = setup_runner
+    runner.select_device("muse-1", "Muse 2")
+    runner.start_baseline(BaselineKind.eyes_open)
+    runner.accept_sample(good_sample(clock.value))
+    for _ in range(30):
+        clock.advance(1)
+        runner.accept_sample(good_sample(clock.value))
+    clock.advance(30)
+    real_commit = runner.db.commit
+    attempts = 0
+
+    def fail_once():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("database unavailable")
+        real_commit()
+
+    monkeypatch.setattr(runner.db, "commit", fail_once)
+    with pytest.raises(CollectionPersistenceError, match="metadata commit failed"):
+        runner.finish_baseline()
+
+    recreated = CollectionStateMachine(
+        runner.db,
+        runner.session,
+        writer_factory=lambda marker_clock: FakeWriter([]),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    assert recreated.state().file_recovery_required is True
+    assert recreated.session.eyes_open_baseline_path is not None
+    resumed = recreated.resume()
+    assert resumed.file_recovery_required is False
+    assert resumed.state is CollectionSessionState.preparation
 
 
 def test_interrupt_aborts_partial_and_persists_reason(setup_runner):
@@ -298,7 +358,7 @@ def test_restart_recovery_interrupts_in_flight_and_resume_keeps_order(db, setup_
     first = runner.start_trial_rest()
     original_order = [t.stimulus_id for t in db.scalars(select(CollectionTrial).where(CollectionTrial.session_id == session.id).order_by(CollectionTrial.randomized_order))]
 
-    recovered = CollectionStateMachine.recover(db, session, writer_factory=lambda: FakeWriter([]), monotonic=clock.monotonic, now=clock.now)
+    recovered = CollectionStateMachine.recover(db, session, writer_factory=lambda marker_clock: FakeWriter([]), monotonic=clock.monotonic, now=clock.now)
     assert recovered.state().state is CollectionSessionState.interrupted
     resumed = recovered.resume()
     after_order = [t.stimulus_id for t in db.scalars(select(CollectionTrial).where(CollectionTrial.session_id == session.id).order_by(CollectionTrial.randomized_order))]
@@ -325,7 +385,7 @@ def test_restart_uses_a_new_pseudonymous_attempt_path_when_old_partial_exists(db
     recovered = CollectionStateMachine.recover(
         db,
         session,
-        writer_factory=lambda: CollisionCheckingWriter([]),
+        writer_factory=lambda marker_clock: CollisionCheckingWriter([]),
         monotonic=clock.monotonic,
         now=clock.now,
     )
@@ -357,7 +417,7 @@ def test_restart_can_restart_same_baseline_without_touching_old_partial(db, setu
     recovered = CollectionStateMachine.recover(
         db,
         session,
-        writer_factory=lambda: CollisionCheckingWriter([]),
+        writer_factory=lambda marker_clock: CollisionCheckingWriter([]),
         monotonic=clock.monotonic,
         now=clock.now,
     )
@@ -382,6 +442,216 @@ def test_break_after_six_and_session_completes_after_twelve(setup_runner):
         done = runner.submit_rating(state.current_trial_id, valence=7, arousal=7, confidence=5)
         if order == 6:
             assert done.break_required is True
+        if order < 12:
+            clock.advance(20)
     assert done.state is CollectionSessionState.completed
     assert session.completed_trials == 12
     assert session.completed_at is not None
+
+
+def test_start_rest_commit_failure_aborts_partial_and_persists_interruption(setup_runner, monkeypatch):
+    runner, _, clock, events, _ = setup_runner
+    prepare_ready(runner, clock)
+    real_commit = runner.db.commit
+    attempts = 0
+
+    def fail_once():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("commit failed")
+        real_commit()
+
+    monkeypatch.setattr(runner.db, "commit", fail_once)
+    with pytest.raises(CollectionPersistenceError):
+        runner.start_trial_rest()
+
+    assert any(event[0] == "abort" and "trial" in event[1][2] for event in events)
+    assert runner.session.state is CollectionSessionState.interrupted
+    interrupted_trial_id = runner.session.current_trial_id
+    assert runner.db.get(CollectionTrial, interrupted_trial_id).state is TrialState.interrupted
+    runner.resume()
+    retried = runner.start_trial_rest()
+    assert retried.current_trial_order == 1
+    assert any(event[0] == "start" and "-recovery-" in event[1][2] for event in events)
+
+
+def test_start_baseline_commit_failure_aborts_partial_and_can_retry(setup_runner, monkeypatch):
+    runner, _, _, events, _ = setup_runner
+    runner.select_device("muse-1", "Muse 2")
+    real_commit = runner.db.commit
+    attempts = 0
+
+    def fail_once():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("commit failed")
+        real_commit()
+
+    monkeypatch.setattr(runner.db, "commit", fail_once)
+    with pytest.raises(CollectionPersistenceError):
+        runner.start_baseline(BaselineKind.eyes_open)
+    assert any(event[0] == "abort" and "baseline-eyes_open" in event[1][2] for event in events)
+    assert runner.session.state is CollectionSessionState.interrupted
+    runner.resume()
+    restarted = runner.start_baseline(BaselineKind.eyes_open)
+    assert restarted.active_baseline is BaselineKind.eyes_open
+
+
+def test_marker_write_failure_aborts_partial_and_interrupts(setup_runner):
+    runner, _, clock, events, writers = setup_runner
+    prepare_ready(runner, clock)
+    state = runner.start_trial_rest()
+    writers[-1].fail_marker = "stimulus_start"
+    clock.advance(10)
+    with pytest.raises(OSError, match="marker write failed"):
+        runner.start_stimulus(state.current_trial_id)
+    assert any(event[0] == "abort" for event in events)
+    assert runner.db.get(CollectionTrial, state.current_trial_id).state is TrialState.interrupted
+    assert runner.session.state is CollectionSessionState.interrupted
+
+
+def test_marker_transition_commit_failure_aborts_partial_and_does_not_advance(setup_runner, monkeypatch):
+    runner, _, clock, events, _ = setup_runner
+    prepare_ready(runner, clock)
+    state = runner.start_trial_rest()
+    clock.advance(10)
+    real_commit = runner.db.commit
+    attempts = 0
+
+    def fail_once():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("commit failed")
+        real_commit()
+
+    monkeypatch.setattr(runner.db, "commit", fail_once)
+    with pytest.raises(CollectionPersistenceError):
+        runner.start_stimulus(state.current_trial_id)
+
+    assert ("marker", "stimulus_start") in events
+    assert any(event[0] == "abort" for event in events)
+    assert runner.db.get(CollectionTrial, state.current_trial_id).state is TrialState.interrupted
+    assert runner.session.state is CollectionSessionState.interrupted
+
+
+def test_append_failure_aborts_and_interrupts_active_trial(setup_runner):
+    runner, _, clock, events, writers = setup_runner
+    prepare_ready(runner, clock)
+    state = runner.start_trial_rest()
+    writers[-1].fail_append = True
+
+    with pytest.raises(OSError, match="stream write failed"):
+        runner.accept_sample(good_sample(clock.value))
+
+    assert any(event[0] == "abort" for event in events)
+    assert runner.db.get(CollectionTrial, state.current_trial_id).state is TrialState.interrupted
+    assert runner.session.state is CollectionSessionState.interrupted
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [CollectionSessionState.completed, CollectionSessionState.failed, CollectionSessionState.withdrawn],
+)
+def test_interrupt_never_regresses_terminal_session(setup_runner, terminal):
+    runner, session, _, _, _ = setup_runner
+    session.state = terminal
+    runner.db.commit()
+    with pytest.raises(InvalidTransitionError):
+        runner.interrupt("late disconnect")
+    assert session.state is terminal
+
+
+def test_interrupt_rejects_inactive_ready_session(setup_runner):
+    runner, session, clock, _, _ = setup_runner
+    prepare_ready(runner, clock)
+    with pytest.raises(InvalidTransitionError):
+        runner.interrupt("not actually active")
+    assert session.state is CollectionSessionState.ready
+
+
+def test_rest_and_stimulus_enforce_early_and_late_bounds(setup_runner):
+    runner, _, clock, _, _ = setup_runner
+    prepare_ready(runner, clock)
+    state = runner.start_trial_rest()
+    clock.advance(9.9)
+    with pytest.raises(InvalidTransitionError, match="10"):
+        runner.start_stimulus(state.current_trial_id)
+    clock.advance(5.2)
+    with pytest.raises(InvalidTransitionError, match="15"):
+        runner.start_stimulus(state.current_trial_id)
+    assert runner.session.state is CollectionSessionState.interrupted
+
+    runner.resume()
+    state = runner.start_trial_rest()
+    clock.advance(10)
+    runner.start_stimulus(state.current_trial_id)
+    clock.advance(44.9)
+    with pytest.raises(InvalidTransitionError, match="45"):
+        runner.finish_stimulus(state.current_trial_id)
+    clock.advance(15.2)
+    with pytest.raises(InvalidTransitionError, match="60"):
+        runner.finish_stimulus(state.current_trial_id)
+    assert runner.session.state is CollectionSessionState.interrupted
+
+
+def test_post_rating_rest_blocks_early_start_and_records_late_protocol_deviation(setup_runner):
+    runner, _, clock, _, _ = setup_runner
+    prepare_ready(runner, clock)
+    first = runner.start_trial_rest()
+    clock.advance(10)
+    runner.start_stimulus(first.current_trial_id)
+    clock.advance(45)
+    runner.finish_stimulus(first.current_trial_id)
+    runner.submit_rating(first.current_trial_id, valence=7, arousal=7, confidence=5)
+    clock.advance(19.9)
+    with pytest.raises(InvalidTransitionError, match="20"):
+        runner.start_trial_rest()
+    clock.advance(10.2)
+    second = runner.start_trial_rest()
+    trial = runner.db.get(CollectionTrial, second.current_trial_id)
+    assert "exceeded 30" in trial.failure_reason
+
+
+def test_atomic_writer_uses_injected_backend_clock_for_markers_and_samples(tmp_path, db, setup_runner):
+    _, session, clock, _, _ = setup_runner
+    runner = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: AtomicEEGWriter(tmp_path, clock=marker_clock),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    runner.select_device("muse-1", "Muse 2")
+    runner.start_baseline(BaselineKind.eyes_open)
+    clock.advance(0.01)
+    runner.accept_sample(
+        good_sample(-999),
+        sensor_timestamps={name: clock.value for name in ("tp9", "af7", "af8", "tp10")},
+    )
+    runner.interrupt("test cleanup")
+
+
+def test_runner_consumes_collection_rest_timing_settings(db, setup_runner):
+    _, session, clock, _, _ = setup_runner
+    base_runner = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: FakeWriter([]),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    prepare_ready(base_runner, clock)
+    configured = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: FakeWriter([]),
+        monotonic=clock.monotonic,
+        now=clock.now,
+        settings=Settings(collection_rest_min_seconds=2, collection_rest_max_seconds=3),
+    )
+    state = configured.start_trial_rest()
+    clock.advance(2)
+    assert configured.start_stimulus(state.current_trial_id).trial_state is TrialState.stimulus
