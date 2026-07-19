@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib
 import threading
 import time
 from datetime import datetime
@@ -770,6 +771,9 @@ def test_idle_release_retains_websocket_flow_and_active_writer_context():
     manager._runners[21] = Runner(preparation)
     manager._clients[21].add(object())
     manager._runners[22] = Runner(baseline)
+    manager._clients[22].add(object())
+    manager._sources[22] = object()
+    manager._connected_sources.add(22)
 
     assert manager.release_if_idle(21) is False
     assert manager.release_if_idle(22) is False
@@ -822,3 +826,73 @@ def test_failed_http_only_schedule_releases_owned_runner_session(client, monkeyp
     assert response.status_code == 409
     assert manager._runners == {}
     assert manager._runner_sessions == {}
+
+
+def test_runner_recovery_failure_closes_owned_session_without_registration(client, monkeypatch):
+    session_id, _ = client.app.state.ids
+    manager = CollectionConnectionManager()
+    module = importlib.import_module("app.ws.collection_manager")
+    closed = []
+
+    class OwnedSession:
+        def get(self, model, object_id):
+            return object()
+
+        def close(self):
+            closed.append(True)
+
+    owned = OwnedSession()
+    monkeypatch.setattr(module, "Session", lambda **kwargs: owned)
+    monkeypatch.setattr(
+        module.CollectionStateMachine,
+        "recover",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("recover failed")),
+    )
+    with client.app.state.factory() as request_db:
+        collection_session = request_db.get(CollectionSession, session_id)
+        with pytest.raises(RuntimeError, match="recover failed"):
+            manager.run(request_db, collection_session, lambda runner: runner.state())
+
+    assert closed == [True]
+    assert manager._runners == {}
+    assert manager._runner_sessions == {}
+
+
+def test_idle_release_closes_session_even_if_runner_state_would_fail():
+    manager = CollectionConnectionManager()
+    closed = []
+
+    class BrokenRunner:
+        def state(self):
+            raise RuntimeError("state inspection failed")
+
+    class OwnedSession:
+        def close(self):
+            closed.append(True)
+
+    manager._runners[31] = BrokenRunner()
+    manager._runner_sessions[31] = OwnedSession()
+    assert manager.release_if_idle(31) is True
+    assert closed == [True]
+    assert manager._runners == {}
+    assert manager._runner_sessions == {}
+
+
+def test_http_only_lifecycle_does_not_grow_sequence_or_lock_registries(client, monkeypatch):
+    session_id, _ = client.app.state.ids
+    manager = CollectionConnectionManager()
+    monkeypatch.setattr(dataset_collection, "collection_manager", manager)
+    monkeypatch.setattr("app.ws.collection_manager.get_settings", lambda: client.app.state.collection_settings)
+
+    for index in range(10):
+        response = client.post(
+            f"{BASE}/sessions/{session_id}/device",
+            headers=auth(client),
+            json={"device_id": f"muse-{index}", "device_name": "Muse 2"},
+        )
+        assert response.status_code == 200
+        assert manager._runners == {}
+        assert manager._runner_sessions == {}
+        assert manager._sequences == {}
+
+    assert len(manager._locks) == 0

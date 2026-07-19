@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import weakref
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
@@ -37,7 +38,8 @@ class CollectionConnectionManager:
         self._connected_sources: set[int] = set()
         self._tasks: dict[int, asyncio.Task] = {}
         self._sequences: dict[int, int] = defaultdict(int)
-        self._locks: dict[int, threading.RLock] = defaultdict(threading.RLock)
+        self._lock_registry_guard = threading.Lock()
+        self._locks: weakref.WeakValueDictionary[int, threading.RLock] = weakref.WeakValueDictionary()
 
     def run(
         self,
@@ -46,13 +48,13 @@ class CollectionConnectionManager:
         operation: Callable[[CollectionStateMachine], T],
     ) -> T:
         """Run one request operation under the Session's per-runner lock."""
-        with self._locks[session.id]:
+        with self._session_lock(session.id):
             runner = self._get_runner_unlocked(db, session)
             return operation(runner)
 
     def run_active(self, session_id: int, operation: Callable[[CollectionStateMachine], T]) -> T:
         """Run one stream/lifecycle operation against an existing runner."""
-        with self._locks[session_id]:
+        with self._session_lock(session_id):
             runner = self._runners.get(session_id)
             if runner is None:
                 raise LookupError("Collection runner is not active")
@@ -65,7 +67,7 @@ class CollectionConnectionManager:
         operation: Callable[[CollectionStateMachine], T],
     ) -> T:
         """Run a capture boundary only while its WebSocket/source context is live."""
-        with self._locks[session.id]:
+        with self._session_lock(session.id):
             if not self._has_live_source_unlocked(session.id):
                 raise CollectionContextUnavailableError(
                     "A live Muse connection is required for collection capture"
@@ -75,21 +77,13 @@ class CollectionConnectionManager:
 
     def release_if_idle(self, session_id: int) -> bool:
         """Close an HTTP-only runner once no capture or live client can use it."""
-        with self._locks[session_id]:
+        with self._session_lock(session_id):
             if self._clients.get(session_id) or self._sources.get(session_id):
                 return False
             task = self._tasks.get(session_id)
             if task is not None and not task.done():
                 return False
-            runner = self._runners.get(session_id)
-            if runner is None:
-                return False
-            state = runner.state()
-            if state.active_baseline is not None or state.trial_state in {
-                TrialState.rest,
-                TrialState.stimulus,
-                TrialState.rating,
-            }:
+            if session_id not in self._runners and session_id not in self._runner_sessions:
                 return False
             self._drop_runner_unlocked(session_id)
             return True
@@ -98,14 +92,14 @@ class CollectionConnectionManager:
         session = db.get(CollectionSession, session_id)
         if session is None:
             raise LookupError("Collection session not found")
-        with self._locks[session_id]:
+        with self._session_lock(session_id):
             self._clients[session_id].add(websocket)
         state = self.run(db, session, lambda runner: runner.state())
         await self.broadcast(session_id, state)
         await self.ensure_source(session_id)
 
     async def disconnect(self, session_id: int, websocket: WebSocket) -> None:
-        with self._locks[session_id]:
+        with self._session_lock(session_id):
             clients = self._clients.get(session_id)
             if clients is not None:
                 clients.discard(websocket)
@@ -113,7 +107,7 @@ class CollectionConnectionManager:
                 return
             self._clients.pop(session_id, None)
         await self.stop_source(session_id)
-        with self._locks[session_id]:
+        with self._session_lock(session_id):
             runner = self._runners.get(session_id)
             if runner is not None:
                 self._interrupt_if_active_unlocked(runner)
@@ -121,7 +115,7 @@ class CollectionConnectionManager:
 
     async def ensure_source(self, session_id: int) -> None:
         """Start or restart acquisition when a client and selected device exist."""
-        with self._locks[session_id]:
+        with self._session_lock(session_id):
             if not self._clients.get(session_id):
                 return
             existing = self._tasks.get(session_id)
@@ -138,7 +132,7 @@ class CollectionConnectionManager:
             )
 
     async def stop_source(self, session_id: int) -> None:
-        with self._locks[session_id]:
+        with self._session_lock(session_id):
             task = self._tasks.pop(session_id, None)
             source = self._sources.pop(session_id, None)
             self._connected_sources.discard(session_id)
@@ -164,7 +158,11 @@ class CollectionConnectionManager:
         await self.broadcast(session_id, state)
 
     async def broadcast(self, session_id: int, state, *, error: str | None = None) -> None:
-        self._sequences[session_id] += 1
+        lock = self._session_lock(session_id)
+        with lock:
+            self._sequences[session_id] += 1
+            sequence = self._sequences[session_id]
+            clients = tuple(self._clients.get(session_id, ()))
         if isinstance(state, BaseModel):
             payload = state.model_dump(mode="json")
         elif isinstance(state, dict):
@@ -176,20 +174,19 @@ class CollectionConnectionManager:
             }
         else:
             raise TypeError("collection state must be a DTO, mapping, or Pydantic model")
-        payload = {"sequence": self._sequences[session_id], **payload}
+        payload = {"sequence": sequence, **payload}
         if error:
             payload["stream_error"] = error
         dead = []
-        with self._locks[session_id]:
-            clients = tuple(self._clients.get(session_id, ()))
         for websocket in clients:
             try:
                 await websocket.send_json(payload)
             except Exception:
                 dead.append(websocket)
-        with self._locks[session_id]:
+        with lock:
             for websocket in dead:
                 self._clients[session_id].discard(websocket)
+            self._cleanup_metadata_unlocked(session_id)
 
     async def _pump(
         self,
@@ -202,7 +199,7 @@ class CollectionConnectionManager:
         # Supplying runner is useful for isolated adapter tests; production
         # always registers it before starting the task.
         if runner is not None:
-            with self._locks[session_id]:
+            with self._session_lock(session_id):
                 self._runners.setdefault(session_id, runner)
         try:
             if device_id is None:
@@ -210,7 +207,7 @@ class CollectionConnectionManager:
             if not device_id:
                 return
             await source.connect(device_id)
-            with self._locks[session_id]:
+            with self._session_lock(session_id):
                 if self._sources.get(session_id) is source:
                     self._connected_sources.add(session_id)
             async for incoming in source.samples():
@@ -243,12 +240,13 @@ class CollectionConnectionManager:
             except Exception:
                 pass
             current = asyncio.current_task()
-            with self._locks[session_id]:
+            with self._session_lock(session_id):
                 self._connected_sources.discard(session_id)
                 if self._tasks.get(session_id) is current:
                     self._tasks.pop(session_id, None)
                 if self._sources.get(session_id) is source:
                     self._sources.pop(session_id, None)
+                self._cleanup_metadata_unlocked(session_id)
 
     @staticmethod
     def _accept_sample_unlocked(runner: CollectionStateMachine, incoming) -> tuple[object, bool]:
@@ -296,18 +294,21 @@ class CollectionConnectionManager:
         if runner is None:
             settings = get_settings()
             runner_db = Session(bind=db.get_bind(), expire_on_commit=False)
-            owned_session = runner_db.get(CollectionSession, session.id)
-            if owned_session is None:
-                runner_db.close()
-                raise LookupError("Collection session not found")
-            runner = CollectionStateMachine.recover(
-                runner_db,
-                owned_session,
-                writer_factory=lambda marker_clock: AtomicEEGWriter(
-                    settings.collection_raw_dir,
-                    clock=marker_clock,
-                ),
-            )
+            try:
+                owned_session = runner_db.get(CollectionSession, session.id)
+                if owned_session is None:
+                    raise LookupError("Collection session not found")
+                runner = CollectionStateMachine.recover(
+                    runner_db,
+                    owned_session,
+                    writer_factory=lambda marker_clock: AtomicEEGWriter(
+                        settings.collection_raw_dir,
+                        clock=marker_clock,
+                    ),
+                )
+            except BaseException:
+                self._close_session_safely(runner_db)
+                raise
             self._runners[session.id] = runner
             self._runner_sessions[session.id] = runner_db
         return runner
@@ -316,7 +317,40 @@ class CollectionConnectionManager:
         self._runners.pop(session_id, None)
         runner_db = self._runner_sessions.pop(session_id, None)
         if runner_db is not None:
+            self._close_session_safely(runner_db)
+        self._cleanup_metadata_unlocked(session_id)
+
+    def _session_lock(self, session_id: int) -> threading.RLock:
+        with self._lock_registry_guard:
+            lock = self._locks.get(session_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._locks[session_id] = lock
+            return lock
+
+    def _cleanup_metadata_unlocked(self, session_id: int) -> None:
+        if not self._clients.get(session_id):
+            self._clients.pop(session_id, None)
+        task = self._tasks.get(session_id)
+        if task is not None and task.done():
+            self._tasks.pop(session_id, None)
+        if any((
+            self._clients.get(session_id),
+            self._runners.get(session_id),
+            self._runner_sessions.get(session_id),
+            self._sources.get(session_id),
+            self._tasks.get(session_id),
+            session_id in self._connected_sources,
+        )):
+            return
+        self._sequences.pop(session_id, None)
+
+    @staticmethod
+    def _close_session_safely(runner_db: Session) -> None:
+        try:
             runner_db.close()
+        except Exception:
+            pass
 
     def _has_live_source_unlocked(self, session_id: int) -> bool:
         task = self._tasks.get(session_id)
