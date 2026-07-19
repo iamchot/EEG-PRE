@@ -10,6 +10,7 @@ import {
   DatasetCollectionService,
   DatasetParticipant,
   EmotionStimulus,
+  CollectionRunnerState,
 } from './dataset-collection.service';
 
 describe('DatasetCollectionService', () => {
@@ -114,5 +115,93 @@ describe('DatasetCollectionService', () => {
     expect(request.request.body).toEqual(body);
     request.flush(session);
     expect(received).toEqual(session);
+  });
+
+  describe('runner commands', () => {
+    const runnerState: CollectionRunnerState = {
+      session_id: 13,
+      state: 'ready',
+      active_baseline: null,
+      current_trial_id: null,
+      current_trial_order: null,
+      current_stimulus_id: null,
+      current_stimulus_title: null,
+      trial_state: null,
+      completed_trials: 0,
+      total_trials: 12,
+      next_trial_order: 1,
+      next_trial_id: 21,
+      next_stimulus_id: 11,
+      next_stimulus_title: 'Calm lake',
+      break_required: false,
+      interruption_reason: null,
+      accepted_clean_seconds: 0,
+      wall_clock_seconds: 0,
+      file_recovery_required: false,
+    };
+
+    const expectPost = (call: () => void, path: string, body: unknown) => {
+      call();
+      const request = http.expectOne(`${baseUrl}/sessions/13${path}`);
+      expect(request.request.method).toBe('POST');
+      expect(request.request.body).toEqual(body);
+      request.flush(runnerState);
+    };
+
+    it('creates the schedule without a browser-owned payload', () => {
+      expectPost(() => service.createSchedule(13).subscribe(), '/schedule', null);
+    });
+
+    it('selects a device with the exact backend body', () => {
+      const body = { device_id: 'muse-01', device_name: 'Muse 2' };
+      expectPost(() => service.selectDevice(13, body).subscribe(), '/device', body);
+    });
+
+    it('starts either baseline without a browser timestamp', () => {
+      expectPost(() => service.startBaseline(13, 'eyes_open').subscribe(), '/baseline/eyes_open/start', null);
+    });
+
+    it('starts Trial rest and stimulus and finishes stimulus without payloads', () => {
+      expectPost(() => service.startTrialRest(13, 21).subscribe(), '/trials/21/rest/start', null);
+      expectPost(() => service.startStimulus(13, 21).subscribe(), '/trials/21/stimulus/start', null);
+      expectPost(() => service.finishStimulus(13, 21).subscribe(), '/trials/21/stimulus/finish', null);
+    });
+
+    it('marks an artifact with event type and optional note only', () => {
+      const body = { event_type: 'movement', note: 'adjusted posture' };
+      expectPost(() => service.markArtifact(13, 21, body).subscribe(), '/trials/21/artifacts', body);
+    });
+
+    it('submits only valence, arousal, and confidence ratings', () => {
+      const body = { valence: 7, arousal: 4, confidence: 5 };
+      expectPost(() => service.submitRating(13, 21, body).subscribe(), '/trials/21/rating', body);
+    });
+
+    it('interrupts with a reason and resumes without a browser-owned payload', () => {
+      const body = { reason: 'operator emergency stop' };
+      expectPost(() => service.interrupt(13, body).subscribe(), '/interrupt', body);
+      expectPost(() => service.resume(13).subscribe(), '/resume', null);
+    });
+
+    it('gets the persisted runner state', () => {
+      let received: CollectionRunnerState | undefined;
+      service.getRunnerState(13).subscribe(value => received = value);
+      const request = http.expectOne(`${baseUrl}/sessions/13/runner-state`);
+      expect(request.request.method).toBe('GET');
+      request.flush(runnerState);
+      expect(received).toEqual(runnerState);
+    });
+
+    it('fetches authenticated stimulus media as a Blob without using its local path', () => {
+      const media = new Blob(['video'], { type: 'video/mp4' });
+      let received: Blob | undefined;
+      service.getStimulusMedia(11).subscribe(value => received = value);
+      const request = http.expectOne(`${baseUrl}/stimuli/11/media`);
+      expect(request.request.method).toBe('GET');
+      expect(request.request.responseType).toBe('blob');
+      expect(request.request.url).not.toContain(stimulus.file_path);
+      request.flush(media);
+      expect(received).toBe(media);
+    });
   });
 });
