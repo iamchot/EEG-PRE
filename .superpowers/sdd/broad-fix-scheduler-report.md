@@ -41,35 +41,56 @@ cd backend
 .\.venv\Scripts\python.exe -m pytest \
   tests/test_dataset_collection_models.py \
   tests/test_trial_scheduler.py \
-  tests/test_trial_schedule_migration.py \
-  tests/test_collection_runner_api.py::test_rest_start_rejects_a_non_next_trial_before_transition -q
+  tests/test_trial_schedule_migration.py -q
 ```
 
 Result:
 
 ```text
-21 passed, 1 warning
+23 passed
 ```
 
 Coverage includes deterministic seed/idempotency, inventory shortage, draft and
 retired stimulus exclusions, rollback safety, partial-schedule rejection,
 `FOR UPDATE` ordering, unique-race winner reload, a deterministic two-worker
 row-lock simulation, ORM constraint metadata, Alembic revision/operation
-metadata, downgrade behavior, and emitted PostgreSQL constraint SQL.
+metadata, downgrade behavior, and emitted PostgreSQL/MySQL upgrade and
+downgrade SQL.
 
-## Full Backend Suite Interference
+## MySQL Review Evidence
 
-A full backend run after the scoped changes reached:
+The review follow-up added a real MySQL 8.0 integration race. It creates a
+uniquely named `eegpre_scheduler_test_<uuid>` database, uses independent
+engines, connections, and sessions (verified with distinct MySQL
+`CONNECTION_ID()` values), starts two workers together without a Python lock,
+and asserts both callers return the same persisted 12-row schedule. The test
+passed locally.
+
+The online migration integration creates a separate
+`eegpre_migration_test_<uuid>` database and runs the actual Alembic revision
+chain through `20260719_02` on an explicitly bound connection. After inserting
+duplicate `(session_id, randomized_order)` rows, upgrading to `20260719_03`
+fails as intended. The test verifies `alembic_version` remains
+`20260719_02`, the unique constraint is absent, both legacy rows remain, and no
+partial DDL side effect occurred. This test also passed locally.
+
+Both fixtures require database-creation privileges and otherwise skip with an
+explicit reason. Local verification supplied a test-only administrative URL
+through `EEGPRE_MYSQL_TEST_ADMIN_URL`; the configured application account is
+correctly restricted to the live application database. Database names are
+validated against strict test-only patterns before both creation and cleanup,
+and cleanup only drops the generated test database.
+
+## Full Backend Suite
+
+After the concurrent signal work settled, the full backend command completed:
 
 ```text
-173 passed, 1 skipped, 3 failed, 1 warning
+181 passed, 1 skipped, 1 warning
 ```
 
-The three failures were runner-state fake objects missing newly added signal
-quality fields while another agent was editing signal/manager files in the
-shared workspace. They are outside this fix and none of those files were
-modified or staged here. The root agent will rerun the full suite after the
-concurrent signal-integrity work is committed.
+The single skip is an existing unrelated conditional test. Both new MySQL
+integrations ran and passed in this full-suite invocation.
 
 ## Files
 

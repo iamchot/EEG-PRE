@@ -1,11 +1,16 @@
-from datetime import datetime
+import os
+import re
 import threading
+from datetime import datetime
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
+from app.config import get_settings
 from app.database import Base
 from app.models.dataset_collection import (
     CollectionSession,
@@ -18,6 +23,41 @@ from app.models.dataset_collection import (
     TrialState,
 )
 from app.services.trial_scheduler import ScheduleUnavailableError, create_trial_schedule
+
+
+_MYSQL_TEST_DATABASE_PATTERN = re.compile(r"eegpre_scheduler_test_[0-9a-f]{32}")
+
+
+def _guard_mysql_test_database_name(database_name):
+    assert _MYSQL_TEST_DATABASE_PATTERN.fullmatch(database_name)
+    assert database_name != make_url(get_settings().database_url).database
+
+
+@pytest.fixture
+def mysql_scheduler_database_url():
+    configured_url = make_url(
+        os.getenv("EEGPRE_MYSQL_TEST_ADMIN_URL", get_settings().database_url)
+    )
+    if configured_url.get_backend_name() != "mysql":
+        pytest.skip("MySQL scheduler integration requires a configured MySQL DATABASE_URL")
+
+    database_name = f"eegpre_scheduler_test_{uuid4().hex}"
+    _guard_mysql_test_database_name(database_name)
+    server_engine = create_engine(configured_url.set(database=None), isolation_level="AUTOCOMMIT")
+    try:
+        with server_engine.connect() as connection:
+            connection.exec_driver_sql(f"CREATE DATABASE `{database_name}` CHARACTER SET utf8mb4")
+    except SQLAlchemyError as exc:
+        server_engine.dispose()
+        pytest.skip(f"MySQL scheduler integration unavailable: {type(exc).__name__}")
+
+    try:
+        yield configured_url.set(database=database_name)
+    finally:
+        _guard_mysql_test_database_name(database_name)
+        with server_engine.connect() as connection:
+            connection.exec_driver_sql(f"DROP DATABASE `{database_name}`")
+        server_engine.dispose()
 
 
 class _SimulatedRowLockSession:
@@ -311,6 +351,67 @@ def test_two_workers_serialize_schedule_creation_and_return_one_schedule(tmp_pat
     finally:
         verification_db.close()
         engine.dispose()
+
+
+def test_mysql_workers_use_independent_connections_and_persist_one_schedule(
+    mysql_scheduler_database_url,
+):
+    setup_engine = create_engine(mysql_scheduler_database_url)
+    first_engine = create_engine(mysql_scheduler_database_url)
+    second_engine = create_engine(mysql_scheduler_database_url)
+    verification_engine = create_engine(mysql_scheduler_database_url)
+    engines = (setup_engine, first_engine, second_engine, verification_engine)
+    try:
+        Base.metadata.create_all(setup_engine)
+        with sessionmaker(bind=setup_engine)() as setup_db:
+            collection_session = make_session(setup_db)
+            session_id = collection_session.id
+            add_stimuli(setup_db, approved_per_quadrant=5)
+
+        start = threading.Barrier(2)
+        results = []
+        connection_ids = []
+        errors = []
+
+        def schedule(engine, seed):
+            with sessionmaker(bind=engine)() as worker_db:
+                try:
+                    connection_ids.append(worker_db.scalar(text("SELECT CONNECTION_ID()")))
+                    worker_session = worker_db.get(CollectionSession, session_id)
+                    start.wait(timeout=10)
+                    trials = create_trial_schedule(worker_db, worker_session, seed=seed)
+                    results.append(
+                        [(trial.id, trial.stimulus_id, trial.randomized_order) for trial in trials]
+                    )
+                except Exception as exc:  # pragma: no cover - asserted through errors
+                    errors.append(exc)
+
+        workers = [
+            threading.Thread(target=schedule, args=(first_engine, 101)),
+            threading.Thread(target=schedule, args=(second_engine, 202)),
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=20)
+
+        with sessionmaker(bind=verification_engine)() as verification_db:
+            persisted = _load_persisted_schedule(verification_db, session_id)
+            persisted_identity = [
+                (trial.id, trial.stimulus_id, trial.randomized_order) for trial in persisted
+            ]
+            assert all(not worker.is_alive() for worker in workers)
+            assert errors == []
+            assert len(set(connection_ids)) == 2
+            assert len(results) == 2
+            assert results[0] == results[1] == persisted_identity
+            assert len(persisted) == 12
+            assert [trial.randomized_order for trial in persisted] == list(range(1, 13))
+            assert len({trial.stimulus_id for trial in persisted}) == 12
+            assert verification_db.get(CollectionSession, session_id).total_trials == 12
+    finally:
+        for engine in engines:
+            engine.dispose()
 
 
 def _load_persisted_schedule(db, session_id):
