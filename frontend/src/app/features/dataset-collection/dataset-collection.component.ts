@@ -118,7 +118,7 @@ type CollectionTab = 'overview' | 'participants' | 'stimuli' | 'sessions';
             <button id="create-session" class="primary" type="submit" [disabled]="!hasActiveParticipant() || sessionSubmitting()">{{ sessionSubmitting() ? 'Creating…' : 'Create session' }}</button>
           </form>
           <section class="panel"><h2>Sessions</h2><div class="list">@if (sessionsLoading()) { <p role="status">Loading sessions…</p> } @else { @for (item of sessions(); track item.id) {
-            <div class="list-row"><div><strong>Session {{ item.id }}</strong>@if (sessionActionLabel(item); as action) { <a [routerLink]="['/admin/dataset-collection/sessions', item.id, 'run']">{{ action }}</a> }</div><span class="badge">{{ item.state }}</span></div>
+            <div class="list-row"><div><strong>Session {{ item.id }}</strong>@if (sessionActionLabel(item); as action) { <button type="button" [routerLink]="['/admin/dataset-collection/sessions', item.id, 'run']">{{ action }}</button> }</div><span class="badge">{{ item.state }}</span></div>
           } @empty { <p>No sessions created.</p> } }</div></section>
         </section>
       }

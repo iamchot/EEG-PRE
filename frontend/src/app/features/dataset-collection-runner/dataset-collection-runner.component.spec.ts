@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 
 import { authGuard, adminGuard } from '../../core/guards/auth.guard';
 import {
@@ -10,6 +10,7 @@ import {
 } from '../../core/services/dataset-collection.service';
 import { DatasetCollectionWsService } from '../../core/services/dataset-collection-ws.service';
 import { routes } from '../../app.routes';
+import { DatasetCollectionComponent } from '../dataset-collection/dataset-collection.component';
 import { DatasetCollectionRunnerComponent } from './dataset-collection-runner.component';
 
 const runnerState = (overrides: Partial<CollectionRunnerState> = {}): CollectionRunnerState => ({
@@ -46,16 +47,20 @@ describe('DatasetCollectionRunnerComponent', () => {
       'getRunnerState', 'selectDevice', 'startBaseline', 'startTrialRest', 'startStimulus',
       'finishStimulus', 'markArtifact', 'submitRating', 'interrupt', 'resume',
       'getStimulusMedia', 'createSchedule',
+      'getOverview', 'listParticipants', 'listStimuli', 'listSessions', 'createParticipant',
+      'createStimulus', 'createSession',
     ]);
-    api.getRunnerState.and.returnValue(of(runnerState()));
+    api.getRunnerState.and.returnValue(of(runnerState({ total_trials: 0, next_trial_order: null, next_trial_id: null, next_stimulus_id: null, next_stimulus_title: null })));
     for (const method of ['selectDevice', 'startBaseline', 'startTrialRest', 'startStimulus', 'finishStimulus', 'markArtifact', 'submitRating', 'interrupt', 'resume'] as const) {
       api[method].and.returnValue(of(runnerState()));
     }
     api.getStimulusMedia.and.returnValue(of(new Blob(['video'], { type: 'video/mp4' })));
+    api.getOverview.and.returnValue(of({ participants: 0, sessions: 0, trials: 0, review_counts: { pending: 0, accepted: 0, rejected: 0 }, quadrant_counts: { positive_low: 0, positive_high: 0, negative_low: 0, negative_high: 0 } }));
+    api.listParticipants.and.returnValue(of({ items: [] })); api.listStimuli.and.returnValue(of({ items: [] })); api.listSessions.and.returnValue(of({ items: [] }));
     ws = { state: signal<CollectionRunnerState | null>(null), isConnected: signal(false), connect: jasmine.createSpy('connect'), disconnect: jasmine.createSpy('disconnect') };
 
     await TestBed.configureTestingModule({
-      imports: [DatasetCollectionRunnerComponent],
+      imports: [DatasetCollectionRunnerComponent, DatasetCollectionComponent],
       providers: [
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: (key: string) => key === 'id' ? '13' : null } } } },
@@ -74,6 +79,23 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(api.getRunnerState).toHaveBeenCalledOnceWith(13);
     expect(ws.connect).toHaveBeenCalledOnceWith(13);
     expect(api.createSchedule).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Schedule not prepared');
+    expect(fixture.nativeElement.textContent).not.toContain('Trial 12');
+  });
+
+  it('prepares a fresh schedule only after persisted device selection and an explicit Admin click', () => {
+    ws.isConnected.set(true);
+    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 0 })));
+    api.createSchedule.and.returnValue(of(runnerState({ total_trials: 12 })));
+    component.deviceId = 'Muse-A';
+    component.selectDevice();
+    fixture.detectChanges();
+    const schedule: HTMLButtonElement = fixture.nativeElement.querySelector('#prepare-schedule');
+    expect(schedule).not.toBeNull();
+    expect(api.createSchedule).not.toHaveBeenCalled();
+    schedule.click();
+    expect(api.createSchedule).toHaveBeenCalledOnceWith(13);
+    expect(api.startBaseline).not.toHaveBeenCalled();
   });
 
   it('registers the runner route with both authentication and Admin guards', () => {
@@ -97,12 +119,37 @@ describe('DatasetCollectionRunnerComponent', () => {
   it('shows eyes-open before eyes-closed with exact wall and clean targets', () => {
     component.startBaseline('eyes_closed');
     expect(api.startBaseline).not.toHaveBeenCalled();
+    ws.isConnected.set(true);
+    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 12 })));
+    component.deviceId = 'Muse-A'; component.selectDevice();
+    for (const key of component.sensorKeys) component.setContact(key, true);
     api.startBaseline.and.returnValue(of(runnerState({ state: 'baseline', active_baseline: 'eyes_open' })));
     component.startBaseline('eyes_open');
     expect(api.startBaseline).toHaveBeenCalledOnceWith(13, 'eyes_open');
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('60');
     expect(fixture.nativeElement.textContent).toContain('30');
+  });
+
+  it('labels four manual contact confirmations and gates baseline on device, schedule, websocket, and all contacts', () => {
+    ws.isConnected.set(true);
+    component.deviceId = 'Muse-A';
+    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 12 })));
+    component.selectDevice();
+    fixture.detectChanges();
+    const confirmations = Array.from(fixture.nativeElement.querySelectorAll('[data-contact-confirmation]')) as HTMLInputElement[];
+    expect(confirmations.length).toBe(4);
+    expect(fixture.nativeElement.textContent).toContain('การยืนยันการสัมผัสโดย Admin');
+    expect(component.sensorStatus('tp9').state).toBe('unknown');
+    expect(component.canStartBaseline()).toBeFalse();
+    for (const input of confirmations) { input.click(); fixture.detectChanges(); }
+    expect(component.sensorStatus('tp9').state).toBe('good');
+    expect(component.sensorStatus('af7').state).toBe('good');
+    expect(component.sensorStatus('af8').state).toBe('good');
+    expect(component.sensorStatus('tp10').state).toBe('good');
+    expect(component.canStartBaseline()).toBeTrue();
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('[data-stage="device"] button:last-of-type') as HTMLButtonElement).disabled).toBeFalse();
   });
 
   it('creates and revokes authenticated media object URLs and blocks playback after load failure', () => {
@@ -119,6 +166,18 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(revoke).toHaveBeenCalledWith('blob:clip');
   });
 
+  it('revokes a current object URL exactly once immediately when the video reports an error', () => {
+    spyOn(URL, 'createObjectURL').and.returnValue('blob:broken');
+    const revoke = spyOn(URL, 'revokeObjectURL');
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 1, current_stimulus_id: 11, trial_state: 'rest' }));
+    component.onMediaError();
+    expect(revoke).toHaveBeenCalledOnceWith('blob:broken');
+    expect(component.mediaUrl()).toBeNull();
+    expect(component.mediaError()).toBeTrue();
+    component.ngOnDestroy();
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
   it('starts only after playing, finishes once on ended, and sends no browser marker payload', () => {
     component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 3, current_stimulus_id: 11, current_stimulus_title: 'Calm lake', trial_state: 'rest' }));
     component.onPlaying();
@@ -128,6 +187,27 @@ describe('DatasetCollectionRunnerComponent', () => {
     component.onEnded();
     component.onEnded();
     expect(api.finishStimulus).toHaveBeenCalledOnceWith(13, 21);
+  });
+
+  it('queues ended behind an in-flight artifact and retries a failed finish without stranding the Trial', () => {
+    const artifactResult = new Subject<CollectionRunnerState>();
+    const finishResult = new Subject<CollectionRunnerState>();
+    api.markArtifact.and.returnValue(artifactResult);
+    api.finishStimulus.and.returnValue(finishResult);
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 3, current_stimulus_id: 11, trial_state: 'stimulus' }));
+    component.markArtifact('blink');
+    component.onEnded();
+    component.onEnded();
+    expect(api.finishStimulus).not.toHaveBeenCalled();
+    artifactResult.next(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 3, current_stimulus_id: 11, trial_state: 'stimulus' }));
+    artifactResult.complete();
+    expect(api.finishStimulus).toHaveBeenCalledOnceWith(13, 21);
+    finishResult.error({ error: { detail: 'temporary finish failure' } });
+    expect(component.finishRetryAvailable()).toBeTrue();
+    api.finishStimulus.and.returnValue(of(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 3, current_stimulus_id: 11, trial_state: 'rating' })));
+    component.retryFinish();
+    expect(api.finishStimulus).toHaveBeenCalledTimes(2);
+    expect(component.finishRetryAvailable()).toBeFalse();
   });
 
   it('allows artifact event type and note only during stimulus', () => {
@@ -177,5 +257,40 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('โหลดคลิปไม่สำเร็จ');
     expect(fixture.nativeElement.textContent).not.toContain('file_path');
     expect(fixture.nativeElement.textContent).not.toContain('positive_low');
+  });
+
+  it('uses true 44px navigation targets in the runner and Foundation session list', () => {
+    const back = fixture.nativeElement.querySelector('.back-link') as HTMLAnchorElement;
+    expect(getComputedStyle(back).display).toBe('inline-flex');
+    expect(getComputedStyle(back).minHeight).toBe('44px');
+    api.listSessions.and.returnValue(of({ items: [
+      { id: 13, participant_id: 1, device_id: 'muse', device_name: 'Muse 2', completed_trials: 0, total_trials: 12, state: 'ready', started_at: null, completed_at: null, created_at: '2026-01-01T00:00:00Z' },
+      { id: 14, participant_id: 1, device_id: 'muse', device_name: 'Muse 2', completed_trials: 12, total_trials: 12, state: 'completed', started_at: null, completed_at: '2026-01-01T01:00:00Z', created_at: '2026-01-01T00:00:00Z' },
+    ] }));
+    const foundation = TestBed.createComponent(DatasetCollectionComponent); foundation.detectChanges();
+    foundation.componentInstance.switchTab('sessions'); foundation.detectChanges();
+    const buttons = Array.from(foundation.nativeElement.querySelectorAll('.list-row button')) as HTMLButtonElement[];
+    expect(buttons.map(button => button.textContent?.trim())).toEqual(['Start / Resume', 'View summary']);
+    expect(buttons.every(button => getComputedStyle(button).minHeight === '44px')).toBeTrue();
+    foundation.destroy();
+  });
+
+  it('ignores a late initial GET after newer websocket state and cancels GET/media work on destroy', () => {
+    fixture.destroy();
+    const initial = new Subject<CollectionRunnerState>();
+    const media = new Subject<Blob>();
+    api.getRunnerState.and.returnValue(initial);
+    api.getStimulusMedia.and.returnValue(media);
+    const local = TestBed.createComponent(DatasetCollectionRunnerComponent);
+    local.detectChanges();
+    ws.state.set(runnerState({ state: 'in_progress', completed_trials: 4, next_trial_order: 5 }));
+    local.detectChanges();
+    initial.next(runnerState({ state: 'preparation', completed_trials: 0 }));
+    expect(local.componentInstance.runnerState()?.completed_trials).toBe(4);
+    local.componentInstance.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'rest' }));
+    local.destroy();
+    spyOn(URL, 'createObjectURL');
+    media.next(new Blob(['late']));
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 });

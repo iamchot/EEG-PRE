@@ -11,7 +11,8 @@ import {
   DatasetCollectionService,
 } from '../../core/services/dataset-collection.service';
 import { DatasetCollectionWsService } from '../../core/services/dataset-collection-ws.service';
-import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sensor/horseshoe-sensor.component';
+import { SensorStatus } from '../../core/services/eeg-ws.service';
+import { HorseshoeSensorComponent, SensorKey } from '../../shared/components/horseshoe-sensor/horseshoe-sensor.component';
 
 type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | 'stimulus' |
   'rating' | 'break' | 'completed' | 'interrupted' | 'failed';
@@ -27,7 +28,7 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
           <a routerLink="/admin/dataset-collection" class="back-link">← EEG Dataset Collection</a>
           <p class="eyebrow">Admin collection workspace</p>
           <h1>Creative Headset Setup</h1>
-          <p>Session {{ sessionId }} · Trial {{ displayedTrialOrder() }} / 12</p>
+          <p>Session {{ sessionId }} · {{ trialProgressLabel() }}</p>
         </div>
         <aside class="notice" data-testid="non-medical-notice">
           For entertainment and prototype research only — not medical diagnosis or treatment.
@@ -41,27 +42,38 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
       @if (error()) { <div class="error" role="alert">{{ error() }}</div> }
 
       <section class="progress-card" aria-label="Collection progress">
-        <div><span>Progress</span><strong>Trial {{ displayedTrialOrder() }} / 12</strong></div>
+        <div><span>Progress</span><strong>{{ trialProgressLabel() }}</strong></div>
         <progress [value]="runnerState()?.completed_trials ?? 0" max="12">{{ runnerState()?.completed_trials ?? 0 }} of 12</progress>
       </section>
 
       @switch (stage()) {
         @case ('device') {
           <section class="workspace" data-stage="device">
-            <app-horseshoe-sensor />
+            <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
             <form class="action-card" (ngSubmit)="selectDevice()">
               <p class="step">Step 1</p><h2>ค้นหาและเลือก Muse</h2>
               <p>วาง Muse 2 ใกล้เครื่องคอมพิวเตอร์ เปิดอุปกรณ์ แล้วระบุอุปกรณ์สำหรับ Session นี้</p>
               <label for="device-id">Device ID<input id="device-id" name="deviceId" required [(ngModel)]="deviceId" placeholder="เช่น Muse-2-A1"></label>
               <label for="device-name">Device label<input id="device-name" name="deviceName" required [(ngModel)]="deviceName"></label>
               <button class="primary" type="submit" [disabled]="busy() || !deviceId.trim()">เลือกอุปกรณ์</button>
-              <button type="button" (click)="startBaseline('eyes_open')" [disabled]="busy()">เริ่ม Baseline ลืมตา</button>
+              @if (devicePersisted() && (runnerState()?.total_trials ?? 0) === 0) {
+                <button id="prepare-schedule" type="button" (click)="prepareSchedule()" [disabled]="busy()">เตรียม Schedule 12 Trial</button>
+              }
+              <fieldset class="contact-confirmations">
+                <legend>การยืนยันการสัมผัสโดย Admin</legend>
+                <p>เป็นการยืนยันว่าเซนเซอร์แตะผิวเท่านั้น ไม่ใช่ค่าคุณภาพสัญญาณแบบ live</p>
+                @for (key of sensorKeys; track key) {
+                  <label><input data-contact-confirmation type="checkbox" [checked]="contacts()[key]" (change)="setContact(key, $any($event.target).checked)"><span>{{ key.toUpperCase() }} สัมผัสผิวแล้ว</span></label>
+                }
+              </fieldset>
+              <button type="button" (click)="startBaseline('eyes_open')" [disabled]="busy() || !canStartBaseline()">เริ่ม Baseline ลืมตา</button>
+              <p class="hint">Backend จะตรวจ clean-signal gate จริงระหว่าง Baseline</p>
               <p class="hint">Baseline ลืมตาต้องมาก่อน Baseline หลับตาเสมอ</p>
             </form>
           </section>
         }
         @case ('eyes_open') {
-          <app-horseshoe-sensor />
+          <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
           <section class="focus-card" data-stage="eyes_open" aria-live="polite">
             <p class="step">Baseline 1 of 2</p><h2>ลืมตาและมองจุดกึ่งกลาง</h2>
             <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
@@ -69,14 +81,14 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
           </section>
         }
         @case ('eyes_closed') {
-          <app-horseshoe-sensor />
+          <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
           <section class="focus-card" data-stage="eyes_closed" aria-live="polite">
             <p class="step">Baseline 2 of 2</p><h2>หลับตาและอยู่นิ่ง</h2>
             <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
             @if (runnerState()?.active_baseline === 'eyes_closed') {
               <p>{{ seconds(runnerState()?.wall_clock_seconds) }}s wall · {{ seconds(runnerState()?.accepted_clean_seconds) }}s clean</p>
             } @else {
-              <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy()">เริ่ม Baseline หลับตา</button>
+              <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy() || !canStartBaseline()">เริ่ม Baseline หลับตา</button>
             }
           </section>
         }
@@ -124,6 +136,7 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
         <section class="media-card">
           <div><p class="step">Approved stimulus</p><h2>{{ runnerState()?.current_stimulus_title }}</h2></div>
           @if (mediaError()) { <div class="error" role="alert">โหลดคลิปไม่สำเร็จ — จะยังไม่เริ่มบันทึก stimulus</div> }
+          @if (finishRetryAvailable()) { <button type="button" (click)="retryFinish()" [disabled]="busy()">ลองยืนยันจบคลิปอีกครั้ง</button> }
           @if (mediaUrl(); as source) { <video controls preload="auto" [src]="source" (playing)="onPlaying()" (ended)="onEnded()" (error)="onMediaError()" aria-label="Approved entertainment stimulus"></video> }
           @else if (!mediaError()) { <p role="status">กำลังโหลดคลิปที่ผ่านการอนุมัติ…</p> }
         </section>
@@ -140,6 +153,10 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   readonly mediaUrl = signal<string | null>(null);
   readonly mediaReady = signal(false);
   readonly mediaError = signal(false);
+  readonly finishRetryAvailable = signal(false);
+  readonly devicePersisted = signal(false);
+  readonly contacts = signal<Record<SensorKey, boolean>>({ tp9: false, af7: false, af8: false, tp10: false });
+  readonly sensorKeys: SensorKey[] = ['tp9', 'af7', 'af8', 'tp10'];
   readonly artifacts = [
     { type: 'blink', label: 'กะพริบตาถี่' }, { type: 'cough', label: 'ไอ' },
     { type: 'talk', label: 'พูด' }, { type: 'head_movement', label: 'ขยับศีรษะ' },
@@ -154,9 +171,12 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   confidence = 3;
   private mediaStimulusId: number | null = null;
   private mediaSubscription?: Subscription;
+  private initialSubscription?: Subscription;
   private actionSubscription?: Subscription;
   private playbackStarted = false;
   private playbackFinished = false;
+  private pendingEnded = false;
+  private destroyed = false;
 
   constructor(
     route: ActivatedRoute,
@@ -164,16 +184,26 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     readonly ws: DatasetCollectionWsService,
   ) {
     this.sessionId = Number(route.snapshot.paramMap.get('id'));
-    effect(() => { const state = this.ws.state(); if (state) this.applyState(state); });
+    effect(() => {
+      const state = this.ws.state();
+      if (state && !this.destroyed) {
+        this.initialSubscription?.unsubscribe();
+        this.initialSubscription = undefined;
+        this.applyState(state);
+      }
+    });
   }
 
   ngOnInit(): void {
     if (!Number.isSafeInteger(this.sessionId) || this.sessionId <= 0) { this.error.set('Session ID ไม่ถูกต้อง'); this.stage.set('failed'); return; }
-    this.api.getRunnerState(this.sessionId).subscribe({ next: state => this.applyState(state), error: err => this.fail(err) });
+    this.initialSubscription = this.api.getRunnerState(this.sessionId).subscribe({
+      next: state => { if (!this.destroyed && !this.ws.state()) this.applyState(state); },
+      error: err => { if (!this.destroyed && !this.ws.state()) this.fail(err); },
+    });
     this.ws.connect(this.sessionId);
   }
 
-  ngOnDestroy(): void { this.ws.disconnect(); this.actionSubscription?.unsubscribe(); this.releaseMedia(); }
+  ngOnDestroy(): void { this.destroyed = true; this.ws.disconnect(); this.initialSubscription?.unsubscribe(); this.actionSubscription?.unsubscribe(); this.releaseMedia(); }
 
   applyState(state: CollectionRunnerState): void {
     this.runnerState.set(state);
@@ -184,16 +214,35 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   }
 
   displayedTrialOrder(): number { return this.runnerState()?.current_trial_order ?? this.runnerState()?.next_trial_order ?? 12; }
+  trialProgressLabel(): string { return (this.runnerState()?.total_trials ?? 0) === 0 ? 'Schedule not prepared' : `Trial ${this.displayedTrialOrder()} / 12`; }
   seconds(value?: number): string { return Math.max(0, value ?? 0).toFixed(1); }
+
+  sensorStatus(key: SensorKey): SensorStatus {
+    return { state: this.contacts()[key] ? 'good' : 'unknown', quality_score: 0, timestamp: 0, sequence: 0 };
+  }
+
+  setContact(key: SensorKey, confirmed: boolean): void { this.contacts.update(value => ({ ...value, [key]: confirmed })); }
+  canStartBaseline(): boolean {
+    return this.devicePersisted() && this.runnerState()?.total_trials === 12 && this.ws.isConnected() && this.sensorKeys.every(key => this.contacts()[key]);
+  }
 
   selectDevice(): void {
     if (!this.deviceId.trim()) return;
-    this.run(this.api.selectDevice(this.sessionId, { device_id: this.deviceId.trim(), device_name: this.deviceName.trim() || 'Muse 2' }));
+    this.run(
+      this.api.selectDevice(this.sessionId, { device_id: this.deviceId.trim(), device_name: this.deviceName.trim() || 'Muse 2' }),
+      undefined,
+      () => this.devicePersisted.set(true),
+    );
+  }
+
+  prepareSchedule(): void {
+    if (!this.devicePersisted() || (this.runnerState()?.total_trials ?? 0) !== 0) return;
+    this.run(this.api.createSchedule(this.sessionId));
   }
 
   startBaseline(kind: BaselineKind): void {
     const state = this.runnerState();
-    if (kind === 'eyes_closed' && state?.state !== 'baseline') return;
+    if (!this.canStartBaseline() || (kind === 'eyes_closed' && state?.state !== 'baseline')) return;
     this.run(this.api.startBaseline(this.sessionId, kind));
   }
 
@@ -213,10 +262,21 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     const state = this.runnerState();
     if (this.playbackFinished || state?.trial_state !== 'stimulus' || !state.current_trial_id) return;
     this.playbackFinished = true;
-    this.run(this.api.finishStimulus(this.sessionId, state.current_trial_id), () => this.playbackFinished = false);
+    this.pendingEnded = true;
+    this.flushPendingFinish();
   }
 
-  onMediaError(): void { this.mediaReady.set(false); this.mediaError.set(true); }
+  onMediaError(): void {
+    this.mediaSubscription?.unsubscribe(); this.mediaSubscription = undefined;
+    const url = this.mediaUrl(); if (url) URL.revokeObjectURL(url);
+    this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(true);
+  }
+
+  retryFinish(): void {
+    if (!this.finishRetryAvailable() || this.runnerState()?.trial_state !== 'stimulus') return;
+    this.finishRetryAvailable.set(false); this.pendingEnded = true; this.playbackFinished = true;
+    this.flushPendingFinish();
+  }
 
   markArtifact(eventType: string): void {
     const state = this.runnerState();
@@ -262,7 +322,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     if (this.mediaStimulusId === stimulusId && (this.mediaUrl() || this.mediaError())) return;
     this.releaseMedia();
     this.mediaStimulusId = stimulusId;
-    this.mediaReady.set(false); this.mediaError.set(false); this.playbackStarted = false; this.playbackFinished = false;
+    this.mediaReady.set(false); this.mediaError.set(false); this.finishRetryAvailable.set(false); this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false;
     this.mediaSubscription = this.api.getStimulusMedia(stimulusId).subscribe({
       next: blob => { if (this.mediaStimulusId !== stimulusId) return; this.mediaUrl.set(URL.createObjectURL(blob)); this.mediaReady.set(true); },
       error: () => { if (this.mediaStimulusId === stimulusId) { this.mediaReady.set(false); this.mediaError.set(true); } },
@@ -273,15 +333,26 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     this.mediaSubscription?.unsubscribe(); this.mediaSubscription = undefined;
     const url = this.mediaUrl(); if (url) URL.revokeObjectURL(url);
     this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(false); this.mediaStimulusId = null;
-    this.playbackStarted = false; this.playbackFinished = false;
+    this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false; this.finishRetryAvailable.set(false);
   }
 
-  private run(request: ReturnType<DatasetCollectionService['getRunnerState']>, reset?: () => void): void {
+  private flushPendingFinish(): void {
+    const state = this.runnerState();
+    if (!this.pendingEnded || this.busy() || state?.trial_state !== 'stimulus' || !state.current_trial_id) return;
+    this.pendingEnded = false;
+    this.run(
+      this.api.finishStimulus(this.sessionId, state.current_trial_id),
+      () => { this.finishRetryAvailable.set(true); },
+      () => this.finishRetryAvailable.set(false),
+    );
+  }
+
+  private run(request: ReturnType<DatasetCollectionService['getRunnerState']>, onError?: () => void, onSuccess?: () => void): void {
     if (this.busy()) return;
     this.busy.set(true); this.error.set('');
     this.actionSubscription = request.subscribe({
-      next: state => { this.busy.set(false); this.applyState(state); },
-      error: err => { this.busy.set(false); reset?.(); this.fail(err); },
+      next: state => { this.busy.set(false); this.applyState(state); onSuccess?.(); this.flushPendingFinish(); },
+      error: err => { this.busy.set(false); onError?.(); this.fail(err); this.flushPendingFinish(); },
     });
   }
 
