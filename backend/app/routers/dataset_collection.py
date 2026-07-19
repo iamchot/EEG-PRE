@@ -1,25 +1,38 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import hashlib
+import mimetypes
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.responses import FileResponse
 
+from app.config import get_settings
 from app.database import get_db
 from app.middleware.auth_middleware import AdminUser
 from app.models.dataset_collection import (
+    BaselineKind,
     CollectionSession,
     CollectionTrial,
     DatasetParticipant,
     EmotionStimulus,
     Quadrant,
     ReviewState,
+    TrialState,
 )
 from app.schemas.dataset_collection import (
+    ArtifactRequest,
+    CollectionRunnerStateResponse,
     CollectionSessionCreate,
     CollectionSessionListResponse,
     CollectionSessionResponse,
+    DeviceSelectionRequest,
+    InterruptRequest,
     ParticipantCreate,
     ParticipantListResponse,
     ParticipantResponse,
+    RatingRequest,
     StimulusCreate,
     StimulusListResponse,
     StimulusResponse,
@@ -31,6 +44,10 @@ from app.services.dataset_collection_service import (
     create_participant,
     create_stimulus,
 )
+from app.services.auth_service import decode_token, get_user_by_id
+from app.services.collection_state_machine import CollectionStateError
+from app.services.trial_scheduler import ScheduleUnavailableError, create_trial_schedule
+from app.ws.collection_manager import collection_manager
 
 router = APIRouter(prefix="/admin/dataset-collection", tags=["Admin Dataset Collection"])
 
@@ -134,3 +151,254 @@ def add_session(body: CollectionSessionCreate, admin: AdminUser, db: Session = D
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DatasetConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+def _collection_session(db: Session, session_id: int) -> CollectionSession:
+    collection_session = db.get(CollectionSession, session_id)
+    if collection_session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection session not found")
+    return collection_session
+
+
+def _session_trial(db: Session, session_id: int, trial_id: int) -> CollectionTrial:
+    trial = db.get(CollectionTrial, trial_id)
+    if trial is None or trial.session_id != session_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trial not found for session")
+    return trial
+
+
+def _runner(db: Session, session_id: int):
+    return collection_manager.get_runner(db, _collection_session(db, session_id))
+
+
+def _safe_transition(call):
+    try:
+        return call()
+    except CollectionStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+def _state_response(db: Session, state) -> CollectionRunnerStateResponse:
+    response = CollectionRunnerStateResponse.model_validate(state)
+    if state.current_trial_id is not None:
+        row = db.execute(
+            select(CollectionTrial.stimulus_id, EmotionStimulus.title)
+            .join(EmotionStimulus, EmotionStimulus.id == CollectionTrial.stimulus_id)
+            .where(CollectionTrial.id == state.current_trial_id)
+        ).first()
+        if row is None:
+            return response
+        return response.model_copy(update={
+            "current_stimulus_id": row.stimulus_id,
+            "current_stimulus_title": row.title,
+        })
+    if state.next_trial_order is None:
+        return response
+    row = db.execute(
+        select(CollectionTrial.id, CollectionTrial.stimulus_id, EmotionStimulus.title)
+        .join(EmotionStimulus, EmotionStimulus.id == CollectionTrial.stimulus_id)
+        .where(
+            CollectionTrial.session_id == state.session_id,
+            CollectionTrial.randomized_order == state.next_trial_order,
+            CollectionTrial.state == TrialState.scheduled,
+        )
+    ).first()
+    if row is None:
+        return response
+    return response.model_copy(update={
+        "next_trial_id": row.id,
+        "next_stimulus_id": row.stimulus_id,
+        "next_stimulus_title": row.title,
+    })
+
+
+@router.post("/sessions/{session_id}/schedule", response_model=CollectionRunnerStateResponse)
+def schedule_trials(session_id: int, admin: AdminUser, db: Session = Depends(get_db)):
+    collection_session = _collection_session(db, session_id)
+    try:
+        create_trial_schedule(db, collection_session)
+    except ScheduleUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return _state_response(db, collection_manager.get_runner(db, collection_session).state())
+
+
+@router.post("/sessions/{session_id}/device", response_model=CollectionRunnerStateResponse)
+def select_collection_device(
+    session_id: int,
+    body: DeviceSelectionRequest,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    return _state_response(
+        db,
+        _safe_transition(lambda: _runner(db, session_id).select_device(body.device_id, body.device_name)),
+    )
+
+
+@router.post("/sessions/{session_id}/baseline/{kind}/start", response_model=CollectionRunnerStateResponse)
+def start_collection_baseline(
+    session_id: int,
+    kind: BaselineKind,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    return _state_response(db, _safe_transition(lambda: _runner(db, session_id).start_baseline(kind)))
+
+
+@router.post("/sessions/{session_id}/trials/{trial_id}/rest/start", response_model=CollectionRunnerStateResponse)
+def start_trial_rest(
+    session_id: int,
+    trial_id: int,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    trial = _session_trial(db, session_id, trial_id)
+    runner = _runner(db, session_id)
+    before = runner.state()
+    if trial.state is not TrialState.scheduled or trial.randomized_order != before.next_trial_order:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Trial is not next in schedule")
+    state = _safe_transition(runner.start_trial_rest)
+    if state.current_trial_id != trial.id:
+        _safe_transition(lambda: runner.interrupt("Scheduled Trial mismatch"))
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Trial is not next in schedule")
+    return _state_response(db, state)
+
+
+@router.post("/sessions/{session_id}/trials/{trial_id}/stimulus/start", response_model=CollectionRunnerStateResponse)
+def start_trial_stimulus(
+    session_id: int,
+    trial_id: int,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    _session_trial(db, session_id, trial_id)
+    return _state_response(db, _safe_transition(lambda: _runner(db, session_id).start_stimulus(trial_id)))
+
+
+@router.post("/sessions/{session_id}/trials/{trial_id}/artifacts", response_model=CollectionRunnerStateResponse)
+def mark_trial_artifact(
+    session_id: int,
+    trial_id: int,
+    body: ArtifactRequest,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    _session_trial(db, session_id, trial_id)
+    runner = _runner(db, session_id)
+    return _state_response(db, _safe_transition(lambda: runner.mark_artifact(
+        trial_id,
+        body.event_type,
+        start_seconds=runner.state().wall_clock_seconds,
+        duration_seconds=0.0,
+        details={"note": body.note} if body.note is not None else None,
+    )))
+
+
+@router.post("/sessions/{session_id}/trials/{trial_id}/stimulus/finish", response_model=CollectionRunnerStateResponse)
+def finish_trial_stimulus(
+    session_id: int,
+    trial_id: int,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    _session_trial(db, session_id, trial_id)
+    return _state_response(db, _safe_transition(lambda: _runner(db, session_id).finish_stimulus(trial_id)))
+
+
+@router.post("/sessions/{session_id}/trials/{trial_id}/rating", response_model=CollectionRunnerStateResponse)
+def submit_trial_rating(
+    session_id: int,
+    trial_id: int,
+    body: RatingRequest,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    _session_trial(db, session_id, trial_id)
+    return _state_response(db, _safe_transition(lambda: _runner(db, session_id).submit_rating(
+        trial_id,
+        valence=body.valence,
+        arousal=body.arousal,
+        confidence=body.confidence,
+    )))
+
+
+@router.post("/sessions/{session_id}/interrupt", response_model=CollectionRunnerStateResponse)
+def interrupt_collection(
+    session_id: int,
+    body: InterruptRequest,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    return _state_response(db, _safe_transition(lambda: _runner(db, session_id).interrupt(body.reason)))
+
+
+@router.post("/sessions/{session_id}/resume", response_model=CollectionRunnerStateResponse)
+def resume_collection(session_id: int, admin: AdminUser, db: Session = Depends(get_db)):
+    return _state_response(db, _safe_transition(lambda: _runner(db, session_id).resume()))
+
+
+@router.get("/sessions/{session_id}/runner-state", response_model=CollectionRunnerStateResponse)
+def runner_state(session_id: int, admin: AdminUser, db: Session = Depends(get_db)):
+    return _state_response(db, _runner(db, session_id).state())
+
+
+@router.get("/stimuli/{stimulus_id}/media")
+def stimulus_media(stimulus_id: int, admin: AdminUser, db: Session = Depends(get_db)):
+    stimulus = db.get(EmotionStimulus, stimulus_id)
+    if stimulus is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stimulus media not found")
+    root = Path(get_settings().collection_stimulus_dir).resolve()
+    relative = Path(stimulus.file_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stimulus media not found")
+    media_path = (root / relative).resolve(strict=False)
+    if not media_path.is_relative_to(root) or not media_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stimulus media not found")
+    digest = hashlib.sha256()
+    with media_path.open("rb") as media_file:
+        for chunk in iter(lambda: media_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if not stimulus.checksum or not digest.hexdigest().lower() == stimulus.checksum.lower():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stimulus media verification failed")
+    media_type = mimetypes.guess_type(media_path.name)[0]
+    if media_type is None or not media_type.startswith("video/"):
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Stimulus media is not a video")
+    return FileResponse(media_path, media_type=media_type, filename=media_path.name)
+
+
+@router.websocket("/ws/{session_id}")
+async def collection_websocket(
+    session_id: int,
+    websocket: WebSocket,
+    token: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    if token is None:
+        await websocket.close(code=4401)
+        return
+    payload = decode_token(token)
+    if payload is None or payload.get("type") != "access" or not payload.get("sub"):
+        await websocket.close(code=4401)
+        return
+    try:
+        user = get_user_by_id(db, int(payload["sub"]))
+    except (TypeError, ValueError):
+        user = None
+    if user is None or not user.is_active:
+        await websocket.close(code=4401)
+        return
+    if user.role is None or user.role.name != "admin":
+        await websocket.close(code=4403)
+        return
+    if db.get(CollectionSession, session_id) is None:
+        await websocket.close(code=4404)
+        return
+    await websocket.accept()
+    try:
+        await collection_manager.connect(session_id, websocket, db)
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await collection_manager.disconnect(session_id, websocket)
