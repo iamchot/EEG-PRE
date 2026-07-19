@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from app.services import raw_eeg_writer as writer_module
 from app.services.raw_eeg_writer import AtomicEEGWriter, EEGSample
 
 
@@ -92,6 +93,91 @@ def test_finalize_is_single_use_and_never_overwrites_existing_capture(tmp_path: 
     duplicate = AtomicEEGWriter(tmp_path)
     with pytest.raises(FileExistsError):
         duplicate.start(["P001", "session-1", "trial-1"])
+
+
+def test_header_write_failure_cleans_partial_and_allows_retry(tmp_path: Path, monkeypatch):
+    real_writer_factory = writer_module.csv.writer
+
+    class BrokenHeaderWriter:
+        def writerow(self, _row):
+            raise OSError("header write failed")
+
+    monkeypatch.setattr(writer_module.csv, "writer", lambda *_args, **_kwargs: BrokenHeaderWriter())
+    writer = AtomicEEGWriter(tmp_path)
+
+    with pytest.raises(OSError, match="header write failed"):
+        writer.start(["P001", "session-1", "trial-1"])
+
+    assert not list(tmp_path.rglob("*.partial"))
+    monkeypatch.setattr(writer_module.csv, "writer", real_writer_factory)
+    writer.start(["P001", "session-1", "trial-1"])
+    writer.append(sample(1.0))
+    assert writer.finalize().row_count == 1
+
+
+def test_partial_row_write_failure_aborts_capture_instead_of_finalizing_bad_metadata(
+    tmp_path: Path, monkeypatch
+):
+    real_writer_factory = writer_module.csv.writer
+
+    class WriteThenFailWriter:
+        def __init__(self, delegate):
+            self.delegate = delegate
+            self.calls = 0
+
+        def writerow(self, row):
+            self.calls += 1
+            result = self.delegate.writerow(row)
+            if self.calls == 2:
+                raise OSError("sample write failed after bytes were written")
+            return result
+
+    monkeypatch.setattr(
+        writer_module.csv,
+        "writer",
+        lambda *args, **kwargs: WriteThenFailWriter(real_writer_factory(*args, **kwargs)),
+    )
+    writer = AtomicEEGWriter(tmp_path)
+    writer.start(["P001", "session-1", "trial-1"])
+
+    with pytest.raises(OSError, match="sample write failed"):
+        writer.append(sample(1.0))
+
+    assert not list(tmp_path.rglob("*.partial"))
+    assert not list(tmp_path.rglob("*.csv"))
+    with pytest.raises(RuntimeError, match="aborted"):
+        writer.finalize()
+
+
+@pytest.mark.parametrize("failure_point", ["flush", "fsync", "read", "hash", "replace"])
+def test_finalize_failure_never_leaves_a_final_or_partial_capture(
+    tmp_path: Path, monkeypatch, failure_point: str
+):
+    writer = AtomicEEGWriter(tmp_path)
+    writer.start(["P001", "session-1", "trial-1"])
+    writer.append(sample(1.0))
+
+    def fail(*_args, **_kwargs):
+        raise OSError(f"{failure_point} failed")
+
+    if failure_point == "flush":
+        monkeypatch.setattr(writer._file, "flush", fail)
+    elif failure_point == "fsync":
+        monkeypatch.setattr(writer_module.os, "fsync", fail)
+    elif failure_point == "read":
+        monkeypatch.setattr(Path, "read_bytes", fail)
+    elif failure_point == "hash":
+        monkeypatch.setattr(writer_module.hashlib, "sha256", fail)
+    else:
+        monkeypatch.setattr(writer_module.os, "replace", fail)
+
+    with pytest.raises(OSError, match=f"{failure_point} failed"):
+        writer.finalize()
+
+    assert not list(tmp_path.rglob("*.partial"))
+    assert not list(tmp_path.rglob("*.csv"))
+    with pytest.raises(RuntimeError, match="aborted"):
+        writer.finalize()
 
 
 @pytest.mark.parametrize(

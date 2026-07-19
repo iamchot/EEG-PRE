@@ -85,9 +85,13 @@ class AtomicEEGWriter:
         if self._final_path.exists() or self._partial_path.exists():
             raise FileExistsError("an EEG capture already exists at this path")
 
-        self._file = self._partial_path.open("x", encoding="utf-8", newline="")
-        self._csv = csv.writer(self._file, lineterminator="\n")
-        self._csv.writerow(CSV_HEADER)
+        try:
+            self._file = self._partial_path.open("x", encoding="utf-8", newline="")
+            self._csv = csv.writer(self._file, lineterminator="\n")
+            self._csv.writerow(CSV_HEADER)
+        except Exception:
+            self._discard_partial(state="new", reset_paths=True)
+            raise
         self._state = "started"
 
     def append(self, sample: EEGSample) -> None:
@@ -128,36 +132,39 @@ class AtomicEEGWriter:
         assert self._partial_path is not None
         assert self._final_path is not None
 
-        self._file.flush()
-        os.fsync(self._file.fileno())
-        self._file.close()
-        self._file = None
-        if self._final_path.exists():
-            self._partial_path.unlink(missing_ok=True)
-            self._state = "aborted"
-            raise FileExistsError("an EEG capture already exists at this path")
-        os.replace(self._partial_path, self._final_path)
-        self._state = "finalized"
+        try:
+            self._file.flush()
+            os.fsync(self._file.fileno())
+            self._file.close()
+            self._file = None
 
-        contents = self._final_path.read_bytes()
-        return RawFileResult(
-            relative_path=str(self._final_path.relative_to(self._root)),
-            sha256=hashlib.sha256(contents).hexdigest(),
-            byte_size=len(contents),
-            row_count=self._row_count,
-            first_timestamp=self._first_timestamp,
-            last_timestamp=self._last_timestamp,
-        )
+            # Calculate every fallible piece of the result while the capture is
+            # still partial. After os.replace succeeds, returning the already
+            # constructed immutable result cannot strand a final file without
+            # its checksum/size metadata.
+            contents = self._partial_path.read_bytes()
+            result = RawFileResult(
+                relative_path=str(self._final_path.relative_to(self._root)),
+                sha256=hashlib.sha256(contents).hexdigest(),
+                byte_size=len(contents),
+                row_count=self._row_count,
+                first_timestamp=self._first_timestamp,
+                last_timestamp=self._last_timestamp,
+            )
+            if self._final_path.exists():
+                raise FileExistsError("an EEG capture already exists at this path")
+            os.replace(self._partial_path, self._final_path)
+        except Exception:
+            self._discard_partial(state="aborted")
+            raise
+
+        self._state = "finalized"
+        return result
 
     def abort(self) -> None:
         if self._state == "finalized":
             raise RuntimeError("writer has already been finalized")
-        if self._file is not None:
-            self._file.close()
-            self._file = None
-        if self._partial_path is not None:
-            self._partial_path.unlink(missing_ok=True)
-        self._state = "aborted"
+        self._discard_partial(state="aborted")
 
     def _safe_paths(self, path_parts: Sequence[str]) -> tuple[Path, Path]:
         if len(path_parts) != 3 or any(not isinstance(part, str) for part in path_parts):
@@ -188,8 +195,43 @@ class AtomicEEGWriter:
     def _write_row(self, row: tuple[object, ...]) -> None:
         assert self._csv is not None
         timestamp = float(row[0])
-        self._csv.writerow(row)
+        try:
+            self._csv.writerow(row)
+        except Exception:
+            # csv/TextIO may have emitted some bytes before raising. The only
+            # safe recovery is to invalidate and remove the whole capture.
+            self._discard_partial(state="aborted")
+            raise
         self._row_count += 1
         if self._first_timestamp is None:
             self._first_timestamp = timestamp
         self._last_timestamp = timestamp
+
+    def _discard_partial(self, *, state: str, reset_paths: bool = False) -> None:
+        file = self._file
+        self._file = None
+        self._csv = None
+        if file is not None:
+            try:
+                descriptor = file.fileno()
+            except (OSError, ValueError):
+                descriptor = None
+            try:
+                file.close()
+            except Exception:
+                # A failing TextIO flush can also make close() fail. Release the
+                # descriptor directly so Windows permits deletion of the partial.
+                if descriptor is not None:
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
+        if self._partial_path is not None:
+            self._partial_path.unlink(missing_ok=True)
+        self._state = state
+        if reset_paths:
+            self._partial_path = None
+            self._final_path = None
+            self._row_count = 0
+            self._first_timestamp = None
+            self._last_timestamp = None
