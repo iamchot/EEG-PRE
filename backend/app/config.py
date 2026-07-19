@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     wall_clock_timeout_seconds: int = 120
     resume_stable_seconds: int = 2
 
+    # Dataset collection (Muse 2)
+    collection_raw_dir: str = "./collection_data"
+    collection_stimulus_dir: str = "./collection_stimuli"
+    collection_sampling_rate_hz: int = 256
+    collection_sampling_tolerance_hz: int = 8
+    collection_baseline_wall_seconds: int = 60
+    collection_baseline_min_clean_seconds: int = 30
+    collection_rest_min_seconds: int = 10
+    collection_rest_max_seconds: int = 15
+
     # Emotion Classification
     emotion_rule_version: str = "v1.0"
 
