@@ -9,6 +9,14 @@ from app.models.dataset_collection import (
 )
 
 
+def _unique_constraint_columns(model):
+    return {
+        tuple(column.name for column in constraint.columns)
+        for constraint in model.__table__.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+
+
 COLLECTION_MODELS = (
     DatasetParticipant,
     EmotionStimulus,
@@ -45,6 +53,10 @@ def test_stimulus_checksum_is_unique():
 
 def test_collection_session_device_id_is_optional():
     assert CollectionSession.__table__.c.device_id.nullable is True
+
+
+def test_trial_schedule_identity_is_unique_within_each_session():
+    assert ("session_id", "randomized_order") in _unique_constraint_columns(CollectionTrial)
 
 
 def test_collection_tables_do_not_contain_direct_identity_columns():

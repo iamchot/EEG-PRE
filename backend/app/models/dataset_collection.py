@@ -3,7 +3,19 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -119,6 +131,11 @@ class CollectionTrial(Base):
         CheckConstraint("valence_rating BETWEEN 1 AND 9", name="ck_collection_trials_valence"),
         CheckConstraint("arousal_rating BETWEEN 1 AND 9", name="ck_collection_trials_arousal"),
         CheckConstraint("confidence BETWEEN 1 AND 5", name="ck_collection_trials_confidence"),
+        UniqueConstraint(
+            "session_id",
+            "randomized_order",
+            name="uq_collection_trials_session_randomized_order",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
