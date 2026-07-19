@@ -138,6 +138,12 @@ describe('DatasetCollectionService', () => {
       accepted_clean_seconds: 0,
       wall_clock_seconds: 0,
       file_recovery_required: false,
+      sensors: {
+        tp9: { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 }, af7: { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 },
+        af8: { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 }, tp10: { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 },
+      },
+      sampling_rate_hz: null, sampling_rate_ok: false, live_sensor_ready: false,
+      stimulus_start_ready: false, quality_source: 'derived_eeg_window',
     };
 
     const expectPost = (call: () => void, path: string, body: unknown) => {

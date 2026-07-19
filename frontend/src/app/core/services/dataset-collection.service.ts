@@ -3,6 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import { SensorStatus } from './eeg-ws.service';
 
 export type EmotionQuadrant = 'positive_low' | 'positive_high' | 'negative_low' | 'negative_high';
 export type StimulusApprovalState = 'draft' | 'approved' | 'retired';
@@ -108,6 +109,12 @@ export interface CollectionRunnerState {
   accepted_clean_seconds: number;
   wall_clock_seconds: number;
   file_recovery_required: boolean;
+  sensors: Record<'tp9' | 'af7' | 'af8' | 'tp10', SensorStatus>;
+  sampling_rate_hz: number | null;
+  sampling_rate_ok: boolean;
+  live_sensor_ready: boolean;
+  stimulus_start_ready: boolean;
+  quality_source: 'derived_eeg_window';
 }
 
 export interface CollectionList<T> { items: T[]; }

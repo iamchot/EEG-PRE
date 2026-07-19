@@ -13,6 +13,13 @@ import { routes } from '../../app.routes';
 import { DatasetCollectionComponent } from '../dataset-collection/dataset-collection.component';
 import { DatasetCollectionRunnerComponent } from './dataset-collection-runner.component';
 
+const measuredGoodSensors: CollectionRunnerState['sensors'] = {
+  tp9: { state: 'good', quality_score: 81, timestamp: 10, sequence: 1 },
+  af7: { state: 'good', quality_score: 82, timestamp: 10, sequence: 1 },
+  af8: { state: 'good', quality_score: 83, timestamp: 10, sequence: 1 },
+  tp10: { state: 'good', quality_score: 84, timestamp: 10, sequence: 1 },
+};
+
 const runnerState = (overrides: Partial<CollectionRunnerState> = {}): CollectionRunnerState => ({
   session_id: 13,
   state: 'preparation',
@@ -33,6 +40,17 @@ const runnerState = (overrides: Partial<CollectionRunnerState> = {}): Collection
   accepted_clean_seconds: 0,
   wall_clock_seconds: 0,
   file_recovery_required: false,
+  sensors: {
+    tp9: { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 },
+    af7: { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 },
+    af8: { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 },
+    tp10: { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 },
+  },
+  sampling_rate_hz: null,
+  sampling_rate_ok: false,
+  live_sensor_ready: false,
+  stimulus_start_ready: false,
+  quality_source: 'derived_eeg_window',
   ...overrides,
 });
 
@@ -114,13 +132,14 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(fixture.nativeElement.querySelector('#device-id')).not.toBeNull();
     expect(text.toLowerCase()).toContain('entertainment');
     expect(text.toLowerCase()).toContain('not medical');
+    expect(text).toContain('derived EEG');
   });
 
   it('shows eyes-open before eyes-closed with exact wall and clean targets', () => {
     component.startBaseline('eyes_closed');
     expect(api.startBaseline).not.toHaveBeenCalled();
     ws.isConnected.set(true);
-    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 12 })));
+    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 12, sensors: measuredGoodSensors, sampling_rate_hz: 256, sampling_rate_ok: true, live_sensor_ready: true })));
     component.deviceId = 'Muse-A'; component.selectDevice();
     for (const key of component.sensorKeys) component.setContact(key, true);
     api.startBaseline.and.returnValue(of(runnerState({ state: 'baseline', active_baseline: 'eyes_open' })));
@@ -131,7 +150,7 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('30');
   });
 
-  it('labels four manual contact confirmations and gates baseline on device, schedule, websocket, and all contacts', () => {
+  it('keeps manual confirmations separate and gates baseline on four measured live sensors too', () => {
     ws.isConnected.set(true);
     component.deviceId = 'Muse-A';
     api.selectDevice.and.returnValue(of(runnerState({ total_trials: 12 })));
@@ -140,21 +159,57 @@ describe('DatasetCollectionRunnerComponent', () => {
     const confirmations = Array.from(fixture.nativeElement.querySelectorAll('[data-contact-confirmation]')) as HTMLInputElement[];
     expect(confirmations.length).toBe(4);
     expect(fixture.nativeElement.textContent).toContain('การยืนยันการสัมผัสโดย Admin');
-    expect(component.sensorStatus('tp9').state).toBe('unknown');
+    component.applyState(runnerState({ total_trials: 12, sensors: measuredGoodSensors, sampling_rate_hz: 256, sampling_rate_ok: true, live_sensor_ready: true }));
     expect(component.canStartBaseline()).toBeFalse();
     for (const input of confirmations) { input.click(); fixture.detectChanges(); }
     expect(component.sensorStatus('tp9').state).toBe('good');
     expect(component.sensorStatus('af7').state).toBe('good');
     expect(component.sensorStatus('af8').state).toBe('good');
     expect(component.sensorStatus('tp10').state).toBe('good');
+    expect(component.sensorStatus('tp9').quality_score).toBe(81);
     expect(component.canStartBaseline()).toBeTrue();
     fixture.detectChanges();
     expect((fixture.nativeElement.querySelector('[data-stage="device"] button:last-of-type') as HTMLButtonElement).disabled).toBeFalse();
   });
 
+  it('pauses and rewinds an early rest playback attempt until backend readiness', () => {
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'rest', stimulus_start_ready: false }));
+    const video = { pause: jasmine.createSpy('pause'), currentTime: 4 } as unknown as HTMLVideoElement;
+    component.onPlaying(video);
+    expect(video.pause).toHaveBeenCalled();
+    expect(video.currentTime).toBe(0);
+    expect(api.startStimulus).not.toHaveBeenCalled();
+  });
+
+  it('rewinds and exposes retry when backend rejects a playing event', () => {
+    api.startStimulus.and.returnValue(throwError(() => ({ error: { detail: 'rest not ready' } })));
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'rest', stimulus_start_ready: true }));
+    const video = { pause: jasmine.createSpy('pause'), currentTime: 4 } as unknown as HTMLVideoElement;
+    component.onPlaying(video);
+    expect(video.pause).toHaveBeenCalled();
+    expect(video.currentTime).toBe(0);
+    expect(component.startRetryAvailable()).toBeTrue();
+  });
+
+  it('holds playback at zero until backend accepts stimulus start, then resumes once', () => {
+    const accepted = new Subject<CollectionRunnerState>();
+    api.startStimulus.and.returnValue(accepted);
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'rest', stimulus_start_ready: true }));
+    const video = { pause: jasmine.createSpy('pause'), play: jasmine.createSpy('play').and.resolveTo(), currentTime: 5 } as unknown as HTMLVideoElement;
+
+    component.onPlaying(video);
+
+    expect(video.pause).toHaveBeenCalledOnceWith();
+    expect(video.currentTime).toBe(0);
+    expect(video.play).not.toHaveBeenCalled();
+    accepted.next(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'stimulus' }));
+    accepted.complete();
+    expect(video.play).toHaveBeenCalledTimes(1);
+  });
+
   it('recovers a persisted device from a scheduled baseline state and restarts eyes-closed without reselecting', () => {
     ws.isConnected.set(true);
-    component.applyState(runnerState({ state: 'baseline', active_baseline: null, total_trials: 12 }));
+    component.applyState(runnerState({ state: 'baseline', active_baseline: null, total_trials: 12, sensors: measuredGoodSensors, sampling_rate_hz: 256, sampling_rate_ok: true, live_sensor_ready: true }));
     for (const key of component.sensorKeys) component.setContact(key, true);
     expect(component.devicePersisted()).toBeTrue();
     expect(component.canStartBaseline()).toBeTrue();
@@ -169,7 +224,7 @@ describe('DatasetCollectionRunnerComponent', () => {
   });
 
   it('resets all contact confirmations when selecting a different Muse', () => {
-    component.applyState(runnerState({ state: 'preparation', total_trials: 12 }));
+    component.applyState(runnerState({ state: 'preparation', total_trials: 12, sensors: measuredGoodSensors, sampling_rate_hz: 256, sampling_rate_ok: true, live_sensor_ready: true }));
     for (const key of component.sensorKeys) component.setContact(key, true);
     ws.isConnected.set(true);
     expect(component.canStartBaseline()).toBeTrue();
@@ -197,8 +252,11 @@ describe('DatasetCollectionRunnerComponent', () => {
     spyOn(URL, 'createObjectURL').and.returnValue('blob:broken');
     const revoke = spyOn(URL, 'revokeObjectURL');
     component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 1, current_stimulus_id: 11, trial_state: 'rest' }));
-    component.onMediaError();
+    const video = { pause: jasmine.createSpy('pause'), currentTime: 7 } as unknown as HTMLVideoElement;
+    component.onMediaError(video);
     expect(revoke).toHaveBeenCalledOnceWith('blob:broken');
+    expect(video.pause).toHaveBeenCalled();
+    expect(video.currentTime).toBe(0);
     expect(component.mediaUrl()).toBeNull();
     expect(component.mediaError()).toBeTrue();
     component.ngOnDestroy();
@@ -206,14 +264,27 @@ describe('DatasetCollectionRunnerComponent', () => {
   });
 
   it('starts only after playing, finishes once on ended, and sends no browser marker payload', () => {
-    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 3, current_stimulus_id: 11, current_stimulus_title: 'Calm lake', trial_state: 'rest' }));
-    component.onPlaying();
-    component.onPlaying();
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 3, current_stimulus_id: 11, current_stimulus_title: 'Calm lake', trial_state: 'rest', stimulus_start_ready: true }));
+    const video = { pause: jasmine.createSpy('pause'), play: jasmine.createSpy('play').and.resolveTo(), currentTime: 0 } as unknown as HTMLVideoElement;
+    component.onPlaying(video);
+    component.onPlaying(video);
     expect(api.startStimulus).toHaveBeenCalledOnceWith(13, 21);
     component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_trial_order: 3, current_stimulus_id: 11, current_stimulus_title: 'Calm lake', trial_state: 'stimulus' }));
     component.onEnded();
     component.onEnded();
     expect(api.finishStimulus).toHaveBeenCalledOnceWith(13, 21);
+  });
+
+  it('does not rewind a synchronized stimulus when playback resumes after buffering', () => {
+    api.startStimulus.and.returnValue(of(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'stimulus' })));
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'rest', stimulus_start_ready: true }));
+    const video = { pause: jasmine.createSpy('pause'), play: jasmine.createSpy('play').and.resolveTo(), currentTime: 12 } as unknown as HTMLVideoElement;
+    component.onPlaying(video);
+    video.currentTime = 12;
+    component.onPlaying(video);
+    expect(video.pause).toHaveBeenCalledTimes(1);
+    expect(video.currentTime).toBe(12);
+    expect(api.startStimulus).toHaveBeenCalledTimes(1);
   });
 
   it('queues ended behind an in-flight artifact and retries a failed finish without stranding the Trial', () => {

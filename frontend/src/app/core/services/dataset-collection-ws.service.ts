@@ -25,6 +25,8 @@ const MESSAGE_KEYS = new Set([
   'completed_trials', 'total_trials', 'next_trial_order', 'next_trial_id', 'next_stimulus_id',
   'next_stimulus_title', 'break_required', 'interruption_reason', 'accepted_clean_seconds',
   'wall_clock_seconds', 'file_recovery_required',
+  'sensors', 'sampling_rate_hz', 'sampling_rate_ok', 'live_sensor_ready',
+  'stimulus_start_ready', 'quality_source',
 ]);
 
 interface CollectionWsMessage extends CollectionRunnerState {
@@ -167,6 +169,10 @@ function parseMessage(raw: unknown): CollectionWsMessage | null {
   if (typeof value['break_required'] !== 'boolean' || !isNullableString(value['interruption_reason'])) return null;
   if (!isNonnegativeNumber(value['accepted_clean_seconds']) || !isNonnegativeNumber(value['wall_clock_seconds'])) return null;
   if (typeof value['file_recovery_required'] !== 'boolean') return null;
+  if (!isSensorMap(value['sensors'])) return null;
+  if (!(value['sampling_rate_hz'] === null || isNonnegativeNumber(value['sampling_rate_hz']))) return null;
+  if (typeof value['sampling_rate_ok'] !== 'boolean' || typeof value['live_sensor_ready'] !== 'boolean') return null;
+  if (typeof value['stimulus_start_ready'] !== 'boolean' || value['quality_source'] !== 'derived_eeg_window') return null;
   if ('stream_error' in value && typeof value['stream_error'] !== 'string') return null;
   return value as unknown as CollectionWsMessage;
 }
@@ -201,4 +207,14 @@ function isNonnegativeNumber(value: unknown): value is number {
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
+}
+
+function isSensorMap(value: unknown): boolean {
+  if (!isRecord(value) || Object.keys(value).sort().join(',') !== 'af7,af8,tp10,tp9') return false;
+  return Object.values(value).every(sensor => isRecord(sensor)
+    && Object.keys(sensor).sort().join(',') === 'quality_score,sequence,state,timestamp'
+    && ['unknown', 'poor', 'good', 'stale'].includes(String(sensor['state']))
+    && isNonnegativeNumber(sensor['quality_score']) && sensor['quality_score'] <= 100
+    && typeof sensor['timestamp'] === 'number' && Number.isFinite(sensor['timestamp'])
+    && isNonnegativeInteger(sensor['sequence']));
 }

@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.services.raw_eeg_writer import EEGSample
+from app.services.signal_processor import SensorQuality, estimate_sensor_state
+
+import numpy as np
 
 
 CHANNELS = ("tp9", "af7", "af8", "tp10")
@@ -26,6 +30,10 @@ class MuseDevice:
 class MuseSample:
     sample: EEGSample
     sensor_timestamps: dict[str, float]
+    sensors: dict[str, SensorQuality]
+    sampling_rate_hz: float | None
+    sampling_rate_ok: bool
+    capture_eligible: bool = True
 
 
 class MuseStreamSource(Protocol):
@@ -44,11 +52,22 @@ class LSLMuseStreamSource:
         discovery_timeout: float = 2.0,
         pull_timeout: float = 0.25,
         stale_after_seconds: float = 2.0,
+        expected_sampling_rate_hz: float = 256.0,
+        sampling_tolerance_hz: float = 8.0,
+        quality_window_samples: int | None = None,
         clock: Callable[[], float] | None = None,
     ):
         self.discovery_timeout = discovery_timeout
         self.pull_timeout = pull_timeout
         self.stale_after_seconds = stale_after_seconds
+        self.expected_sampling_rate_hz = float(expected_sampling_rate_hz)
+        self.sampling_tolerance_hz = float(sampling_tolerance_hz)
+        window = quality_window_samples or max(16, int(round(self.expected_sampling_rate_hz)))
+        self._timestamps: deque[float] = deque(maxlen=window)
+        self._channel_windows = {channel: deque(maxlen=window) for channel in CHANNELS}
+        self._last_values: tuple[float, ...] | None = None
+        self._last_source_timestamp: float | None = None
+        self._stale_emitted = False
         self._clock = clock or self._lsl_clock
         self._inlet: Any | None = None
         self._connected = False
@@ -112,12 +131,18 @@ class LSLMuseStreamSource:
                     timeout=self.pull_timeout + 0.5,
                 )
             except (TimeoutError, asyncio.TimeoutError):
+                stale = self.stale_observation()
+                if stale is not None:
+                    yield stale
                 continue
             except MuseStreamError:
                 raise
             except Exception as exc:
                 raise MuseStreamError("Muse sample read failed") from exc
             if values is None or timestamp is None:
+                stale = self.stale_observation()
+                if stale is not None:
+                    yield stale
                 continue
             try:
                 yield self.map_sample(values, float(timestamp))
@@ -146,7 +171,72 @@ class LSLMuseStreamSource:
         received_at = float(self._clock())
         age = received_at - timestamp
         if age < -self.stale_after_seconds or age > self.stale_after_seconds:
-            raise MuseStreamError("Muse sample timestamp is stale")
+            sensors = {
+                channel: SensorQuality(state="stale", quality_score=0.0, timestamp=timestamp)
+                for channel in CHANNELS
+            }
+            return self._mapped_sample(values, names, timestamp, sensors, None, False, False)
+        indexed = {name: float(values[index]) for index, name in enumerate(names)}
+        self._last_values = tuple(float(value) for value in values)
+        self._last_source_timestamp = timestamp
+        self._stale_emitted = False
+        timestamp_increases = not self._timestamps or timestamp > self._timestamps[-1]
+        if timestamp_increases:
+            self._timestamps.append(timestamp)
+            for channel in CHANNELS:
+                self._channel_windows[channel].append(indexed[channel])
+        sampling_rate = self._sampling_rate()
+        sampling_ok = bool(
+            timestamp_increases
+            and sampling_rate is not None
+            and abs(sampling_rate - self.expected_sampling_rate_hz) <= self.sampling_tolerance_hz
+        )
+        matrix = np.column_stack([self._channel_windows[channel] for channel in CHANNELS])
+        sensors = {
+            channel: estimate_sensor_state(matrix, index, timestamp, timestamp)
+            for index, channel in enumerate(CHANNELS)
+        }
+        if not sampling_ok:
+            sensors = {
+                channel: SensorQuality(
+                    state="poor" if len(self._timestamps) >= 16 else "unknown",
+                    quality_score=sensor.quality_score,
+                    timestamp=timestamp,
+                )
+                for channel, sensor in sensors.items()
+            }
+        return self._mapped_sample(values, names, timestamp, sensors, sampling_rate, sampling_ok, timestamp_increases)
+
+    def stale_observation(self) -> MuseSample | None:
+        if self._last_values is None or self._last_source_timestamp is None or self._stale_emitted:
+            return None
+        if float(self._clock()) - self._last_source_timestamp <= self.stale_after_seconds:
+            return None
+        self._stale_emitted = True
+        sensors = {
+            channel: SensorQuality(state="stale", quality_score=0.0, timestamp=self._last_source_timestamp)
+            for channel in CHANNELS
+        }
+        return self._mapped_sample(
+            self._last_values,
+            self._validate_channel_names(self._channel_names),
+            self._last_source_timestamp,
+            sensors,
+            self._sampling_rate(),
+            False,
+            False,
+        )
+
+    def _mapped_sample(
+        self,
+        values: Sequence[float],
+        names: Sequence[str],
+        timestamp: float,
+        sensors: dict[str, SensorQuality],
+        sampling_rate: float | None,
+        sampling_ok: bool,
+        capture_eligible: bool,
+    ) -> MuseSample:
         indexed = {name: float(values[index]) for index, name in enumerate(names)}
         sample = EEGSample(
             timestamp=timestamp,
@@ -154,12 +244,25 @@ class LSLMuseStreamSource:
             af7=indexed["af7"],
             af8=indexed["af8"],
             tp10=indexed["tp10"],
-            tp9_quality=100.0,
-            af7_quality=100.0,
-            af8_quality=100.0,
-            tp10_quality=100.0,
+            tp9_quality=sensors["tp9"].quality_score,
+            af7_quality=sensors["af7"].quality_score,
+            af8_quality=sensors["af8"].quality_score,
+            tp10_quality=sensors["tp10"].quality_score,
         )
-        return MuseSample(sample, {channel: received_at for channel in CHANNELS})
+        return MuseSample(
+            sample,
+            {channel: timestamp for channel in CHANNELS},
+            sensors,
+            sampling_rate,
+            sampling_ok,
+            capture_eligible,
+        )
+
+    def _sampling_rate(self) -> float | None:
+        if len(self._timestamps) < 16:
+            return None
+        elapsed = self._timestamps[-1] - self._timestamps[0]
+        return None if elapsed <= 0 else (len(self._timestamps) - 1) / elapsed
 
     def _resolve_streams(self):
         try:

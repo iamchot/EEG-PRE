@@ -29,7 +29,7 @@ class CollectionContextUnavailableError(RuntimeError):
 class CollectionConnectionManager:
     """Own and serialize every access to an active collection runner."""
 
-    def __init__(self, source_factory: Callable[[], MuseStreamSource] = LSLMuseStreamSource):
+    def __init__(self, source_factory: Callable[[], MuseStreamSource] | None = None):
         self._source_factory = source_factory
         self._clients: dict[int, set[WebSocket]] = defaultdict(set)
         self._runners: dict[int, CollectionStateMachine] = {}
@@ -125,7 +125,14 @@ class CollectionConnectionManager:
             if runner is None or not runner.session.device_id:
                 return
             device_id = runner.session.device_id
-            source = self._source_factory()
+            if self._source_factory is None:
+                settings = get_settings()
+                source = LSLMuseStreamSource(
+                    expected_sampling_rate_hz=settings.collection_sampling_rate_hz,
+                    sampling_tolerance_hz=settings.collection_sampling_tolerance_hz,
+                )
+            else:
+                source = self._source_factory()
             self._sources[session_id] = source
             self._tasks[session_id] = asyncio.create_task(
                 self._pump(session_id, source, device_id=device_id)
@@ -251,14 +258,23 @@ class CollectionConnectionManager:
     @staticmethod
     def _accept_sample_unlocked(runner: CollectionStateMachine, incoming) -> tuple[object, bool]:
         before = runner.state()
+        runner.observe_quality(
+            incoming.sensors,
+            sampling_rate_hz=incoming.sampling_rate_hz,
+            sampling_rate_ok=incoming.sampling_rate_ok,
+        )
         capture_active = before.active_baseline is not None or before.trial_state in {
             TrialState.rest,
             TrialState.stimulus,
             TrialState.rating,
         }
-        if not capture_active:
-            return before, False
-        runner.accept_sample(incoming.sample, sensor_timestamps=incoming.sensor_timestamps)
+        if not capture_active or not incoming.capture_eligible:
+            return runner.state(), True
+        runner.accept_sample(
+            incoming.sample,
+            sensor_timestamps=incoming.sensor_timestamps,
+            sampling_rate_ok=incoming.sampling_rate_ok,
+        )
         state = runner.state()
         settings = get_settings()
         if (

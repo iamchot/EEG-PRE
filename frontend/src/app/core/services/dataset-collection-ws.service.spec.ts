@@ -58,6 +58,12 @@ describe('DatasetCollectionWsService', () => {
     next_stimulus_id: null, next_stimulus_title: null, break_required: false,
     interruption_reason: null, accepted_clean_seconds: 12.5, wall_clock_seconds: 18,
     file_recovery_required: false,
+    sensors: {
+      tp9: { state: 'good', quality_score: 82, timestamp: 10, sequence: 1 }, af7: { state: 'good', quality_score: 83, timestamp: 10, sequence: 1 },
+      af8: { state: 'good', quality_score: 84, timestamp: 10, sequence: 1 }, tp10: { state: 'good', quality_score: 85, timestamp: 10, sequence: 1 },
+    },
+    sampling_rate_hz: 256, sampling_rate_ok: true, live_sensor_ready: true,
+    stimulus_start_ready: true, quality_source: 'derived_eeg_window',
   };
   let service: DatasetCollectionWsService;
   let runnerApi: jasmine.SpyObj<DatasetCollectionService>;

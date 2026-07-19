@@ -38,6 +38,8 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
       <div class="connection" role="status" aria-live="polite">
         <span [class.online]="ws.isConnected()"></span>
         {{ ws.isConnected() ? 'Live state connected' : 'Using persisted runner state' }}
+        · Signal quality: derived EEG window
+        · {{ samplingRateLabel() }}
       </div>
       @if (error()) { <div class="error" role="alert">{{ error() }}</div> }
 
@@ -136,8 +138,14 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
         <section class="media-card">
           <div><p class="step">Approved stimulus</p><h2>{{ runnerState()?.current_stimulus_title }}</h2></div>
           @if (mediaError()) { <div class="error" role="alert">โหลดคลิปไม่สำเร็จ — จะยังไม่เริ่มบันทึก stimulus</div> }
+          @if (startRetryAvailable()) { <button type="button" (click)="retryPlayback()">ลองเริ่มคลิปอีกครั้ง</button> }
           @if (finishRetryAvailable()) { <button type="button" (click)="retryFinish()" [disabled]="busy()">ลองยืนยันจบคลิปอีกครั้ง</button> }
-          @if (mediaUrl(); as source) { <video controls preload="auto" [src]="source" (playing)="onPlaying()" (ended)="onEnded()" (error)="onMediaError()" aria-label="Approved entertainment stimulus"></video> }
+          @if (mediaUrl(); as source) {
+            <div class="video-shell">
+              <video #media [controls]="canControlMedia()" preload="auto" [src]="source" (playing)="onPlaying(media)" (ended)="onEnded()" (error)="onMediaError(media)" aria-label="Approved entertainment stimulus"></video>
+              @if (!canControlMedia()) { <div class="media-lock" role="status">รอ Backend ยืนยันช่วง Rest และสัญญาณทั้ง 4 จุด</div> }
+            </div>
+          }
           @else if (!mediaError()) { <p role="status">กำลังโหลดคลิปที่ผ่านการอนุมัติ…</p> }
         </section>
       </ng-template>
@@ -154,6 +162,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   readonly mediaReady = signal(false);
   readonly mediaError = signal(false);
   readonly finishRetryAvailable = signal(false);
+  readonly startRetryAvailable = signal(false);
   readonly devicePersisted = signal(false);
   readonly contacts = signal<Record<SensorKey, boolean>>({ tp9: false, af7: false, af8: false, tp10: false });
   readonly sensorKeys: SensorKey[] = ['tp9', 'af7', 'af8', 'tp10'];
@@ -177,6 +186,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   private playbackFinished = false;
   private pendingEnded = false;
   private destroyed = false;
+  private activeVideo: HTMLVideoElement | null = null;
 
   constructor(
     route: ActivatedRoute,
@@ -217,14 +227,19 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   displayedTrialOrder(): number { return this.runnerState()?.current_trial_order ?? this.runnerState()?.next_trial_order ?? 12; }
   trialProgressLabel(): string { return (this.runnerState()?.total_trials ?? 0) === 0 ? 'Schedule not prepared' : `Trial ${this.displayedTrialOrder()} / 12`; }
   seconds(value?: number): string { return Math.max(0, value ?? 0).toFixed(1); }
+  samplingRateLabel(): string {
+    const rate = this.runnerState()?.sampling_rate_hz;
+    return rate == null ? 'rate pending' : `${rate.toFixed(1)} Hz`;
+  }
 
   sensorStatus(key: SensorKey): SensorStatus {
-    return { state: this.contacts()[key] ? 'good' : 'unknown', quality_score: 0, timestamp: 0, sequence: 0 };
+    return this.runnerState()?.sensors[key] ?? { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 };
   }
 
   setContact(key: SensorKey, confirmed: boolean): void { this.contacts.update(value => ({ ...value, [key]: confirmed })); }
   canStartBaseline(): boolean {
-    return this.devicePersisted() && this.runnerState()?.total_trials === 12 && this.ws.isConnected() && this.sensorKeys.every(key => this.contacts()[key]);
+    return this.devicePersisted() && this.runnerState()?.total_trials === 12 && this.ws.isConnected()
+      && !!this.runnerState()?.live_sensor_ready && this.sensorKeys.every(key => this.contacts()[key]);
   }
 
   selectDevice(): void {
@@ -254,11 +269,28 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     if (trialId) this.run(this.api.startTrialRest(this.sessionId, trialId));
   }
 
-  onPlaying(): void {
+  canControlMedia(): boolean {
     const state = this.runnerState();
-    if (!this.mediaReady() || this.mediaError() || this.playbackStarted || state?.trial_state !== 'rest' || !state.current_trial_id) return;
+    return state?.trial_state === 'stimulus' || !!state?.stimulus_start_ready;
+  }
+
+  onPlaying(video?: HTMLVideoElement): void {
+    if (video) this.activeVideo = video;
+    const state = this.runnerState();
+    if (state?.trial_state === 'stimulus' && this.playbackStarted) return;
+    if (!this.mediaReady() || this.mediaError() || state?.trial_state !== 'rest' || !state.current_trial_id || !state.stimulus_start_ready) {
+      this.rewindMedia(video);
+      return;
+    }
+    if (this.playbackStarted) return;
+    this.rewindMedia(video);
     this.playbackStarted = true;
-    this.run(this.api.startStimulus(this.sessionId, state.current_trial_id), () => this.playbackStarted = false);
+    this.startRetryAvailable.set(false);
+    this.run(this.api.startStimulus(this.sessionId, state.current_trial_id), () => {
+      this.playbackStarted = false;
+      this.startRetryAvailable.set(true);
+      this.rewindMedia(video);
+    }, () => { void (video ?? this.activeVideo)?.play(); });
   }
 
   onEnded(): void {
@@ -269,10 +301,17 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     this.flushPendingFinish();
   }
 
-  onMediaError(): void {
+  onMediaError(video?: HTMLVideoElement): void {
+    this.rewindMedia(video);
     this.mediaSubscription?.unsubscribe(); this.mediaSubscription = undefined;
     const url = this.mediaUrl(); if (url) URL.revokeObjectURL(url);
     this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(true);
+  }
+
+  retryPlayback(): void {
+    if (!this.startRetryAvailable() || !this.canControlMedia()) return;
+    this.startRetryAvailable.set(false);
+    void this.activeVideo?.play();
   }
 
   retryFinish(): void {
@@ -329,7 +368,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     if (this.mediaStimulusId === stimulusId && (this.mediaUrl() || this.mediaError())) return;
     this.releaseMedia();
     this.mediaStimulusId = stimulusId;
-    this.mediaReady.set(false); this.mediaError.set(false); this.finishRetryAvailable.set(false); this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false;
+    this.mediaReady.set(false); this.mediaError.set(false); this.finishRetryAvailable.set(false); this.startRetryAvailable.set(false); this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false;
     this.mediaSubscription = this.api.getStimulusMedia(stimulusId).subscribe({
       next: blob => { if (this.mediaStimulusId !== stimulusId) return; this.mediaUrl.set(URL.createObjectURL(blob)); this.mediaReady.set(true); },
       error: () => { if (this.mediaStimulusId === stimulusId) { this.mediaReady.set(false); this.mediaError.set(true); } },
@@ -340,7 +379,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     this.mediaSubscription?.unsubscribe(); this.mediaSubscription = undefined;
     const url = this.mediaUrl(); if (url) URL.revokeObjectURL(url);
     this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(false); this.mediaStimulusId = null;
-    this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false; this.finishRetryAvailable.set(false);
+    this.activeVideo = null; this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false; this.finishRetryAvailable.set(false); this.startRetryAvailable.set(false);
   }
 
   private flushPendingFinish(): void {
@@ -364,5 +403,11 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   }
 
   private inRange(value: number, min: number, max: number): boolean { return Number.isInteger(value) && value >= min && value <= max; }
+  private rewindMedia(video?: HTMLVideoElement): void {
+    const target = video ?? this.activeVideo;
+    if (!target) return;
+    target.pause();
+    target.currentTime = 0;
+  }
   private fail(err: unknown): void { const value = err as { error?: { detail?: string }; message?: string }; this.error.set(value.error?.detail ?? value.message ?? 'ไม่สามารถดำเนินการได้'); }
 }

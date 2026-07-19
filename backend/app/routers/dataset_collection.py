@@ -282,9 +282,11 @@ async def start_collection_baseline(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
-    state = _safe_transition(
-        lambda: _run_capture_session(db, session_id, lambda runner: runner.start_baseline(kind))
-    )
+    def operation(runner):
+        runner.require_live_sensor_ready()
+        return runner.start_baseline(kind)
+
+    state = _safe_transition(lambda: _run_capture_session(db, session_id, operation))
     return await _publish_response(db, session_id, state)
 
 
@@ -323,6 +325,7 @@ async def start_trial_stimulus(
 
     def operation(runner):
         _runner_trial(runner, session_id, trial_id)
+        runner.require_live_sensor_ready()
         return runner.start_stimulus(trial_id)
 
     state = _safe_transition(lambda: _run_capture_session(db, session_id, operation))

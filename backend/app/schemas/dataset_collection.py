@@ -110,6 +110,15 @@ class InterruptRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class CollectionSensorQuality(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    state: str
+    quality_score: float = Field(ge=0, le=100)
+    timestamp: float
+    sequence: int = 0
+
+
 class CollectionRunnerStateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -132,3 +141,12 @@ class CollectionRunnerStateResponse(BaseModel):
     accepted_clean_seconds: float
     wall_clock_seconds: float
     file_recovery_required: bool
+    sensors: dict[str, CollectionSensorQuality] = Field(default_factory=lambda: {
+        name: CollectionSensorQuality(state="unknown", quality_score=0, timestamp=0)
+        for name in ("tp9", "af7", "af8", "tp10")
+    })
+    sampling_rate_hz: float | None = None
+    sampling_rate_ok: bool = False
+    live_sensor_ready: bool = False
+    stimulus_start_ready: bool = False
+    quality_source: str = "derived_eeg_window"

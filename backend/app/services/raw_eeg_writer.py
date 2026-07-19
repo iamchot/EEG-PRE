@@ -114,7 +114,7 @@ class AtomicEEGWriter:
             raise ValueError("sample marker must be a single line")
         self._write_row((*values, sample.marker))
 
-    def mark(self, marker: str) -> None:
+    def mark(self, marker: str) -> float:
         self._ensure_started()
         if not marker.strip() or "\n" in marker or "\r" in marker:
             raise ValueError("marker must be non-empty and single-line")
@@ -123,6 +123,7 @@ class AtomicEEGWriter:
             raise ValueError("marker timestamp must be finite")
         self._validate_timestamp(timestamp)
         self._write_row((timestamp, "", "", "", "", "", "", "", "", marker))
+        return timestamp
 
     def finalize(self) -> RawFileResult:
         if self._state == "finalized":

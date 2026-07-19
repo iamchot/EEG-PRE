@@ -34,6 +34,7 @@ from app.services.auth_service import create_access_token
 from app.services.collection_state_machine import CollectionRunnerState
 from app.services.muse_stream import LSLMuseStreamSource, MuseDevice, MuseStreamError
 from app.services.raw_eeg_writer import EEGSample
+from app.services.signal_processor import SensorQuality
 from app.ws.collection_manager import CollectionConnectionManager
 
 
@@ -105,13 +106,57 @@ def auth(client, role="admin"):
 
 
 def test_lsl_adapter_maps_exact_muse_channels_and_rejects_stale_samples():
-    source = LSLMuseStreamSource(clock=lambda: 10.0, stale_after_seconds=2.0)
+    clock = [9.0]
+    source = LSLMuseStreamSource(clock=lambda: clock[0], stale_after_seconds=2.0)
     source._channel_names = ("AF8", "TP10", "TP9", "AF7")
-    mapped = source.map_sample([3.0, 4.0, 1.0, 2.0], timestamp=9.0)
-    assert (mapped.sample.tp9, mapped.sample.af7, mapped.sample.af8, mapped.sample.tp10) == (1, 2, 3, 4)
+    for index in range(16):
+        clock[0] = 9.0 + index / 256
+        mapped = source.map_sample(
+            [35.0 * ((index % 4) - 1.5), 30.0 * ((index % 4) - 1.5), 32.0 * ((index % 4) - 1.5), 34.0 * ((index % 4) - 1.5)],
+            timestamp=clock[0],
+        )
+    assert (mapped.sample.tp9, mapped.sample.af7, mapped.sample.af8, mapped.sample.tp10) == (48, 51, 52.5, 45)
     assert set(mapped.sensor_timestamps) == {"tp9", "af7", "af8", "tp10"}
-    with pytest.raises(MuseStreamError, match="stale"):
-        source.map_sample([3.0, 4.0, 1.0, 2.0], timestamp=7.9)
+    assert set(mapped.sensor_timestamps.values()) == {mapped.sample.timestamp}
+    assert mapped.sample.tp9_quality != 100.0
+    assert mapped.sampling_rate_ok is True
+    assert all(sensor.state == "good" for sensor in mapped.sensors.values())
+
+    clock[0] += 3
+    stale = source.map_sample([3.0, 4.0, 1.0, 2.0], timestamp=clock[0] - 3)
+    assert stale.capture_eligible is False
+    assert all(sensor.state == "stale" for sensor in stale.sensors.values())
+
+
+def test_lsl_adapter_enforces_configured_256_hz_tolerance_deterministically():
+    clock = [100.0]
+    source = LSLMuseStreamSource(
+        clock=lambda: clock[0], expected_sampling_rate_hz=256, sampling_tolerance_hz=8,
+    )
+    source._channel_names = ("TP9", "AF7", "AF8", "TP10")
+
+    for index in range(16):
+        clock[0] = 100.0 + index / 240
+        mapped = source.map_sample([20 + index % 4, 25 + index % 4, 30 + index % 4, 35 + index % 4], clock[0])
+
+    assert mapped.sampling_rate_hz == pytest.approx(240.0)
+    assert mapped.sampling_rate_ok is False
+    assert mapped.capture_eligible is True
+    assert all(sensor.state == "poor" for sensor in mapped.sensors.values())
+
+
+def test_lsl_adapter_emits_one_stale_quality_observation_when_samples_stop():
+    clock = [50.0]
+    source = LSLMuseStreamSource(clock=lambda: clock[0], stale_after_seconds=2)
+    source._channel_names = ("TP9", "AF7", "AF8", "TP10")
+    source.map_sample([1, 2, 3, 4], 50.0)
+    clock[0] = 52.1
+
+    stale = source.stale_observation()
+
+    assert stale is not None and stale.capture_eligible is False
+    assert all(sensor.state == "stale" for sensor in stale.sensors.values())
+    assert source.stale_observation() is None
 
 
 def test_lsl_adapter_ignores_aux_but_keeps_exact_four_channel_mapping():
@@ -377,15 +422,21 @@ def test_last_websocket_disconnect_interrupts_active_collection():
 def test_stream_samples_wait_until_a_capture_phase_is_active():
     manager = CollectionConnectionManager()
     accepted = []
+    observed = []
 
     class FakeSource:
         async def connect(self, device_id):
             assert device_id == "muse-1"
 
         async def samples(self):
+            sensors = {name: SensorQuality("good", 80, 1.0) for name in ("tp9", "af7", "af8", "tp10")}
             yield type("Incoming", (), {
-                "sample": EEGSample(1, 1, 2, 3, 4, 100, 100, 100, 100),
+                "sample": EEGSample(1, 1, 2, 3, 4, 80, 80, 80, 80),
                 "sensor_timestamps": {name: 1.0 for name in ("tp9", "af7", "af8", "tp10")},
+                "sensors": sensors,
+                "sampling_rate_hz": 256.0,
+                "sampling_rate_ok": True,
+                "capture_eligible": True,
             })()
 
     class FakeRunner:
@@ -411,8 +462,12 @@ def test_stream_samples_wait_until_a_capture_phase_is_active():
         def accept_sample(self, *args, **kwargs):
             accepted.append((args, kwargs))
 
+        def observe_quality(self, sensors, **kwargs):
+            observed.append((sensors, kwargs))
+
     asyncio.run(manager._pump(3, FakeSource(), FakeRunner()))
     assert accepted == []
+    assert observed[0][1] == {"sampling_rate_hz": 256.0, "sampling_rate_ok": True}
 
 
 def test_muse_stream_ending_interrupts_an_active_capture():

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 import sys
 
 import pytest
@@ -27,6 +28,7 @@ from app.services.collection_state_machine import (
     InvalidTransitionError,
 )
 from app.services.raw_eeg_writer import AtomicEEGWriter, EEGSample, RawFileResult
+from app.services.signal_processor import SensorQuality
 from app.services.trial_scheduler import create_trial_schedule
 
 
@@ -138,11 +140,12 @@ def good_sample(timestamp):
 
 def finish_baseline(runner, clock, kind):
     runner.start_baseline(kind)
+    clock.advance(0.001)
     runner.accept_sample(good_sample(clock.value), sensor_timestamps={name: clock.value for name in ("tp9", "af7", "af8", "tp10")})
     for _ in range(30):
         clock.advance(1)
         runner.accept_sample(good_sample(clock.value), sensor_timestamps={name: clock.value for name in ("tp9", "af7", "af8", "tp10")})
-    clock.advance(30)
+    clock.advance(29.999)
     return runner.finish_baseline()
 
 
@@ -200,6 +203,59 @@ def test_clean_time_requires_all_four_good_and_fresh_sensors(setup_runner):
     state = runner.accept_sample(good_sample(clock.value), sensor_timestamps={n: clock.value for n in names})
     assert state.accepted_clean_seconds == 1
     assert state.wall_clock_seconds == 16
+
+
+def test_stimulus_counters_reset_after_rest_and_persist_derived_coverage_qc(setup_runner, db):
+    runner, _, clock, _, _ = setup_runner
+    prepare_ready(runner, clock)
+    state = runner.start_trial_rest()
+    names = ("tp9", "af7", "af8", "tp10")
+    runner.accept_sample(good_sample(clock.value), sensor_timestamps={n: clock.value for n in names}, sampling_rate_ok=True)
+    clock.advance(10)
+    runner.accept_sample(good_sample(clock.value), sensor_timestamps={n: clock.value for n in names}, sampling_rate_ok=True)
+    assert runner.state().accepted_clean_seconds == 0
+
+    runner.start_stimulus(state.current_trial_id)
+    assert runner.state().accepted_clean_seconds == 0
+    clock.advance(0.001)
+    for _ in range(46):
+        runner.accept_sample(good_sample(clock.value), sensor_timestamps={n: clock.value for n in names}, sampling_rate_ok=True)
+        clock.advance(1)
+    runner.finish_stimulus(state.current_trial_id)
+
+    trial = db.get(CollectionTrial, state.current_trial_id)
+    qc = json.loads(trial.qc_summary_json)
+    assert trial.wall_clock_seconds == pytest.approx(46.001)
+    assert trial.accepted_clean_seconds == pytest.approx(45)
+    assert qc["quality_source"] == "derived_eeg_window"
+    assert qc["valid_signal"] is True
+    assert qc["af7_good_coverage"] >= 0.8
+    assert qc["af8_good_coverage"] >= 0.8
+
+
+def test_out_of_tolerance_sampling_never_accrues_clean_time(setup_runner):
+    runner, _, clock, _, _ = setup_runner
+    runner.select_device("muse-1", "Muse 2")
+    runner.start_baseline(BaselineKind.eyes_open)
+    names = ("tp9", "af7", "af8", "tp10")
+    runner.accept_sample(good_sample(clock.value), sensor_timestamps={n: clock.value for n in names}, sampling_rate_ok=False)
+    clock.advance(1)
+    state = runner.accept_sample(good_sample(clock.value), sensor_timestamps={n: clock.value for n in names}, sampling_rate_ok=False)
+    assert state.accepted_clean_seconds == 0
+
+
+def test_live_readiness_uses_backend_observation_age_without_replacing_source_timestamps(setup_runner):
+    runner, _, clock, _, _ = setup_runner
+    source_timestamp = 50_000.0
+    sensors = {
+        name: SensorQuality(state="good", quality_score=80, timestamp=source_timestamp)
+        for name in ("tp9", "af7", "af8", "tp10")
+    }
+    state = runner.observe_quality(sensors, sampling_rate_hz=256, sampling_rate_ok=True)
+    assert state.live_sensor_ready is True
+    assert {sensor.timestamp for sensor in state.sensors.values()} == {source_timestamp}
+    clock.advance(2.1)
+    assert runner.state().live_sensor_ready is False
 
 
 def test_baseline_needs_sixty_wall_and_thirty_clean_seconds(setup_runner):
@@ -313,11 +369,12 @@ def test_baseline_metadata_commit_failure_survives_recreation(setup_runner, monk
     runner, session, clock, _, _ = setup_runner
     runner.select_device("muse-1", "Muse 2")
     runner.start_baseline(BaselineKind.eyes_open)
+    clock.advance(0.001)
     runner.accept_sample(good_sample(clock.value))
     for _ in range(30):
         clock.advance(1)
         runner.accept_sample(good_sample(clock.value))
-    clock.advance(30)
+    clock.advance(29.999)
     real_commit = runner.db.commit
     attempts = 0
 
@@ -547,6 +604,7 @@ def test_append_failure_aborts_and_interrupts_active_trial(setup_runner):
     prepare_ready(runner, clock)
     state = runner.start_trial_rest()
     writers[-1].fail_append = True
+    clock.advance(0.001)
 
     with pytest.raises(CollectionStateError, match="sample could not be written"):
         runner.accept_sample(good_sample(clock.value))
@@ -712,12 +770,13 @@ def test_post_rating_rest_blocks_early_start_and_records_late_protocol_deviation
     assert "exceeded 30" in trial.failure_reason
 
 
-def test_atomic_writer_uses_injected_backend_clock_for_markers_and_samples(tmp_path, db, setup_runner):
+def test_state_machine_preserves_valid_source_timestamp_in_raw_sample(db, setup_runner):
     _, session, clock, _, _ = setup_runner
+    writers = []
     runner = CollectionStateMachine(
         db,
         session,
-        writer_factory=lambda marker_clock: AtomicEEGWriter(tmp_path, clock=marker_clock),
+        writer_factory=lambda marker_clock: writers.append(FakeWriter([])) or writers[-1],
         monotonic=clock.monotonic,
         now=clock.now,
     )
@@ -725,9 +784,26 @@ def test_atomic_writer_uses_injected_backend_clock_for_markers_and_samples(tmp_p
     runner.start_baseline(BaselineKind.eyes_open)
     clock.advance(0.01)
     runner.accept_sample(
-        good_sample(-999),
+        good_sample(clock.value),
         sensor_timestamps={name: clock.value for name in ("tp9", "af7", "af8", "tp10")},
     )
+    assert writers[-1].samples[-1].timestamp == clock.value
+
+
+def test_sample_pulled_before_phase_marker_is_skipped_without_interrupting_capture(setup_runner):
+    runner, session, clock, _, writers = setup_runner
+    runner.select_device("muse-1", "Muse 2")
+    runner.start_baseline(BaselineKind.eyes_open)
+    before_marker = clock.value - 0.01
+
+    state = runner.accept_sample(
+        good_sample(before_marker),
+        sensor_timestamps={name: before_marker for name in ("tp9", "af7", "af8", "tp10")},
+    )
+
+    assert writers[-1].samples == []
+    assert state.state is CollectionSessionState.baseline
+    assert session.interruption_reason is None
     runner.interrupt("test cleanup")
 
 
@@ -751,11 +827,11 @@ def test_atomic_writer_orders_adjacent_phase_markers_and_sample_with_coarse_cloc
     active = runner.start_trial_rest()
     clock.advance(10)
 
-    # rest_end and stimulus_start are adjacent Backend-owned markers. The
-    # coarse clock intentionally does not advance between them or the sample.
+    # Backend markers remain ordered, then the next valid source sample follows.
     runner.start_stimulus(active.current_trial_id)
+    clock.advance(0.01)
     runner.accept_sample(
-        good_sample(-999),
+        good_sample(clock.value),
         sensor_timestamps={name: clock.value for name in ("tp9", "af7", "af8", "tp10")},
     )
 

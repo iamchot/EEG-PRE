@@ -5,7 +5,7 @@ import math
 import secrets
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
@@ -24,6 +24,7 @@ from app.models.dataset_collection import (
 )
 from app.services.dataset_labels import derive_labels
 from app.services.raw_eeg_writer import EEGSample, RawFileResult
+from app.services.signal_processor import SensorQuality
 
 
 SENSOR_NAMES = ("tp9", "af7", "af8", "tp10")
@@ -38,7 +39,7 @@ POST_RATING_REST_MAX_SECONDS = 30.0
 class EEGWriter(Protocol):
     def start(self, path_parts: list[str]) -> None: ...
     def append(self, sample: EEGSample) -> None: ...
-    def mark(self, marker: str) -> None: ...
+    def mark(self, marker: str) -> float | None: ...
     def finalize(self) -> RawFileResult: ...
     def abort(self) -> None: ...
 
@@ -71,6 +72,15 @@ class CollectionRunnerState:
     accepted_clean_seconds: float
     wall_clock_seconds: float
     file_recovery_required: bool = False
+    sensors: dict[str, SensorQuality] = field(default_factory=lambda: {
+        name: SensorQuality(state="unknown", quality_score=0.0, timestamp=0.0)
+        for name in SENSOR_NAMES
+    })
+    sampling_rate_hz: float | None = None
+    sampling_rate_ok: bool = False
+    live_sensor_ready: bool = False
+    stimulus_start_ready: bool = False
+    quality_source: str = "derived_eeg_window"
 
 
 class CollectionStateMachine:
@@ -96,12 +106,23 @@ class CollectionStateMachine:
         self._baseline_clean_seconds = float(settings.collection_baseline_min_clean_seconds)
         self._rest_min_seconds = float(settings.collection_rest_min_seconds)
         self._rest_max_seconds = float(settings.collection_rest_max_seconds)
+        self._sampling_rate_expected_hz = float(settings.collection_sampling_rate_hz)
+        self._sampling_rate_tolerance_hz = float(settings.collection_sampling_tolerance_hz)
         self._writer: EEGWriter | None = None
         self._capture_started_at: float | None = None
         self._last_sample_at: float | None = None
         self._last_sample_clean = False
         self._last_capture_timestamp: float | None = None
         self._accepted_clean_seconds = 0.0
+        self._channel_good_seconds = {name: 0.0 for name in SENSOR_NAMES}
+        self._last_channel_good = {name: False for name in SENSOR_NAMES}
+        self._sensors = {
+            name: SensorQuality(state="unknown", quality_score=0.0, timestamp=0.0)
+            for name in SENSOR_NAMES
+        }
+        self._sampling_rate_hz: float | None = None
+        self._sampling_rate_ok = False
+        self._quality_observed_at: float | None = None
         self._file_recovery_required = False
         self._capture_attempt_token = (
             secrets.token_hex(6)
@@ -151,7 +172,35 @@ class CollectionStateMachine:
             accepted_clean_seconds=self._accepted_clean_seconds,
             wall_clock_seconds=elapsed,
             file_recovery_required=self._persisted_file_recovery_required(),
+            sensors=dict(self._sensors),
+            sampling_rate_hz=self._sampling_rate_hz,
+            sampling_rate_ok=self._sampling_rate_ok,
+            live_sensor_ready=self._live_sensor_ready(),
+            stimulus_start_ready=(
+                trial is not None
+                and trial.state is TrialState.rest
+                and self._rest_min_seconds <= elapsed <= self._rest_max_seconds
+                and self._live_sensor_ready()
+            ),
         )
+
+    def observe_quality(
+        self,
+        sensors: Mapping[str, SensorQuality],
+        *,
+        sampling_rate_hz: float | None,
+        sampling_rate_ok: bool,
+    ) -> CollectionRunnerState:
+        if set(sensors) != set(SENSOR_NAMES):
+            raise CollectionStateError("Muse quality requires all four sensors")
+        self._sensors = dict(sensors)
+        self._sampling_rate_hz = sampling_rate_hz
+        self._sampling_rate_ok = sampling_rate_ok
+        self._quality_observed_at = self._monotonic()
+        return self.state()
+
+    def require_live_sensor_ready(self) -> None:
+        self._require(self._live_sensor_ready(), "capture requires all four live sensors good at 256 Hz")
 
     def select_device(self, device_id: str, device_name: str) -> CollectionRunnerState:
         self._require(self.session.state is CollectionSessionState.preparation, "device selection requires preparation")
@@ -178,6 +227,7 @@ class CollectionStateMachine:
         self._last_sample_at = None
         self._last_sample_clean = False
         self._accepted_clean_seconds = 0.0
+        self._reset_clean_accounting()
         self.session.active_baseline = kind
         self.session.state = CollectionSessionState.baseline
         self.session.started_at = self.session.started_at or self._now()
@@ -191,22 +241,40 @@ class CollectionStateMachine:
         sample: EEGSample,
         *,
         sensor_timestamps: Mapping[str, float] | None = None,
+        sampling_rate_ok: bool = True,
     ) -> CollectionRunnerState:
         self._require(self._writer is not None, "sample ingestion requires an active capture")
         now = self._monotonic()
+        if self._last_capture_timestamp is not None and sample.timestamp <= self._last_capture_timestamp:
+            if not math.isfinite(math.nextafter(self._last_capture_timestamp, math.inf)):
+                self._fail_active_boundary("Raw EEG capture timestamp overflow", self.session.current_trial_id)
+                raise CollectionStateError("Raw EEG sample could not be written")
+            return self.state()
         try:
-            sample = replace(sample, timestamp=self._capture_clock())
             self._writer.append(sample)
+            self._last_capture_timestamp = sample.timestamp
         except Exception as exc:
             self._fail_active_boundary("Raw EEG append failed", self.session.current_trial_id)
             raise CollectionStateError("Raw EEG sample could not be written") from exc
-        clean = self._sample_is_clean(sample, sensor_timestamps, now)
+        clean = self._sample_is_clean(sample, sensor_timestamps, now, sampling_rate_ok=sampling_rate_ok)
         if self._last_sample_at is not None and clean and self._last_sample_clean:
             interval = max(0.0, now - self._last_sample_at)
             if interval <= STALE_AFTER_SECONDS:
                 self._accepted_clean_seconds += interval
+        if self._last_sample_at is not None and sampling_rate_ok:
+            interval = max(0.0, now - self._last_sample_at)
+            if interval <= STALE_AFTER_SECONDS:
+                qualities = self._sample_qualities(sample)
+                for name in SENSOR_NAMES:
+                    if self._last_channel_good[name] and qualities[name] >= GOOD_QUALITY_MINIMUM:
+                        self._channel_good_seconds[name] += interval
         self._last_sample_at = now
         self._last_sample_clean = clean
+        qualities = self._sample_qualities(sample)
+        self._last_channel_good = {
+            name: sampling_rate_ok and qualities[name] >= GOOD_QUALITY_MINIMUM
+            for name in SENSOR_NAMES
+        }
         return self.state()
 
     def finish_baseline(self) -> CollectionRunnerState:
@@ -269,6 +337,7 @@ class CollectionStateMachine:
         self._last_sample_at = None
         self._last_sample_clean = False
         self._accepted_clean_seconds = 0.0
+        self._reset_clean_accounting()
         trial.state = TrialState.rest
         trial.rest_started_at = self._now()
         trial.started_at = trial.started_at or self._now()
@@ -297,6 +366,7 @@ class CollectionStateMachine:
         trial.state = TrialState.stimulus
         trial.stimulus_started_at = self._now()
         self._capture_started_at = self._monotonic()
+        self._reset_clean_accounting()
         self._commit_boundary()
         return self.state()
 
@@ -335,6 +405,20 @@ class CollectionStateMachine:
         trial.rating_started_at = self._now()
         trial.wall_clock_seconds = self._elapsed()
         trial.accepted_clean_seconds = self._accepted_clean_seconds
+        wall = max(trial.wall_clock_seconds, 1e-9)
+        coverages = {name: min(1.0, self._channel_good_seconds[name] / wall) for name in SENSOR_NAMES}
+        trial.qc_summary_json = json.dumps({
+            "quality_source": "derived_eeg_window",
+            "sampling_rate_expected_hz": self._sampling_rate_expected_hz,
+            "sampling_rate_tolerance_hz": self._sampling_rate_tolerance_hz,
+            "clean_coverage": min(1.0, self._accepted_clean_seconds / wall),
+            **{f"{name}_good_coverage": coverage for name, coverage in coverages.items()},
+            "valid_signal": (
+                self._accepted_clean_seconds / wall >= 0.8
+                and coverages["af7"] >= 0.8
+                and coverages["af8"] >= 0.8
+            ),
+        }, sort_keys=True)
         self._commit_boundary()
         return self.state()
 
@@ -445,14 +529,36 @@ class CollectionStateMachine:
         writer.start([participant.participant_code, str(self.session.id), capture_id])
         return writer
 
-    def _sample_is_clean(self, sample: EEGSample, timestamps: Mapping[str, float] | None, now: float) -> bool:
-        qualities = dict(zip(SENSOR_NAMES, (sample.tp9_quality, sample.af7_quality, sample.af8_quality, sample.tp10_quality)))
+    @staticmethod
+    def _sample_qualities(sample: EEGSample) -> dict[str, float]:
+        return dict(zip(SENSOR_NAMES, (sample.tp9_quality, sample.af7_quality, sample.af8_quality, sample.tp10_quality)))
+
+    def _sample_is_clean(self, sample: EEGSample, timestamps: Mapping[str, float] | None, now: float, *, sampling_rate_ok: bool = True) -> bool:
+        if not sampling_rate_ok:
+            return False
+        qualities = self._sample_qualities(sample)
         if set(qualities) != set(SENSOR_NAMES) or any(value < GOOD_QUALITY_MINIMUM for value in qualities.values()):
             return False
         timestamps = timestamps or {name: sample.timestamp for name in SENSOR_NAMES}
         if set(timestamps) != set(SENSOR_NAMES):
             return False
         return all(0 <= now - timestamps[name] <= STALE_AFTER_SECONDS for name in SENSOR_NAMES)
+
+    def _live_sensor_ready(self) -> bool:
+        now = self._monotonic()
+        return bool(
+            self._sampling_rate_ok
+            and self._quality_observed_at is not None
+            and 0 <= now - self._quality_observed_at <= STALE_AFTER_SECONDS
+            and all(sensor.state == "good" for sensor in self._sensors.values())
+        )
+
+    def _reset_clean_accounting(self) -> None:
+        self._accepted_clean_seconds = 0.0
+        self._last_sample_at = None
+        self._last_sample_clean = False
+        self._channel_good_seconds = {name: 0.0 for name in SENSOR_NAMES}
+        self._last_channel_good = {name: False for name in SENSOR_NAMES}
 
     def _require_trial(self, trial_id: int, expected: TrialState) -> CollectionTrial:
         trial = self._current_trial()
@@ -526,7 +632,10 @@ class CollectionStateMachine:
     def _write_marker(self, marker: str, trial_id: int | None = None) -> None:
         assert self._writer is not None
         try:
-            self._writer.mark(marker)
+            timestamp = self._writer.mark(marker)
+            marker_timestamp = float(self._monotonic()) if timestamp is None else float(timestamp)
+            if math.isfinite(marker_timestamp):
+                self._last_capture_timestamp = marker_timestamp
         except Exception as exc:
             self._fail_active_boundary("Raw EEG marker write failed", trial_id)
             raise CollectionStateError("Raw EEG marker could not be written") from exc
