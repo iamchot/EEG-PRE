@@ -272,7 +272,7 @@ def test_rest_start_rejects_a_non_next_trial_before_transition(client, monkeypat
 
     monkeypatch.setattr(
         dataset_collection.collection_manager,
-        "run",
+        "run_capture",
         lambda db, session, operation: operation(FakeRunner(db)),
     )
     response = client.post(
@@ -504,6 +504,7 @@ def test_device_selected_after_websocket_starts_source_task():
         await manager.ensure_source(12)
         await asyncio.wait_for(started.wait(), timeout=0.2)
         assert 12 in manager._tasks
+        assert 12 in manager._connected_sources
         await manager.stop_source(12)
 
     asyncio.run(scenario())
@@ -683,7 +684,7 @@ def test_http_rating_command_broadcasts_completed_state(client, monkeypatch):
 
     monkeypatch.setattr(
         dataset_collection.collection_manager,
-        "run",
+        "run_capture",
         lambda db, collection_session, command: command(FakeRunner(db)),
     )
 
@@ -720,3 +721,104 @@ def test_lsl_unexpected_errors_are_translated_without_secret_details(monkeypatch
         assert "secret" not in str(connected.value)
 
     asyncio.run(open_failure())
+
+
+def test_http_only_runner_is_released_and_owned_db_session_is_closed(client, monkeypatch):
+    session_id, _ = client.app.state.ids
+    manager = CollectionConnectionManager()
+    monkeypatch.setattr("app.ws.collection_manager.get_settings", lambda: client.app.state.collection_settings)
+    with client.app.state.factory() as request_db:
+        collection_session = request_db.get(CollectionSession, session_id)
+        manager.run(request_db, collection_session, lambda runner: runner.state())
+    owned = manager._runner_sessions[session_id]
+    real_close = owned.close
+    closed = []
+
+    def close():
+        closed.append(True)
+        real_close()
+
+    monkeypatch.setattr(owned, "close", close)
+    assert manager.release_if_idle(session_id) is True
+    assert closed == [True]
+    assert session_id not in manager._runners
+    assert session_id not in manager._runner_sessions
+
+
+def test_idle_release_retains_websocket_flow_and_active_writer_context():
+    manager = CollectionConnectionManager()
+
+    class Runner:
+        def __init__(self, state):
+            self._state = state
+
+        def state(self):
+            return self._state
+
+    preparation = CollectionRunnerState(
+        session_id=21, state=CollectionSessionState.preparation, active_baseline=None,
+        current_trial_id=None, current_trial_order=None, trial_state=None, completed_trials=0,
+        total_trials=12, next_trial_order=1, break_required=False, interruption_reason=None,
+        accepted_clean_seconds=0, wall_clock_seconds=0,
+    )
+    baseline = CollectionRunnerState(
+        session_id=22, state=CollectionSessionState.baseline, active_baseline="eyes_open",
+        current_trial_id=None, current_trial_order=None, trial_state=None, completed_trials=0,
+        total_trials=12, next_trial_order=1, break_required=False, interruption_reason=None,
+        accepted_clean_seconds=1, wall_clock_seconds=1,
+    )
+    manager._runners[21] = Runner(preparation)
+    manager._clients[21].add(object())
+    manager._runners[22] = Runner(baseline)
+
+    assert manager.release_if_idle(21) is False
+    assert manager.release_if_idle(22) is False
+    assert 21 in manager._runners
+    assert 22 in manager._runners
+
+
+def test_repeated_http_only_state_queries_leave_no_manager_sessions(client, monkeypatch):
+    session_id, _ = client.app.state.ids
+    manager = CollectionConnectionManager()
+    monkeypatch.setattr(dataset_collection, "collection_manager", manager)
+    monkeypatch.setattr("app.ws.collection_manager.get_settings", lambda: client.app.state.collection_settings)
+
+    for _ in range(3):
+        response = client.get(f"{BASE}/sessions/{session_id}/runner-state", headers=auth(client))
+        assert response.status_code == 200
+        assert manager._runners == {}
+        assert manager._runner_sessions == {}
+
+
+def test_capture_command_requires_live_websocket_and_source(client, monkeypatch):
+    session_id, _ = client.app.state.ids
+    manager = CollectionConnectionManager()
+    monkeypatch.setattr(dataset_collection, "collection_manager", manager)
+    monkeypatch.setattr("app.ws.collection_manager.get_settings", lambda: client.app.state.collection_settings)
+
+    selected = client.post(
+        f"{BASE}/sessions/{session_id}/device",
+        headers=auth(client),
+        json={"device_id": "muse-offline", "device_name": "Muse 2"},
+    )
+    assert selected.status_code == 200
+    response = client.post(
+        f"{BASE}/sessions/{session_id}/baseline/eyes_open/start",
+        headers=auth(client),
+    )
+    assert response.status_code == 409
+    assert "live Muse connection" in response.json()["detail"]
+    assert manager._runners == {}
+    assert manager._runner_sessions == {}
+
+
+def test_failed_http_only_schedule_releases_owned_runner_session(client, monkeypatch):
+    session_id, _ = client.app.state.ids
+    manager = CollectionConnectionManager()
+    monkeypatch.setattr(dataset_collection, "collection_manager", manager)
+    monkeypatch.setattr("app.ws.collection_manager.get_settings", lambda: client.app.state.collection_settings)
+
+    response = client.post(f"{BASE}/sessions/{session_id}/schedule", headers=auth(client))
+    assert response.status_code == 409
+    assert manager._runners == {}
+    assert manager._runner_sessions == {}

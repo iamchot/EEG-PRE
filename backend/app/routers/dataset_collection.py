@@ -47,7 +47,7 @@ from app.services.dataset_collection_service import (
 from app.services.auth_service import decode_token, get_user_by_id
 from app.services.collection_state_machine import CollectionStateError
 from app.services.trial_scheduler import ScheduleUnavailableError, create_trial_schedule
-from app.ws.collection_manager import collection_manager
+from app.ws.collection_manager import CollectionContextUnavailableError, collection_manager
 
 router = APIRouter(prefix="/admin/dataset-collection", tags=["Admin Dataset Collection"])
 
@@ -165,6 +165,20 @@ def _run_session(db: Session, session_id: int, operation):
     return collection_manager.run(db, collection_session, operation)
 
 
+def _run_capture_session(db: Session, session_id: int, operation):
+    collection_session = _collection_session(db, session_id)
+    try:
+        return collection_manager.run_capture(db, collection_session, operation)
+    except CollectionContextUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+def _validate_session_trial(db: Session, session_id: int, trial_id: int) -> None:
+    trial = db.get(CollectionTrial, trial_id)
+    if trial is None or trial.session_id != session_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trial not found for session")
+
+
 def _safe_transition(call):
     try:
         return call()
@@ -232,8 +246,11 @@ async def schedule_trials(session_id: int, admin: AdminUser, db: Session = Depen
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return runner.state()
 
-    state = _run_session(db, session_id, operation)
-    return await _publish_response(db, session_id, state)
+    try:
+        state = _run_session(db, session_id, operation)
+        return await _publish_response(db, session_id, state)
+    finally:
+        collection_manager.release_if_idle(session_id)
 
 
 @router.post("/sessions/{session_id}/device", response_model=CollectionRunnerStateResponse)
@@ -243,16 +260,19 @@ async def select_collection_device(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
-    state = _safe_transition(
-        lambda: _run_session(
-            db,
-            session_id,
-            lambda runner: runner.select_device(body.device_id, body.device_name),
+    try:
+        state = _safe_transition(
+            lambda: _run_session(
+                db,
+                session_id,
+                lambda runner: runner.select_device(body.device_id, body.device_name),
+            )
         )
-    )
-    response = await _publish_response(db, session_id, state)
-    await collection_manager.ensure_source(session_id)
-    return response
+        response = await _publish_response(db, session_id, state)
+        await collection_manager.ensure_source(session_id)
+        return response
+    finally:
+        collection_manager.release_if_idle(session_id)
 
 
 @router.post("/sessions/{session_id}/baseline/{kind}/start", response_model=CollectionRunnerStateResponse)
@@ -263,7 +283,7 @@ async def start_collection_baseline(
     db: Session = Depends(get_db),
 ):
     state = _safe_transition(
-        lambda: _run_session(db, session_id, lambda runner: runner.start_baseline(kind))
+        lambda: _run_capture_session(db, session_id, lambda runner: runner.start_baseline(kind))
     )
     return await _publish_response(db, session_id, state)
 
@@ -275,6 +295,8 @@ async def start_trial_rest(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
+    _validate_session_trial(db, session_id, trial_id)
+
     def operation(runner):
         trial = _runner_trial(runner, session_id, trial_id)
         before = runner.state()
@@ -286,7 +308,7 @@ async def start_trial_rest(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Trial is not next in schedule")
         return state
 
-    state = _safe_transition(lambda: _run_session(db, session_id, operation))
+    state = _safe_transition(lambda: _run_capture_session(db, session_id, operation))
     return await _publish_response(db, session_id, state)
 
 
@@ -297,11 +319,13 @@ async def start_trial_stimulus(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
+    _validate_session_trial(db, session_id, trial_id)
+
     def operation(runner):
         _runner_trial(runner, session_id, trial_id)
         return runner.start_stimulus(trial_id)
 
-    state = _safe_transition(lambda: _run_session(db, session_id, operation))
+    state = _safe_transition(lambda: _run_capture_session(db, session_id, operation))
     return await _publish_response(db, session_id, state)
 
 
@@ -313,6 +337,8 @@ async def mark_trial_artifact(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
+    _validate_session_trial(db, session_id, trial_id)
+
     def operation(runner):
         _runner_trial(runner, session_id, trial_id)
         return runner.mark_artifact(
@@ -323,7 +349,7 @@ async def mark_trial_artifact(
             details={"note": body.note} if body.note is not None else None,
         )
 
-    state = _safe_transition(lambda: _run_session(db, session_id, operation))
+    state = _safe_transition(lambda: _run_capture_session(db, session_id, operation))
     return await _publish_response(db, session_id, state)
 
 
@@ -334,11 +360,13 @@ async def finish_trial_stimulus(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
+    _validate_session_trial(db, session_id, trial_id)
+
     def operation(runner):
         _runner_trial(runner, session_id, trial_id)
         return runner.finish_stimulus(trial_id)
 
-    state = _safe_transition(lambda: _run_session(db, session_id, operation))
+    state = _safe_transition(lambda: _run_capture_session(db, session_id, operation))
     return await _publish_response(db, session_id, state)
 
 
@@ -350,6 +378,8 @@ async def submit_trial_rating(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
+    _validate_session_trial(db, session_id, trial_id)
+
     def operation(runner):
         _runner_trial(runner, session_id, trial_id)
         return runner.submit_rating(
@@ -359,7 +389,7 @@ async def submit_trial_rating(
             confidence=body.confidence,
         )
 
-    state = _safe_transition(lambda: _run_session(db, session_id, operation))
+    state = _safe_transition(lambda: _run_capture_session(db, session_id, operation))
     return await _publish_response(db, session_id, state)
 
 
@@ -371,23 +401,29 @@ async def interrupt_collection(
     db: Session = Depends(get_db),
 ):
     state = _safe_transition(
-        lambda: _run_session(db, session_id, lambda runner: runner.interrupt(body.reason))
+        lambda: _run_capture_session(db, session_id, lambda runner: runner.interrupt(body.reason))
     )
     return await _publish_response(db, session_id, state)
 
 
 @router.post("/sessions/{session_id}/resume", response_model=CollectionRunnerStateResponse)
 async def resume_collection(session_id: int, admin: AdminUser, db: Session = Depends(get_db)):
-    state = _safe_transition(lambda: _run_session(db, session_id, lambda runner: runner.resume()))
-    response = await _publish_response(db, session_id, state)
-    await collection_manager.ensure_source(session_id)
-    return response
+    try:
+        state = _safe_transition(lambda: _run_session(db, session_id, lambda runner: runner.resume()))
+        response = await _publish_response(db, session_id, state)
+        await collection_manager.ensure_source(session_id)
+        return response
+    finally:
+        collection_manager.release_if_idle(session_id)
 
 
 @router.get("/sessions/{session_id}/runner-state", response_model=CollectionRunnerStateResponse)
 async def runner_state(session_id: int, admin: AdminUser, db: Session = Depends(get_db)):
-    state = _run_session(db, session_id, lambda runner: runner.state())
-    return _state_response(db, state)
+    try:
+        state = _run_session(db, session_id, lambda runner: runner.state())
+        return _state_response(db, state)
+    finally:
+        collection_manager.release_if_idle(session_id)
 
 
 @router.get("/stimuli/{stimulus_id}/media")

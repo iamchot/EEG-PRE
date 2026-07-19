@@ -21,6 +21,10 @@ from app.services.raw_eeg_writer import AtomicEEGWriter
 T = TypeVar("T")
 
 
+class CollectionContextUnavailableError(RuntimeError):
+    """Raised when capture is requested without a live Muse WebSocket context."""
+
+
 class CollectionConnectionManager:
     """Own and serialize every access to an active collection runner."""
 
@@ -30,6 +34,7 @@ class CollectionConnectionManager:
         self._runners: dict[int, CollectionStateMachine] = {}
         self._runner_sessions: dict[int, Session] = {}
         self._sources: dict[int, MuseStreamSource] = {}
+        self._connected_sources: set[int] = set()
         self._tasks: dict[int, asyncio.Task] = {}
         self._sequences: dict[int, int] = defaultdict(int)
         self._locks: dict[int, threading.RLock] = defaultdict(threading.RLock)
@@ -52,6 +57,42 @@ class CollectionConnectionManager:
             if runner is None:
                 raise LookupError("Collection runner is not active")
             return operation(runner)
+
+    def run_capture(
+        self,
+        db: Session,
+        session: CollectionSession,
+        operation: Callable[[CollectionStateMachine], T],
+    ) -> T:
+        """Run a capture boundary only while its WebSocket/source context is live."""
+        with self._locks[session.id]:
+            if not self._has_live_source_unlocked(session.id):
+                raise CollectionContextUnavailableError(
+                    "A live Muse connection is required for collection capture"
+                )
+            runner = self._get_runner_unlocked(db, session)
+            return operation(runner)
+
+    def release_if_idle(self, session_id: int) -> bool:
+        """Close an HTTP-only runner once no capture or live client can use it."""
+        with self._locks[session_id]:
+            if self._clients.get(session_id) or self._sources.get(session_id):
+                return False
+            task = self._tasks.get(session_id)
+            if task is not None and not task.done():
+                return False
+            runner = self._runners.get(session_id)
+            if runner is None:
+                return False
+            state = runner.state()
+            if state.active_baseline is not None or state.trial_state in {
+                TrialState.rest,
+                TrialState.stimulus,
+                TrialState.rating,
+            }:
+                return False
+            self._drop_runner_unlocked(session_id)
+            return True
 
     async def connect(self, session_id: int, websocket: WebSocket, db: Session) -> None:
         session = db.get(CollectionSession, session_id)
@@ -100,6 +141,7 @@ class CollectionConnectionManager:
         with self._locks[session_id]:
             task = self._tasks.pop(session_id, None)
             source = self._sources.pop(session_id, None)
+            self._connected_sources.discard(session_id)
         if source is not None:
             try:
                 await source.disconnect()
@@ -168,6 +210,9 @@ class CollectionConnectionManager:
             if not device_id:
                 return
             await source.connect(device_id)
+            with self._locks[session_id]:
+                if self._sources.get(session_id) is source:
+                    self._connected_sources.add(session_id)
             async for incoming in source.samples():
                 state, captured = self.run_active(
                     session_id,
@@ -199,6 +244,7 @@ class CollectionConnectionManager:
                 pass
             current = asyncio.current_task()
             with self._locks[session_id]:
+                self._connected_sources.discard(session_id)
                 if self._tasks.get(session_id) is current:
                     self._tasks.pop(session_id, None)
                 if self._sources.get(session_id) is source:
@@ -271,6 +317,16 @@ class CollectionConnectionManager:
         runner_db = self._runner_sessions.pop(session_id, None)
         if runner_db is not None:
             runner_db.close()
+
+    def _has_live_source_unlocked(self, session_id: int) -> bool:
+        task = self._tasks.get(session_id)
+        return bool(
+            self._clients.get(session_id)
+            and self._sources.get(session_id) is not None
+            and session_id in self._connected_sources
+            and task is not None
+            and not task.done()
+        )
 
 
 collection_manager = CollectionConnectionManager()
