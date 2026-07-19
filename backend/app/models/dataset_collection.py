@@ -38,6 +38,21 @@ class CollectionSessionState(str, enum.Enum):
     failed = "failed"
 
 
+class BaselineKind(str, enum.Enum):
+    eyes_open = "eyes_open"
+    eyes_closed = "eyes_closed"
+
+
+class TrialState(str, enum.Enum):
+    scheduled = "scheduled"
+    rest = "rest"
+    stimulus = "stimulus"
+    rating = "rating"
+    completed = "completed"
+    interrupted = "interrupted"
+    failed = "failed"
+
+
 class ReviewState(str, enum.Enum):
     pending = "pending"
     accepted = "accepted"
@@ -80,6 +95,14 @@ class CollectionSession(Base):
     eyes_open_baseline_checksum: Mapped[str | None] = mapped_column(String(64))
     eyes_closed_baseline_path: Mapped[str | None] = mapped_column(String(500))
     eyes_closed_baseline_checksum: Mapped[str | None] = mapped_column(String(64))
+    eyes_open_accepted_clean_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    eyes_open_wall_clock_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    eyes_closed_accepted_clean_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    eyes_closed_wall_clock_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    active_baseline: Mapped[BaselineKind | None] = mapped_column(Enum(BaselineKind))
+    current_trial_id: Mapped[int | None] = mapped_column(ForeignKey("collection_trials.id"), index=True)
+    interruption_reason: Mapped[str | None] = mapped_column(Text)
+    recovery_at: Mapped[datetime | None] = mapped_column(DateTime)
     completed_trials: Mapped[int] = mapped_column(Integer, default=0)
     total_trials: Mapped[int] = mapped_column(Integer, default=0)
     state: Mapped[CollectionSessionState] = mapped_column(
@@ -102,16 +125,24 @@ class CollectionTrial(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("collection_sessions.id"), index=True)
     stimulus_id: Mapped[int] = mapped_column(ForeignKey("emotion_stimuli.id"), index=True)
     randomized_order: Mapped[int] = mapped_column(Integer)
-    valence_rating: Mapped[int] = mapped_column(Integer)
-    arousal_rating: Mapped[int] = mapped_column(Integer)
-    confidence: Mapped[int] = mapped_column(Integer)
+    valence_rating: Mapped[int | None] = mapped_column(Integer)
+    arousal_rating: Mapped[int | None] = mapped_column(Integer)
+    confidence: Mapped[int | None] = mapped_column(Integer)
     valence_label: Mapped[bool | None] = mapped_column(Boolean)
     arousal_label: Mapped[bool | None] = mapped_column(Boolean)
     valid_valence_label: Mapped[bool] = mapped_column(Boolean, default=False)
     valid_arousal_label: Mapped[bool] = mapped_column(Boolean, default=False)
     qc_summary_json: Mapped[str | None] = mapped_column(Text)
-    eeg_file_path: Mapped[str] = mapped_column(String(500))
-    eeg_checksum: Mapped[str] = mapped_column(String(64))
+    eeg_file_path: Mapped[str | None] = mapped_column(String(500))
+    eeg_checksum: Mapped[str | None] = mapped_column(String(64))
+    state: Mapped[TrialState] = mapped_column(Enum(TrialState), default=TrialState.scheduled, index=True)
+    rest_started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    stimulus_started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    rating_started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    raw_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    accepted_clean_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    wall_clock_seconds: Mapped[float] = mapped_column(Float, default=0.0)
     review_state: Mapped[ReviewState] = mapped_column(Enum(ReviewState), default=ReviewState.pending, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
