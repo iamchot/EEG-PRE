@@ -119,6 +119,7 @@ class CollectionStateMachine:
         self._last_observed_source_sequence: int | None = None
         self._source_clock: Callable[[], float] | None = None
         self._source_sequence: Callable[[], int] | None = None
+        self._source_boundary: Callable[[Callable[[], None]], None] | None = None
         self._accepted_clean_seconds = 0.0
         self._channel_good_seconds = {name: 0.0 for name in SENSOR_NAMES}
         self._last_channel_good = {name: False for name in SENSOR_NAMES}
@@ -242,9 +243,11 @@ class CollectionStateMachine:
         self,
         source_clock: Callable[[], float],
         source_sequence: Callable[[], int],
+        source_boundary: Callable[[Callable[[], None]], None] | None = None,
     ) -> None:
         self._source_clock = source_clock
         self._source_sequence = source_sequence
+        self._source_boundary = source_boundary
         self._last_observed_source_sequence = None
         self._sensors = {
             name: SensorQuality(state="unknown", quality_score=0.0, timestamp=0.0)
@@ -802,16 +805,23 @@ class CollectionStateMachine:
 
     def _write_marker(self, marker: str, trial_id: int | None = None) -> None:
         assert self._writer is not None
-        try:
-            timestamp = self._writer.mark(marker)
-            marker_timestamp = self._capture_clock() if timestamp is None else float(timestamp)
-            if math.isfinite(marker_timestamp):
-                self._last_capture_timestamp = marker_timestamp
+
+        def write_at_source_boundary() -> None:
             watermark = self._last_observed_source_sequence
             if self._source_sequence is not None:
                 current_sequence = int(self._source_sequence())
                 watermark = current_sequence if watermark is None else max(watermark, current_sequence)
+            timestamp = self._writer.mark(marker)
+            marker_timestamp = self._capture_clock() if timestamp is None else float(timestamp)
+            if math.isfinite(marker_timestamp):
+                self._last_capture_timestamp = marker_timestamp
             self._capture_sequence_watermark = watermark
+
+        try:
+            if self._source_boundary is None:
+                write_at_source_boundary()
+            else:
+                self._source_boundary(write_at_source_boundary)
         except Exception as exc:
             self._fail_active_boundary("Raw EEG marker write failed", trial_id)
             raise CollectionStateError("Raw EEG marker could not be written") from exc

@@ -66,6 +66,7 @@ class MuseStreamSource(Protocol):
     async def connect(self, device_id: str) -> None: ...
     def samples(self) -> AsyncIterator[MuseSample]: ...
     async def disconnect(self) -> None: ...
+    def synchronize_boundary(self, operation: Callable[[], Any]) -> Any: ...
 
 
 class LSLMuseStreamSource:
@@ -95,7 +96,7 @@ class LSLMuseStreamSource:
         self._stale_emitted = False
         self._clock = clock or self._lsl_clock
         self._source_sequence = 0
-        self._source_sequence_lock = threading.Lock()
+        self._source_sequence_lock = threading.RLock()
         self._inlet: Any | None = None
         self._connected = False
         self._channel_names: tuple[str, ...] = CHANNELS
@@ -335,6 +336,10 @@ class LSLMuseStreamSource:
     def latest_source_sequence(self) -> int:
         with self._source_sequence_lock:
             return self._source_sequence
+
+    def synchronize_boundary(self, operation: Callable[[], Any]) -> Any:
+        with self._source_sequence_lock:
+            return operation()
 
     def _sampling_rate(self) -> float | None:
         if len(self._timestamps) < 16:

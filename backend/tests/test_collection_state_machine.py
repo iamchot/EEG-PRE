@@ -493,6 +493,90 @@ def test_marker_watermark_waits_for_inlet_return_sequence_stamp(setup_runner):
     assert runner._capture_sequence_watermark == 1
 
 
+def test_marker_boundary_blocks_pull_between_watermark_snapshot_and_marker_write(setup_runner):
+    runner, _, _, _, _ = setup_runner
+    source_clock = [50_000.0]
+    source = LSLMuseStreamSource(clock=lambda: source_clock[0])
+    source._channel_names = ("TP9", "AF7", "AF8", "TP10")
+    source_boundary = getattr(source, "synchronize_boundary", None)
+    if callable(source_boundary):
+        runner.bind_source(
+            source.source_clock,
+            source.latest_source_sequence,
+            source_boundary,
+        )
+    else:
+        runner.bind_source(source.source_clock, source.latest_source_sequence)
+
+    marker_entered = threading.Event()
+    release_marker = threading.Event()
+    marker_done = threading.Event()
+    pull_done = threading.Event()
+    pull_result = []
+    marker_errors = []
+    events = []
+
+    class PausedMarkerWriter(FakeWriter):
+        def mark(self, marker):
+            marker_entered.set()
+            assert release_marker.wait(timeout=2)
+            super().mark(marker)
+
+        def append(self, sample):
+            events.append(("sample", sample.timestamp))
+            super().append(sample)
+
+    class OneSampleInlet:
+        def pull_sample(self, timeout):
+            source_clock[0] = 50_000.1
+            return [1.0, 2.0, 3.0, 4.0], 50_000.1
+
+    runner._writer = PausedMarkerWriter(events)
+    source._inlet = OneSampleInlet()
+
+    def write_marker():
+        try:
+            runner._write_marker("inverse_race_boundary")
+        except Exception as exc:
+            marker_errors.append(exc)
+        finally:
+            marker_done.set()
+
+    def pull_sample():
+        pull_result.append(source._pull_sample())
+        pull_done.set()
+
+    marker_thread = threading.Thread(target=write_marker, daemon=True)
+    pull_thread = threading.Thread(target=pull_sample, daemon=True)
+
+    marker_thread.start()
+    assert marker_entered.wait(timeout=1)
+    pull_thread.start()
+    pull_waited_for_marker = not pull_done.wait(timeout=0.1)
+    release_marker.set()
+    marker_thread.join(timeout=1)
+    pull_thread.join(timeout=1)
+
+    assert pull_waited_for_marker is True
+    assert marker_done.is_set()
+    assert marker_errors == []
+    assert pull_result == [([1.0, 2.0, 3.0, 4.0], 50_000.1, 1)]
+    assert runner._capture_sequence_watermark == 0
+
+    incoming = source.map_sample(*pull_result[0][:2], source_sequence=pull_result[0][2])
+    runner.accept_sample(
+        incoming.sample,
+        sensor_timestamps=incoming.sensor_timestamps,
+        sampling_rate_ok=False,
+        source_sequence=incoming.source_sequence,
+    )
+
+    assert events == [
+        ("marker", "inverse_race_boundary"),
+        ("sample", 50_000.1),
+    ]
+
+
 def test_baseline_needs_sixty_wall_and_thirty_clean_seconds(setup_runner):
     runner, _, clock, _, _ = setup_runner
     runner.select_device("muse-1", "Muse 2")

@@ -185,8 +185,13 @@ class CollectionConnectionManager:
                 source = self._source_factory()
             source_clock = getattr(source, "source_clock", None)
             source_sequence = getattr(source, "latest_source_sequence", None)
+            source_boundary = getattr(source, "synchronize_boundary", None)
             if callable(source_clock) and callable(source_sequence):
-                runner.bind_source(source_clock, source_sequence)
+                runner.bind_source(
+                    source_clock,
+                    source_sequence,
+                    source_boundary if callable(source_boundary) else None,
+                )
             self._sources[session_id] = source
             self._tasks[session_id] = asyncio.create_task(
                 self._pump(session_id, source, device_id=device_id)
