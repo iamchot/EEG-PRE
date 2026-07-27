@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import threading
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Sequence
@@ -94,6 +95,7 @@ class LSLMuseStreamSource:
         self._stale_emitted = False
         self._clock = clock or self._lsl_clock
         self._source_sequence = 0
+        self._source_sequence_lock = threading.Lock()
         self._inlet: Any | None = None
         self._connected = False
         self._channel_names: tuple[str, ...] = CHANNELS
@@ -204,8 +206,7 @@ class LSLMuseStreamSource:
         if len(values) < len(names):
             raise MuseStreamError("Muse sample is missing required channels")
         if source_sequence is None:
-            self._source_sequence += 1
-            source_sequence = self._source_sequence
+            source_sequence = self._reserve_source_sequence()
         received_at = float(self._clock())
         age = received_at - timestamp
         if math.isfinite(timestamp) and (
@@ -275,7 +276,7 @@ class LSLMuseStreamSource:
             return None
         if float(self._clock()) - self._last_source_timestamp <= self.stale_after_seconds:
             return None
-        self._source_sequence += 1
+        source_sequence = self._reserve_source_sequence()
         self._stale_emitted = True
         sensors = {
             channel: SensorQuality(state="stale", quality_score=0.0, timestamp=self._last_source_timestamp)
@@ -290,6 +291,7 @@ class LSLMuseStreamSource:
             False,
             False,
             float(self._clock()),
+            source_sequence,
         )
 
     def _mapped_sample(
@@ -331,7 +333,8 @@ class LSLMuseStreamSource:
         return float(self._clock())
 
     def latest_source_sequence(self) -> int:
-        return self._source_sequence
+        with self._source_sequence_lock:
+            return self._source_sequence
 
     def _sampling_rate(self) -> float | None:
         if len(self._timestamps) < 16:
@@ -358,11 +361,17 @@ class LSLMuseStreamSource:
         return inlet, self._read_channel_names(stream)
 
     def _pull_sample(self):
-        values, timestamp = self._inlet.pull_sample(timeout=self.pull_timeout)
-        if values is None or timestamp is None:
-            return values, timestamp, None
-        self._source_sequence += 1
-        return values, timestamp, self._source_sequence
+        with self._source_sequence_lock:
+            values, timestamp = self._inlet.pull_sample(timeout=self.pull_timeout)
+            if values is None or timestamp is None:
+                return values, timestamp, None
+            self._source_sequence += 1
+            return values, timestamp, self._source_sequence
+
+    def _reserve_source_sequence(self) -> int:
+        with self._source_sequence_lock:
+            self._source_sequence += 1
+            return self._source_sequence
 
     def _close_late_open(self, task: asyncio.Future) -> None:
         if task.cancelled():

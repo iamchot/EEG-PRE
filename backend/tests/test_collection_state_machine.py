@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta
 import json
 import sys
+import threading
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -445,6 +446,51 @@ def test_physical_pull_sequence_is_watermarked_before_boundary_with_real_writer(
     assert incoming.source_sequence == 1
     assert writers[0]._row_count == 1  # start marker only; pre-boundary pull was skipped
     runner.interrupt("test cleanup")
+
+
+def test_marker_watermark_waits_for_inlet_return_sequence_stamp(setup_runner):
+    runner, _, _, _, _ = setup_runner
+    source = LSLMuseStreamSource(clock=lambda: 50_000.0)
+    runner.bind_source(source.source_clock, source.latest_source_sequence)
+    runner._writer = FakeWriter([])
+    inlet_returned = threading.Event()
+    release_stamp = threading.Event()
+    marker_done = threading.Event()
+    pull_result = []
+
+    class PausedPullResult:
+        def __iter__(self):
+            yield [1.0, 2.0, 3.0, 4.0]
+            yield 50_000.1
+            inlet_returned.set()
+            assert release_stamp.wait(timeout=2)
+
+    class PausedInlet:
+        def pull_sample(self, timeout):
+            return PausedPullResult()
+
+    source._inlet = PausedInlet()
+    pull_thread = threading.Thread(
+        target=lambda: pull_result.append(source._pull_sample()),
+        daemon=True,
+    )
+    marker_thread = threading.Thread(
+        target=lambda: (runner._write_marker("race_boundary"), marker_done.set()),
+        daemon=True,
+    )
+
+    pull_thread.start()
+    assert inlet_returned.wait(timeout=1)
+    marker_thread.start()
+    marker_waited_for_stamp = not marker_done.wait(timeout=0.1)
+    release_stamp.set()
+    pull_thread.join(timeout=1)
+    marker_thread.join(timeout=1)
+
+    assert marker_waited_for_stamp is True
+    assert marker_done.is_set()
+    assert pull_result == [([1.0, 2.0, 3.0, 4.0], 50_000.1, 1)]
+    assert runner._capture_sequence_watermark == 1
 
 
 def test_baseline_needs_sixty_wall_and_thirty_clean_seconds(setup_runner):
