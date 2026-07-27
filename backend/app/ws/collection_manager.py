@@ -183,6 +183,10 @@ class CollectionConnectionManager:
                 )
             else:
                 source = self._source_factory()
+            source_clock = getattr(source, "source_clock", None)
+            source_sequence = getattr(source, "latest_source_sequence", None)
+            if callable(source_clock) and callable(source_sequence):
+                runner.bind_source(source_clock, source_sequence)
             self._sources[session_id] = source
             self._tasks[session_id] = asyncio.create_task(
                 self._pump(session_id, source, device_id=device_id)
@@ -316,11 +320,15 @@ class CollectionConnectionManager:
     @staticmethod
     def _accept_sample_unlocked(runner: CollectionStateMachine, incoming) -> tuple[object, bool]:
         before = runner.state()
-        runner.observe_quality(
-            incoming.sensors,
-            sampling_rate_hz=incoming.sampling_rate_hz,
-            sampling_rate_ok=incoming.sampling_rate_ok,
-        )
+        observation = getattr(incoming, "quality_observation", None)
+        if observation is None:
+            quality_state = runner.observe_quality(
+                incoming.sensors,
+                sampling_rate_hz=incoming.sampling_rate_hz,
+                sampling_rate_ok=incoming.sampling_rate_ok,
+            )
+        else:
+            quality_state = runner.observe_quality(observation)
         capture_active = before.active_baseline is not None or before.trial_state in {
             TrialState.rest,
             TrialState.stimulus,
@@ -331,7 +339,8 @@ class CollectionConnectionManager:
         runner.accept_sample(
             incoming.sample,
             sensor_timestamps=incoming.sensor_timestamps,
-            sampling_rate_ok=incoming.sampling_rate_ok,
+            sampling_rate_ok=quality_state.sampling_rate_ok,
+            source_sequence=getattr(incoming, "source_sequence", None),
         )
         state = runner.state()
         settings = get_settings()

@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, fakeAsync, flushMicrotasks, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { of, Subject, throwError } from 'rxjs';
@@ -206,6 +206,27 @@ describe('DatasetCollectionRunnerComponent', () => {
     accepted.complete();
     expect(video.play).toHaveBeenCalledTimes(1);
   });
+
+  it('interrupts backend exactly once when post-start video resume is rejected', fakeAsync(() => {
+    api.startStimulus.and.returnValue(of(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'stimulus' })));
+    api.interrupt.and.returnValue(of(runnerState({ state: 'interrupted', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'interrupted', interruption_reason: 'Stimulus playback failed after Backend start' })));
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'rest', stimulus_start_ready: true }));
+    const video = {
+      pause: jasmine.createSpy('pause'),
+      play: jasmine.createSpy('play').and.rejectWith(new DOMException('play blocked', 'NotAllowedError')),
+      currentTime: 8,
+    } as unknown as HTMLVideoElement;
+
+    component.onPlaying(video);
+    flushMicrotasks();
+
+    expect(api.startStimulus).toHaveBeenCalledOnceWith(13, 21);
+    expect(api.interrupt).toHaveBeenCalledOnceWith(13, { reason: 'Stimulus playback failed after Backend start' });
+    expect(api.finishStimulus).not.toHaveBeenCalled();
+    expect(video.currentTime).toBe(0);
+    expect(component.runnerState()?.state).toBe('interrupted');
+    expect(component.error()).toContain('playback');
+  }));
 
   it('recovers a persisted device from a scheduled baseline state and restarts eyes-closed without reselecting', () => {
     ws.isConnected.set(true);

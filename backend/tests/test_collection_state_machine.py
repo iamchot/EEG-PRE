@@ -27,6 +27,7 @@ from app.services.collection_state_machine import (
     CollectionStateMachine,
     InvalidTransitionError,
 )
+from app.services.muse_stream import LSLMuseStreamSource, MuseQualityObservation
 from app.services.raw_eeg_writer import AtomicEEGWriter, EEGSample, RawFileResult
 from app.services.signal_processor import SensorQuality
 from app.services.trial_scheduler import create_trial_schedule
@@ -256,6 +257,72 @@ def test_live_readiness_uses_backend_observation_age_without_replacing_source_ti
     assert {sensor.timestamp for sensor in state.sensors.values()} == {source_timestamp}
     clock.advance(2.1)
     assert runner.state().live_sensor_ready is False
+
+
+def test_readiness_recomputes_rate_and_sensor_state_from_typed_observation(setup_runner):
+    runner, _, _, _, _ = setup_runner
+    asserted_good = {
+        name: SensorQuality(state="good", quality_score=80, timestamp=50_000)
+        for name in ("tp9", "af7", "af8", "tp10")
+    }
+    spoofed_rate = MuseQualityObservation(asserted_good, 1.0, 1, 50_000, 0.0)
+    assert runner.observe_quality(spoofed_rate).live_sensor_ready is False
+
+    low_score = dict(asserted_good)
+    low_score["af7"] = SensorQuality(state="good", quality_score=10, timestamp=50_001)
+    spoofed_state = MuseQualityObservation(low_score, 256.0, 2, 50_001, 0.0)
+    state = runner.observe_quality(spoofed_state)
+    assert state.live_sensor_ready is False
+    assert state.sensors["af7"].state == "poor"
+
+
+def test_source_sequence_watermark_uses_bound_lsl_clock_and_fails_unorderable_post_boundary(setup_runner):
+    runner, session, clock, _, writers = setup_runner
+    source_clock = [50_000.0]
+    latest_sequence = [1]
+    runner.bind_source(lambda: source_clock[0], lambda: latest_sequence[0])
+    runner.select_device("muse-1", "Muse 2")
+    runner.start_baseline(BaselineKind.eyes_open)
+    names = ("tp9", "af7", "af8", "tp10")
+
+    # Sequence 1 was pulled before the committed marker and is skipped even
+    # though the Python monotonic clock uses a deliberately unrelated epoch.
+    runner.accept_sample(
+        good_sample(49_999.9), sensor_timestamps={n: 49_999.9 for n in names},
+        sampling_rate_ok=False, source_sequence=1,
+    )
+    assert writers[-1].samples == []
+
+    latest_sequence[0] = 2
+    runner.accept_sample(
+        good_sample(50_000.1), sensor_timestamps={n: 50_000.1 for n in names},
+        sampling_rate_ok=False, source_sequence=2,
+    )
+    assert writers[-1].samples[-1].timestamp == 50_000.1
+    assert runner.state().accepted_clean_seconds == 0
+
+    # A later source event cannot be ordered with an exact duplicate timestamp.
+    latest_sequence[0] = 3
+    with pytest.raises(CollectionStateError, match="sample could not be written"):
+        runner.accept_sample(
+            good_sample(50_000.1), sensor_timestamps={n: 50_000.1 for n in names},
+            sampling_rate_ok=False, source_sequence=3,
+        )
+    assert session.state is CollectionSessionState.interrupted
+
+
+def test_adapter_sequences_duplicate_backward_and_nonfinite_source_events():
+    source = LSLMuseStreamSource(clock=lambda: 10.0)
+    source._channel_names = ("TP9", "AF7", "AF8", "TP10")
+    first = source.map_sample([1, 2, 3, 4], 10.0)
+    duplicate = source.map_sample([2, 3, 4, 5], 10.0)
+    backward = source.map_sample([3, 4, 5, 6], 9.9)
+    nonfinite = source.map_sample([4, 5, 6, 7], float("nan"))
+
+    assert [item.source_sequence for item in (first, duplicate, backward, nonfinite)] == [1, 2, 3, 4]
+    assert duplicate.capture_eligible is True
+    assert backward.capture_eligible is True
+    assert nonfinite.capture_eligible is True
 
 
 def test_baseline_needs_sixty_wall_and_thirty_clean_seconds(setup_runner):

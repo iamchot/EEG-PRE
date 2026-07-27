@@ -23,6 +23,7 @@ from app.models.dataset_collection import (
     TrialState,
 )
 from app.services.dataset_labels import derive_labels
+from app.services.muse_stream import MuseQualityObservation
 from app.services.raw_eeg_writer import EEGSample, RawFileResult
 from app.services.signal_processor import SensorQuality
 
@@ -113,6 +114,11 @@ class CollectionStateMachine:
         self._last_sample_at: float | None = None
         self._last_sample_clean = False
         self._last_capture_timestamp: float | None = None
+        self._last_capture_source_sequence: int | None = None
+        self._capture_sequence_watermark: int | None = None
+        self._last_observed_source_sequence: int | None = None
+        self._source_clock: Callable[[], float] | None = None
+        self._source_sequence: Callable[[], int] | None = None
         self._accepted_clean_seconds = 0.0
         self._channel_good_seconds = {name: 0.0 for name in SENSOR_NAMES}
         self._last_channel_good = {name: False for name in SENSOR_NAMES}
@@ -186,18 +192,50 @@ class CollectionStateMachine:
 
     def observe_quality(
         self,
-        sensors: Mapping[str, SensorQuality],
+        observation: MuseQualityObservation | Mapping[str, SensorQuality],
         *,
-        sampling_rate_hz: float | None,
-        sampling_rate_ok: bool,
+        sampling_rate_hz: float | None = None,
+        sampling_rate_ok: bool | None = None,
     ) -> CollectionRunnerState:
+        if isinstance(observation, MuseQualityObservation):
+            sensors = observation.sensors
+            sampling_rate_hz = observation.sampling_rate_hz
+            if observation.source_sequence <= 0:
+                raise CollectionStateError("Muse quality sequence must be positive")
+            if (
+                self._last_observed_source_sequence is not None
+                and observation.source_sequence <= self._last_observed_source_sequence
+            ):
+                self._sampling_rate_ok = False
+                self._quality_observed_at = None
+                return self.state()
+            self._last_observed_source_sequence = observation.source_sequence
+        else:
+            sensors = observation
         if set(sensors) != set(SENSOR_NAMES):
             raise CollectionStateError("Muse quality requires all four sensors")
-        self._sensors = dict(sensors)
-        self._sampling_rate_hz = sampling_rate_hz
-        self._sampling_rate_ok = sampling_rate_ok
+        normalized_rate = self._finite_float(sampling_rate_hz)
+        self._sampling_rate_hz = normalized_rate
+        self._sampling_rate_ok = bool(
+            normalized_rate is not None
+            and abs(normalized_rate - self._sampling_rate_expected_hz)
+            <= self._sampling_rate_tolerance_hz
+        )
+        self._sensors = {
+            name: self._validated_sensor(sensors[name], sampling_rate_ok=self._sampling_rate_ok)
+            for name in SENSOR_NAMES
+        }
         self._quality_observed_at = self._monotonic()
         return self.state()
+
+    def bind_source(
+        self,
+        source_clock: Callable[[], float],
+        source_sequence: Callable[[], int],
+    ) -> None:
+        self._source_clock = source_clock
+        self._source_sequence = source_sequence
+        self._last_observed_source_sequence = None
 
     def require_live_sensor_ready(self) -> None:
         self._require(self._live_sensor_ready(), "capture requires all four live sensors good at 256 Hz")
@@ -242,10 +280,37 @@ class CollectionStateMachine:
         *,
         sensor_timestamps: Mapping[str, float] | None = None,
         sampling_rate_ok: bool = True,
+        source_sequence: int | None = None,
     ) -> CollectionRunnerState:
         self._require(self._writer is not None, "sample ingestion requires an active capture")
         now = self._monotonic()
-        if self._last_capture_timestamp is not None and sample.timestamp <= self._last_capture_timestamp:
+        if source_sequence is not None and source_sequence <= 0:
+            self._fail_active_boundary("Raw EEG source ordering failed", self.session.current_trial_id)
+            raise CollectionStateError("Raw EEG sample could not be written")
+        if (
+            source_sequence is not None
+            and self._capture_sequence_watermark is not None
+            and source_sequence <= self._capture_sequence_watermark
+        ):
+            return self.state()
+        if source_sequence is not None and (
+            (
+                self._last_capture_source_sequence is not None
+                and source_sequence <= self._last_capture_source_sequence
+            )
+            or not math.isfinite(sample.timestamp)
+            or (
+                self._last_capture_timestamp is not None
+                and sample.timestamp <= self._last_capture_timestamp
+            )
+        ):
+            self._fail_active_boundary("Raw EEG source ordering failed", self.session.current_trial_id)
+            raise CollectionStateError("Raw EEG sample could not be written")
+        if (
+            source_sequence is None
+            and self._last_capture_timestamp is not None
+            and sample.timestamp <= self._last_capture_timestamp
+        ):
             if not math.isfinite(math.nextafter(self._last_capture_timestamp, math.inf)):
                 self._fail_active_boundary("Raw EEG capture timestamp overflow", self.session.current_trial_id)
                 raise CollectionStateError("Raw EEG sample could not be written")
@@ -253,10 +318,17 @@ class CollectionStateMachine:
         try:
             self._writer.append(sample)
             self._last_capture_timestamp = sample.timestamp
+            if source_sequence is not None:
+                self._last_capture_source_sequence = source_sequence
         except Exception as exc:
             self._fail_active_boundary("Raw EEG append failed", self.session.current_trial_id)
             raise CollectionStateError("Raw EEG sample could not be written") from exc
-        clean = self._sample_is_clean(sample, sensor_timestamps, now, sampling_rate_ok=sampling_rate_ok)
+        clean = self._sample_is_clean(
+            sample,
+            sensor_timestamps,
+            sample.timestamp,
+            sampling_rate_ok=sampling_rate_ok,
+        )
         if self._last_sample_at is not None and clean and self._last_sample_clean:
             interval = max(0.0, now - self._last_sample_at)
             if interval <= STALE_AFTER_SECONDS:
@@ -523,6 +595,8 @@ class CollectionStateMachine:
         if participant is None:
             raise CollectionStateError("collection participant is unavailable")
         self._last_capture_timestamp = None
+        self._last_capture_source_sequence = None
+        self._capture_sequence_watermark = None
         writer = self._writer_factory(self._capture_clock)
         if self._capture_attempt_token is not None:
             capture_id = f"{capture_id}-recovery-{self._capture_attempt_token}"
@@ -533,7 +607,14 @@ class CollectionStateMachine:
     def _sample_qualities(sample: EEGSample) -> dict[str, float]:
         return dict(zip(SENSOR_NAMES, (sample.tp9_quality, sample.af7_quality, sample.af8_quality, sample.tp10_quality)))
 
-    def _sample_is_clean(self, sample: EEGSample, timestamps: Mapping[str, float] | None, now: float, *, sampling_rate_ok: bool = True) -> bool:
+    def _sample_is_clean(
+        self,
+        sample: EEGSample,
+        timestamps: Mapping[str, float] | None,
+        source_now: float,
+        *,
+        sampling_rate_ok: bool = True,
+    ) -> bool:
         if not sampling_rate_ok:
             return False
         qualities = self._sample_qualities(sample)
@@ -542,7 +623,10 @@ class CollectionStateMachine:
         timestamps = timestamps or {name: sample.timestamp for name in SENSOR_NAMES}
         if set(timestamps) != set(SENSOR_NAMES):
             return False
-        return all(0 <= now - timestamps[name] <= STALE_AFTER_SECONDS for name in SENSOR_NAMES)
+        return all(
+            0 <= source_now - timestamps[name] <= STALE_AFTER_SECONDS
+            for name in SENSOR_NAMES
+        )
 
     def _live_sensor_ready(self) -> bool:
         now = self._monotonic()
@@ -550,7 +634,50 @@ class CollectionStateMachine:
             self._sampling_rate_ok
             and self._quality_observed_at is not None
             and 0 <= now - self._quality_observed_at <= STALE_AFTER_SECONDS
-            and all(sensor.state == "good" for sensor in self._sensors.values())
+            and all(
+                sensor.state == "good"
+                and math.isfinite(sensor.quality_score)
+                and sensor.quality_score >= GOOD_QUALITY_MINIMUM
+                for sensor in self._sensors.values()
+            )
+        )
+
+    @staticmethod
+    def _finite_float(value: float | None) -> float | None:
+        if value is None:
+            return None
+        try:
+            normalized = float(value)
+        except (TypeError, ValueError):
+            return None
+        return normalized if math.isfinite(normalized) else None
+
+    @classmethod
+    def _validated_sensor(
+        cls,
+        sensor: SensorQuality,
+        *,
+        sampling_rate_ok: bool,
+    ) -> SensorQuality:
+        score = cls._finite_float(sensor.quality_score)
+        timestamp = cls._finite_float(sensor.timestamp)
+        score = score if score is not None and 0.0 <= score <= 100.0 else 0.0
+        if sensor.state == "stale" or timestamp is None:
+            state = "stale"
+            score = 0.0
+        elif sensor.state == "unknown":
+            state = "unknown"
+        else:
+            state = "good" if sampling_rate_ok and score >= GOOD_QUALITY_MINIMUM else "poor"
+        try:
+            sequence = max(0, int(sensor.sequence))
+        except (TypeError, ValueError, OverflowError):
+            sequence = 0
+        return SensorQuality(
+            state=state,
+            quality_score=score,
+            timestamp=timestamp if timestamp is not None else 0.0,
+            sequence=sequence,
         )
 
     def _reset_clean_accounting(self) -> None:
@@ -620,8 +747,9 @@ class CollectionStateMachine:
         return 0.0 if self._capture_started_at is None else max(0.0, self._monotonic() - self._capture_started_at)
 
     def _capture_clock(self) -> float:
-        """Return a Backend-owned timestamp that is strict within one Raw capture."""
-        timestamp = float(self._monotonic())
+        """Return a source-domain timestamp that is strict within one Raw capture."""
+        clock = self._source_clock or self._monotonic
+        timestamp = float(clock())
         if self._last_capture_timestamp is not None and timestamp <= self._last_capture_timestamp:
             timestamp = math.nextafter(self._last_capture_timestamp, math.inf)
         if not math.isfinite(timestamp):
@@ -633,9 +761,14 @@ class CollectionStateMachine:
         assert self._writer is not None
         try:
             timestamp = self._writer.mark(marker)
-            marker_timestamp = float(self._monotonic()) if timestamp is None else float(timestamp)
+            marker_timestamp = self._capture_clock() if timestamp is None else float(timestamp)
             if math.isfinite(marker_timestamp):
                 self._last_capture_timestamp = marker_timestamp
+            watermark = self._last_observed_source_sequence
+            if self._source_sequence is not None:
+                current_sequence = int(self._source_sequence())
+                watermark = current_sequence if watermark is None else max(watermark, current_sequence)
+            self._capture_sequence_watermark = watermark
         except Exception as exc:
             self._fail_active_boundary("Raw EEG marker write failed", trial_id)
             raise CollectionStateError("Raw EEG marker could not be written") from exc
@@ -646,6 +779,8 @@ class CollectionStateMachine:
         self._last_sample_at = None
         self._last_sample_clean = False
         self._last_capture_timestamp = None
+        self._last_capture_source_sequence = None
+        self._capture_sequence_watermark = None
 
     def _mark_capture_failed(self, reason: str, *, trial: CollectionTrial | None = None) -> None:
         session_id = self.session.id

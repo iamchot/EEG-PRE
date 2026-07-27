@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Sequence
@@ -27,6 +28,15 @@ class MuseDevice:
 
 
 @dataclass(frozen=True, slots=True)
+class MuseQualityObservation:
+    sensors: dict[str, SensorQuality]
+    sampling_rate_hz: float | None
+    source_sequence: int
+    source_timestamp: float
+    received_at: float
+
+
+@dataclass(frozen=True, slots=True)
 class MuseSample:
     sample: EEGSample
     sensor_timestamps: dict[str, float]
@@ -34,6 +44,18 @@ class MuseSample:
     sampling_rate_hz: float | None
     sampling_rate_ok: bool
     capture_eligible: bool = True
+    source_sequence: int = 0
+    received_at: float = 0.0
+
+    @property
+    def quality_observation(self) -> MuseQualityObservation:
+        return MuseQualityObservation(
+            self.sensors,
+            self.sampling_rate_hz,
+            self.source_sequence,
+            self.sample.timestamp,
+            self.received_at,
+        )
 
 
 class MuseStreamSource(Protocol):
@@ -69,6 +91,7 @@ class LSLMuseStreamSource:
         self._last_source_timestamp: float | None = None
         self._stale_emitted = False
         self._clock = clock or self._lsl_clock
+        self._source_sequence = 0
         self._inlet: Any | None = None
         self._connected = False
         self._channel_names: tuple[str, ...] = CHANNELS
@@ -168,19 +191,25 @@ class LSLMuseStreamSource:
         names = self._validate_channel_names(self._channel_names)
         if len(values) < len(names):
             raise MuseStreamError("Muse sample is missing required channels")
+        self._source_sequence += 1
         received_at = float(self._clock())
         age = received_at - timestamp
-        if age < -self.stale_after_seconds or age > self.stale_after_seconds:
+        if math.isfinite(timestamp) and (
+            age < -self.stale_after_seconds or age > self.stale_after_seconds
+        ):
             sensors = {
                 channel: SensorQuality(state="stale", quality_score=0.0, timestamp=timestamp)
                 for channel in CHANNELS
             }
-            return self._mapped_sample(values, names, timestamp, sensors, None, False, False)
+            return self._mapped_sample(values, names, timestamp, sensors, None, False, False, received_at)
         indexed = {name: float(values[index]) for index, name in enumerate(names)}
         self._last_values = tuple(float(value) for value in values)
-        self._last_source_timestamp = timestamp
+        if math.isfinite(timestamp):
+            self._last_source_timestamp = timestamp
         self._stale_emitted = False
-        timestamp_increases = not self._timestamps or timestamp > self._timestamps[-1]
+        timestamp_increases = math.isfinite(timestamp) and (
+            not self._timestamps or timestamp > self._timestamps[-1]
+        )
         if timestamp_increases:
             self._timestamps.append(timestamp)
             for channel in CHANNELS:
@@ -205,13 +234,14 @@ class LSLMuseStreamSource:
                 )
                 for channel, sensor in sensors.items()
             }
-        return self._mapped_sample(values, names, timestamp, sensors, sampling_rate, sampling_ok, timestamp_increases)
+        return self._mapped_sample(values, names, timestamp, sensors, sampling_rate, sampling_ok, True, received_at)
 
     def stale_observation(self) -> MuseSample | None:
         if self._last_values is None or self._last_source_timestamp is None or self._stale_emitted:
             return None
         if float(self._clock()) - self._last_source_timestamp <= self.stale_after_seconds:
             return None
+        self._source_sequence += 1
         self._stale_emitted = True
         sensors = {
             channel: SensorQuality(state="stale", quality_score=0.0, timestamp=self._last_source_timestamp)
@@ -225,6 +255,7 @@ class LSLMuseStreamSource:
             self._sampling_rate(),
             False,
             False,
+            float(self._clock()),
         )
 
     def _mapped_sample(
@@ -236,6 +267,7 @@ class LSLMuseStreamSource:
         sampling_rate: float | None,
         sampling_ok: bool,
         capture_eligible: bool,
+        received_at: float,
     ) -> MuseSample:
         indexed = {name: float(values[index]) for index, name in enumerate(names)}
         sample = EEGSample(
@@ -256,7 +288,15 @@ class LSLMuseStreamSource:
             sampling_rate,
             sampling_ok,
             capture_eligible,
+            self._source_sequence,
+            received_at,
         )
+
+    def source_clock(self) -> float:
+        return float(self._clock())
+
+    def latest_source_sequence(self) -> int:
+        return self._source_sequence
 
     def _sampling_rate(self) -> float | None:
         if len(self._timestamps) < 16:

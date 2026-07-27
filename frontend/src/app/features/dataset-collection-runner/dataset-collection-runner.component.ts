@@ -185,6 +185,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   private playbackStarted = false;
   private playbackFinished = false;
   private pendingEnded = false;
+  private playbackFailureHandled = false;
   private destroyed = false;
   private activeVideo: HTMLVideoElement | null = null;
 
@@ -290,7 +291,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       this.playbackStarted = false;
       this.startRetryAvailable.set(true);
       this.rewindMedia(video);
-    }, () => { void (video ?? this.activeVideo)?.play(); });
+    }, () => this.resumeAfterBackendStart(video ?? this.activeVideo));
   }
 
   onEnded(): void {
@@ -368,7 +369,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     if (this.mediaStimulusId === stimulusId && (this.mediaUrl() || this.mediaError())) return;
     this.releaseMedia();
     this.mediaStimulusId = stimulusId;
-    this.mediaReady.set(false); this.mediaError.set(false); this.finishRetryAvailable.set(false); this.startRetryAvailable.set(false); this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false;
+    this.mediaReady.set(false); this.mediaError.set(false); this.finishRetryAvailable.set(false); this.startRetryAvailable.set(false); this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false; this.playbackFailureHandled = false;
     this.mediaSubscription = this.api.getStimulusMedia(stimulusId).subscribe({
       next: blob => { if (this.mediaStimulusId !== stimulusId) return; this.mediaUrl.set(URL.createObjectURL(blob)); this.mediaReady.set(true); },
       error: () => { if (this.mediaStimulusId === stimulusId) { this.mediaReady.set(false); this.mediaError.set(true); } },
@@ -391,6 +392,23 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       () => { this.finishRetryAvailable.set(true); },
       () => this.finishRetryAvailable.set(false),
     );
+  }
+
+  private resumeAfterBackendStart(video: HTMLVideoElement | null): void {
+    if (!video) return;
+    void video.play().catch(() => {
+      if (this.playbackFailureHandled) return;
+      this.playbackFailureHandled = true;
+      this.playbackStarted = false;
+      this.pendingEnded = false;
+      this.rewindMedia(video);
+      const reason = 'Stimulus playback failed after Backend start';
+      this.run(
+        this.api.interrupt(this.sessionId, { reason }),
+        undefined,
+        () => this.error.set('Stimulus playback failed; collection was interrupted for recovery'),
+      );
+    });
   }
 
   private run(request: ReturnType<DatasetCollectionService['getRunnerState']>, onError?: () => void, onSuccess?: () => void): void {
