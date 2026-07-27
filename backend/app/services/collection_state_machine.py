@@ -197,9 +197,12 @@ class CollectionStateMachine:
         sampling_rate_hz: float | None = None,
         sampling_rate_ok: bool | None = None,
     ) -> CollectionRunnerState:
+        cadence_valid = True
+        observation_fresh = True
         if isinstance(observation, MuseQualityObservation):
             sensors = observation.sensors
             sampling_rate_hz = observation.sampling_rate_hz
+            cadence_valid = observation.cadence_valid is True
             if observation.source_sequence <= 0:
                 raise CollectionStateError("Muse quality sequence must be positive")
             if (
@@ -210,6 +213,7 @@ class CollectionStateMachine:
                 self._quality_observed_at = None
                 return self.state()
             self._last_observed_source_sequence = observation.source_sequence
+            observation_fresh = self._source_observation_is_fresh(observation)
         else:
             sensors = observation
         if set(sensors) != set(SENSOR_NAMES):
@@ -217,12 +221,18 @@ class CollectionStateMachine:
         normalized_rate = self._finite_float(sampling_rate_hz)
         self._sampling_rate_hz = normalized_rate
         self._sampling_rate_ok = bool(
-            normalized_rate is not None
+            cadence_valid
+            and observation_fresh
+            and normalized_rate is not None
             and abs(normalized_rate - self._sampling_rate_expected_hz)
             <= self._sampling_rate_tolerance_hz
         )
         self._sensors = {
-            name: self._validated_sensor(sensors[name], sampling_rate_ok=self._sampling_rate_ok)
+            name: self._validated_sensor(
+                sensors[name],
+                sampling_rate_ok=self._sampling_rate_ok,
+                observation_fresh=observation_fresh,
+            )
             for name in SENSOR_NAMES
         }
         self._quality_observed_at = self._monotonic()
@@ -236,6 +246,13 @@ class CollectionStateMachine:
         self._source_clock = source_clock
         self._source_sequence = source_sequence
         self._last_observed_source_sequence = None
+        self._sensors = {
+            name: SensorQuality(state="unknown", quality_score=0.0, timestamp=0.0)
+            for name in SENSOR_NAMES
+        }
+        self._sampling_rate_hz = None
+        self._sampling_rate_ok = False
+        self._quality_observed_at = None
 
     def require_live_sensor_ready(self) -> None:
         self._require(self._live_sensor_ready(), "capture requires all four live sensors good at 256 Hz")
@@ -658,11 +675,12 @@ class CollectionStateMachine:
         sensor: SensorQuality,
         *,
         sampling_rate_ok: bool,
+        observation_fresh: bool,
     ) -> SensorQuality:
         score = cls._finite_float(sensor.quality_score)
         timestamp = cls._finite_float(sensor.timestamp)
         score = score if score is not None and 0.0 <= score <= 100.0 else 0.0
-        if sensor.state == "stale" or timestamp is None:
+        if not observation_fresh or sensor.state == "stale" or timestamp is None:
             state = "stale"
             score = 0.0
         elif sensor.state == "unknown":
@@ -678,6 +696,31 @@ class CollectionStateMachine:
             quality_score=score,
             timestamp=timestamp if timestamp is not None else 0.0,
             sequence=sequence,
+        )
+
+    def _source_observation_is_fresh(
+        self,
+        observation: MuseQualityObservation,
+    ) -> bool:
+        source_timestamp = self._finite_float(observation.source_timestamp)
+        received_at = self._finite_float(observation.received_at)
+        if source_timestamp is None or received_at is None:
+            return False
+        if any(
+            self._finite_float(sensor.timestamp) != source_timestamp
+            for sensor in observation.sensors.values()
+        ):
+            return False
+        if self._source_clock is None:
+            return True
+        try:
+            source_now = self._finite_float(self._source_clock())
+        except Exception:
+            return False
+        return bool(
+            source_now is not None
+            and 0 <= source_now - received_at <= STALE_AFTER_SECONDS
+            and 0 <= received_at - source_timestamp <= STALE_AFTER_SECONDS
         )
 
     def _reset_clean_accounting(self) -> None:

@@ -182,6 +182,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   private mediaSubscription?: Subscription;
   private initialSubscription?: Subscription;
   private actionSubscription?: Subscription;
+  private safetyInterruptSubscription?: Subscription;
   private playbackStarted = false;
   private playbackFinished = false;
   private pendingEnded = false;
@@ -214,7 +215,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     this.ws.connect(this.sessionId);
   }
 
-  ngOnDestroy(): void { this.destroyed = true; this.ws.disconnect(); this.initialSubscription?.unsubscribe(); this.actionSubscription?.unsubscribe(); this.releaseMedia(); }
+  ngOnDestroy(): void { this.destroyed = true; this.ws.disconnect(); this.initialSubscription?.unsubscribe(); this.actionSubscription?.unsubscribe(); this.safetyInterruptSubscription?.unsubscribe(); this.releaseMedia(); }
 
   applyState(state: CollectionRunnerState): void {
     if (state.state !== 'preparation' || state.total_trials === 12) this.devicePersisted.set(true);
@@ -403,11 +404,21 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       this.pendingEnded = false;
       this.rewindMedia(video);
       const reason = 'Stimulus playback failed after Backend start';
-      this.run(
-        this.api.interrupt(this.sessionId, { reason }),
-        undefined,
-        () => this.error.set('Stimulus playback failed; collection was interrupted for recovery'),
-      );
+      this.actionSubscription?.unsubscribe();
+      this.actionSubscription = undefined;
+      this.busy.set(true);
+      this.error.set('');
+      this.safetyInterruptSubscription = this.api.interrupt(this.sessionId, { reason }).subscribe({
+        next: state => {
+          this.busy.set(false);
+          this.applyState(state);
+          this.error.set('Stimulus playback failed; collection was interrupted for recovery');
+        },
+        error: err => {
+          this.busy.set(false);
+          this.fail(err);
+        },
+      });
     });
   }
 

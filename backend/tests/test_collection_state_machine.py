@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 import json
 import sys
@@ -31,6 +32,7 @@ from app.services.muse_stream import LSLMuseStreamSource, MuseQualityObservation
 from app.services.raw_eeg_writer import AtomicEEGWriter, EEGSample, RawFileResult
 from app.services.signal_processor import SensorQuality
 from app.services.trial_scheduler import create_trial_schedule
+from app.ws.collection_manager import CollectionConnectionManager
 
 
 class Clock:
@@ -265,15 +267,86 @@ def test_readiness_recomputes_rate_and_sensor_state_from_typed_observation(setup
         name: SensorQuality(state="good", quality_score=80, timestamp=50_000)
         for name in ("tp9", "af7", "af8", "tp10")
     }
-    spoofed_rate = MuseQualityObservation(asserted_good, 1.0, 1, 50_000, 0.0)
+    spoofed_rate = MuseQualityObservation(asserted_good, 1.0, 1, 50_000, 0.0, True)
     assert runner.observe_quality(spoofed_rate).live_sensor_ready is False
 
-    low_score = dict(asserted_good)
+    low_score = {
+        name: SensorQuality(state="good", quality_score=80, timestamp=50_001)
+        for name in ("tp9", "af7", "af8", "tp10")
+    }
     low_score["af7"] = SensorQuality(state="good", quality_score=10, timestamp=50_001)
-    spoofed_state = MuseQualityObservation(low_score, 256.0, 2, 50_001, 0.0)
+    spoofed_state = MuseQualityObservation(low_score, 256.0, 2, 50_001, 0.0, True)
     state = runner.observe_quality(spoofed_state)
     assert state.live_sensor_ready is False
     assert state.sensors["af7"].state == "poor"
+
+
+def test_adapter_invalid_cadence_observation_cannot_be_normalized_back_to_ready(setup_runner):
+    runner, _, _, _, _ = setup_runner
+    source_clock = [100.0]
+    source = LSLMuseStreamSource(clock=lambda: source_clock[0])
+    source._channel_names = ("TP9", "AF7", "AF8", "TP10")
+    for index in range(16):
+        source_clock[0] = 100.0 + index / 256
+        mapped = source.map_sample(
+            [35.0 * ((index % 4) - 1.5)] * 4,
+            source_clock[0],
+        )
+    assert mapped.sampling_rate_ok is True
+
+    duplicate = source.map_sample([35.0, -35.0, 35.0, -35.0], source_clock[0])
+    assert duplicate.sampling_rate_hz == pytest.approx(256.0)
+    assert duplicate.sampling_rate_ok is False
+
+    state = runner.observe_quality(duplicate.quality_observation)
+
+    assert state.sampling_rate_ok is False
+    assert state.live_sensor_ready is False
+    assert all(sensor.state == "poor" for sensor in state.sensors.values())
+
+
+def test_binding_new_source_clears_previous_readiness_until_new_observation(setup_runner):
+    runner, _, _, _, _ = setup_runner
+    sensors = {
+        name: SensorQuality(state="good", quality_score=80, timestamp=50_000)
+        for name in ("tp9", "af7", "af8", "tp10")
+    }
+    assert runner.observe_quality(
+        sensors,
+        sampling_rate_hz=256,
+        sampling_rate_ok=True,
+    ).live_sensor_ready is True
+
+    runner.bind_source(lambda: 60_000.0, lambda: 0)
+    state = runner.state()
+
+    assert state.live_sensor_ready is False
+    assert state.sampling_rate_hz is None
+    assert state.sampling_rate_ok is False
+    assert all(sensor.state == "unknown" for sensor in state.sensors.values())
+
+
+def test_bound_source_rejects_stale_source_domain_observation(setup_runner):
+    runner, _, _, _, _ = setup_runner
+    runner.bind_source(lambda: 60_000.0, lambda: 1)
+    sensors = {
+        name: SensorQuality(state="good", quality_score=80, timestamp=59_990.0)
+        for name in ("tp9", "af7", "af8", "tp10")
+    }
+    stale = MuseQualityObservation(
+        sensors,
+        256.0,
+        1,
+        59_990.0,
+        59_990.0,
+        True,
+    )
+
+    state = runner.observe_quality(stale)
+
+    assert state.live_sensor_ready is False
+    assert state.sampling_rate_ok is False
+    assert all(sensor.state == "stale" for sensor in state.sensors.values())
 
 
 def test_source_sequence_watermark_uses_bound_lsl_clock_and_fails_unorderable_post_boundary(setup_runner):
@@ -323,6 +396,55 @@ def test_adapter_sequences_duplicate_backward_and_nonfinite_source_events():
     assert duplicate.capture_eligible is True
     assert backward.capture_eligible is True
     assert nonfinite.capture_eligible is True
+
+
+def test_physical_pull_sequence_is_watermarked_before_boundary_with_real_writer(
+    tmp_path, db, setup_runner, monkeypatch
+):
+    _, session, clock, _, _ = setup_runner
+    source_clock = [50_000.0]
+    source = LSLMuseStreamSource(clock=lambda: source_clock[0])
+    source._channel_names = ("TP9", "AF7", "AF8", "TP10")
+    source._connected = True
+
+    class OneSampleInlet:
+        def pull_sample(self, timeout):
+            return [1.0, 2.0, 3.0, 4.0], 50_000.1
+
+    source._inlet = OneSampleInlet()
+    writers = []
+    runner = CollectionStateMachine(
+        db,
+        session,
+        writer_factory=lambda marker_clock: (
+            writers.append(AtomicEEGWriter(tmp_path, clock=marker_clock)) or writers[-1]
+        ),
+        monotonic=clock.monotonic,
+        now=clock.now,
+    )
+    runner.bind_source(source.source_clock, source.latest_source_sequence)
+    runner.select_device("muse-1", "Muse 2")
+    original_map = source.map_sample
+
+    def cross_boundary_after_pull(*args, **kwargs):
+        runner.start_baseline(BaselineKind.eyes_open)
+        return original_map(*args, **kwargs)
+
+    monkeypatch.setattr(source, "map_sample", cross_boundary_after_pull)
+
+    async def pull_once():
+        samples = source.samples()
+        try:
+            return await anext(samples)
+        finally:
+            await samples.aclose()
+
+    incoming = asyncio.run(pull_once())
+    CollectionConnectionManager._accept_sample_unlocked(runner, incoming)
+
+    assert incoming.source_sequence == 1
+    assert writers[0]._row_count == 1  # start marker only; pre-boundary pull was skipped
+    runner.interrupt("test cleanup")
 
 
 def test_baseline_needs_sixty_wall_and_thirty_clean_seconds(setup_runner):

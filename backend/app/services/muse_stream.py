@@ -34,6 +34,7 @@ class MuseQualityObservation:
     source_sequence: int
     source_timestamp: float
     received_at: float
+    cadence_valid: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +56,7 @@ class MuseSample:
             self.source_sequence,
             self.sample.timestamp,
             self.received_at,
+            self.sampling_rate_ok,
         )
 
 
@@ -149,7 +151,7 @@ class LSLMuseStreamSource:
             raise MuseStreamError("Muse stream is not connected")
         while self._connected:
             try:
-                values, timestamp = await asyncio.wait_for(
+                values, timestamp, source_sequence = await asyncio.wait_for(
                     asyncio.to_thread(self._pull_sample),
                     timeout=self.pull_timeout + 0.5,
                 )
@@ -168,7 +170,11 @@ class LSLMuseStreamSource:
                     yield stale
                 continue
             try:
-                yield self.map_sample(values, float(timestamp))
+                yield self.map_sample(
+                    values,
+                    float(timestamp),
+                    source_sequence=source_sequence,
+                )
             except MuseStreamError as exc:
                 if "stale" not in str(exc).lower():
                     raise
@@ -187,11 +193,19 @@ class LSLMuseStreamSource:
             except Exception as exc:
                 raise MuseStreamError("Muse disconnect failed") from exc
 
-    def map_sample(self, values: Sequence[float], timestamp: float) -> MuseSample:
+    def map_sample(
+        self,
+        values: Sequence[float],
+        timestamp: float,
+        *,
+        source_sequence: int | None = None,
+    ) -> MuseSample:
         names = self._validate_channel_names(self._channel_names)
         if len(values) < len(names):
             raise MuseStreamError("Muse sample is missing required channels")
-        self._source_sequence += 1
+        if source_sequence is None:
+            self._source_sequence += 1
+            source_sequence = self._source_sequence
         received_at = float(self._clock())
         age = received_at - timestamp
         if math.isfinite(timestamp) and (
@@ -201,7 +215,17 @@ class LSLMuseStreamSource:
                 channel: SensorQuality(state="stale", quality_score=0.0, timestamp=timestamp)
                 for channel in CHANNELS
             }
-            return self._mapped_sample(values, names, timestamp, sensors, None, False, False, received_at)
+            return self._mapped_sample(
+                values,
+                names,
+                timestamp,
+                sensors,
+                None,
+                False,
+                False,
+                received_at,
+                source_sequence,
+            )
         indexed = {name: float(values[index]) for index, name in enumerate(names)}
         self._last_values = tuple(float(value) for value in values)
         if math.isfinite(timestamp):
@@ -234,7 +258,17 @@ class LSLMuseStreamSource:
                 )
                 for channel, sensor in sensors.items()
             }
-        return self._mapped_sample(values, names, timestamp, sensors, sampling_rate, sampling_ok, True, received_at)
+        return self._mapped_sample(
+            values,
+            names,
+            timestamp,
+            sensors,
+            sampling_rate,
+            sampling_ok,
+            True,
+            received_at,
+            source_sequence,
+        )
 
     def stale_observation(self) -> MuseSample | None:
         if self._last_values is None or self._last_source_timestamp is None or self._stale_emitted:
@@ -268,6 +302,7 @@ class LSLMuseStreamSource:
         sampling_ok: bool,
         capture_eligible: bool,
         received_at: float,
+        source_sequence: int | None = None,
     ) -> MuseSample:
         indexed = {name: float(values[index]) for index, name in enumerate(names)}
         sample = EEGSample(
@@ -288,7 +323,7 @@ class LSLMuseStreamSource:
             sampling_rate,
             sampling_ok,
             capture_eligible,
-            self._source_sequence,
+            self._source_sequence if source_sequence is None else source_sequence,
             received_at,
         )
 
@@ -323,7 +358,11 @@ class LSLMuseStreamSource:
         return inlet, self._read_channel_names(stream)
 
     def _pull_sample(self):
-        return self._inlet.pull_sample(timeout=self.pull_timeout)
+        values, timestamp = self._inlet.pull_sample(timeout=self.pull_timeout)
+        if values is None or timestamp is None:
+            return values, timestamp, None
+        self._source_sequence += 1
+        return values, timestamp, self._source_sequence
 
     def _close_late_open(self, task: asyncio.Future) -> None:
         if task.cancelled():

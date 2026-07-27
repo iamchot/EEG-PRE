@@ -228,6 +228,32 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(component.error()).toContain('playback');
   }));
 
+  it('interrupts backend when delayed playback rejection arrives during another request', fakeAsync(() => {
+    let rejectPlayback!: (reason?: unknown) => void;
+    const playback = new Promise<void>((_, reject) => { rejectPlayback = reject; });
+    const artifactPending = new Subject<CollectionRunnerState>();
+    api.startStimulus.and.returnValue(of(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'stimulus' })));
+    api.markArtifact.and.returnValue(artifactPending);
+    api.interrupt.and.returnValue(of(runnerState({ state: 'interrupted', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'interrupted', interruption_reason: 'Stimulus playback failed after Backend start' })));
+    component.applyState(runnerState({ state: 'in_progress', current_trial_id: 21, current_stimulus_id: 11, trial_state: 'rest', stimulus_start_ready: true }));
+    const video = {
+      pause: jasmine.createSpy('pause'),
+      play: jasmine.createSpy('play').and.returnValue(playback),
+      currentTime: 8,
+    } as unknown as HTMLVideoElement;
+
+    component.onPlaying(video);
+    component.markArtifact('blink');
+    expect(component.busy()).toBeTrue();
+    rejectPlayback(new DOMException('decode failed', 'NotSupportedError'));
+    flushMicrotasks();
+
+    expect(api.interrupt).toHaveBeenCalledOnceWith(13, { reason: 'Stimulus playback failed after Backend start' });
+    expect(video.currentTime).toBe(0);
+    expect(component.runnerState()?.state).toBe('interrupted');
+    expect(component.error()).toContain('playback');
+  }));
+
   it('recovers a persisted device from a scheduled baseline state and restarts eyes-closed without reselecting', () => {
     ws.isConnected.set(true);
     component.applyState(runnerState({ state: 'baseline', active_baseline: null, total_trials: 12, sensors: measuredGoodSensors, sampling_rate_hz: 256, sampling_rate_ok: true, live_sensor_ready: true }));
