@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import threading
 import weakref
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from typing import TypeVar
 
 from fastapi import WebSocket
+from filelock import FileLock, Timeout
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -20,6 +23,53 @@ from app.services.raw_eeg_writer import AtomicEEGWriter
 
 
 T = TypeVar("T")
+
+_device_registry_guard = threading.Lock()
+_device_registry: dict[str, object] = {}
+
+
+class DeviceLeaseUnavailableError(MuseStreamError):
+    """Public, device-neutral conflict raised when acquisition is already owned."""
+
+
+class DeviceLease:
+    """A nonblocking process registry plus crash-safe OS file lease for one device."""
+
+    def __init__(self, lock_dir: str | Path, device_id: str):
+        digest = hashlib.sha256(device_id.encode("utf-8")).hexdigest()
+        self.path = Path(lock_dir) / f"{digest}.lock"
+        self._digest = digest
+        self._owner = object()
+        self._lock = FileLock(self.path)
+        self._acquired = False
+
+    def acquire(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with _device_registry_guard:
+            if self._digest in _device_registry:
+                raise DeviceLeaseUnavailableError("Muse device is already in use")
+            _device_registry[self._digest] = self._owner
+        try:
+            self._lock.acquire(timeout=0)
+        except BaseException as exc:
+            with _device_registry_guard:
+                if _device_registry.get(self._digest) is self._owner:
+                    _device_registry.pop(self._digest, None)
+            if isinstance(exc, Timeout):
+                raise DeviceLeaseUnavailableError("Muse device is already in use") from exc
+            raise
+        self._acquired = True
+
+    def release(self) -> None:
+        if not self._acquired:
+            return
+        try:
+            self._lock.release()
+        finally:
+            with _device_registry_guard:
+                if _device_registry.get(self._digest) is self._owner:
+                    _device_registry.pop(self._digest, None)
+            self._acquired = False
 
 
 class CollectionContextUnavailableError(RuntimeError):
@@ -208,11 +258,14 @@ class CollectionConnectionManager:
         if runner is not None:
             with self._session_lock(session_id):
                 self._runners.setdefault(session_id, runner)
+        lease = None
         try:
             if device_id is None:
                 device_id = self.run_active(session_id, lambda active: active.session.device_id)
             if not device_id:
                 return
+            lease = DeviceLease(get_settings().collection_lock_dir, device_id)
+            lease.acquire()
             await source.connect(device_id)
             with self._session_lock(session_id):
                 if self._sources.get(session_id) is source:
@@ -246,6 +299,11 @@ class CollectionConnectionManager:
                 await source.disconnect()
             except Exception:
                 pass
+            if lease is not None:
+                try:
+                    lease.release()
+                except Exception:
+                    pass
             current = asyncio.current_task()
             with self._session_lock(session_id):
                 self._connected_sources.discard(session_id)

@@ -450,7 +450,7 @@ def stimulus_media(stimulus_id: int, admin: AdminUser, db: Session = Depends(get
     media_type = mimetypes.guess_type(media_path.name)[0]
     if media_type is None or not media_type.startswith("video/"):
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Stimulus media is not a video")
-    return FileResponse(media_path, media_type=media_type, filename=media_path.name)
+    return FileResponse(media_path, media_type=media_type)
 
 
 @router.websocket("/ws/{session_id}")

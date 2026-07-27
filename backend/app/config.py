@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # Dataset collection (Muse 2)
     collection_raw_dir: str = "./collection_data"
     collection_stimulus_dir: str = "./collection_stimuli"
+    collection_lock_dir: str = "./collection_locks"
     collection_sampling_rate_hz: int = 256
     collection_sampling_tolerance_hz: int = 8
     collection_baseline_wall_seconds: int = 60

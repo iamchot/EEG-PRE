@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
+import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
@@ -373,6 +375,7 @@ def test_stimulus_media_fails_closed_and_serves_verified_video(client):
     assert response.headers["content-type"].startswith("video/mp4")
     assert response.content == b"video-bytes"
     assert str(clip) not in response.text
+    assert "content-disposition" not in response.headers
 
     clip.write_bytes(b"tampered")
     assert client.get(f"{BASE}/stimuli/{stimulus_id}/media", headers=auth(client)).status_code == 409
@@ -951,3 +954,180 @@ def test_http_only_lifecycle_does_not_grow_sequence_or_lock_registries(client, m
         assert manager._sequences == {}
 
     assert len(manager._locks) == 0
+
+
+def test_device_lease_uses_only_hash_and_blocks_an_independent_process(tmp_path):
+    module = importlib.import_module("app.ws.collection_manager")
+    device_id = "Muse-PII-address-00:11:22:33:44:55"
+    lease = module.DeviceLease(tmp_path, device_id)
+
+    lease.acquire()
+    try:
+        assert device_id not in lease.path.name
+        assert lease.path.name == f"{hashlib.sha256(device_id.encode('utf-8')).hexdigest()}.lock"
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from filelock import FileLock, Timeout; import sys; "
+                    "lock=FileLock(sys.argv[1]); "
+                    "\ntry: lock.acquire(timeout=0)"
+                    "\nexcept Timeout: raise SystemExit(23)"
+                    "\nelse: lock.release(); raise SystemExit(0)"
+                ),
+                str(lease.path),
+            ],
+            check=False,
+        )
+        assert probe.returncode == 23
+    finally:
+        lease.release()
+
+    restarted = module.DeviceLease(tmp_path, device_id)
+    restarted.acquire()
+    restarted.release()
+
+    crashed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from filelock import FileLock; import os,sys; lock=FileLock(sys.argv[1]); lock.acquire(timeout=0); os._exit(0)",
+            str(lease.path),
+        ],
+        check=False,
+    )
+    assert crashed.returncode == 0
+    after_crash = module.DeviceLease(tmp_path, device_id)
+    after_crash.acquire()
+    after_crash.release()
+
+
+def test_two_managers_reject_same_device_until_source_cleanup(tmp_path, monkeypatch):
+    module = importlib.import_module("app.ws.collection_manager")
+
+    async def scenario():
+        first_started = asyncio.Event()
+        finish_first = asyncio.Event()
+        second_connects = []
+        messages = []
+
+        class FirstSource:
+            async def connect(self, _device_id):
+                first_started.set()
+
+            async def samples(self):
+                await finish_first.wait()
+                if False:
+                    yield None
+
+            async def disconnect(self):
+                return None
+
+        class SecondSource:
+            async def connect(self, _device_id):
+                second_connects.append(True)
+
+            async def samples(self):
+                if False:
+                    yield None
+
+            async def disconnect(self):
+                return None
+
+        class Runner:
+            session = type("Session", (), {"device_id": "private-device-id"})()
+
+            def state(self):
+                return CollectionRunnerState(
+                    session_id=1, state=CollectionSessionState.preparation, active_baseline=None,
+                    current_trial_id=None, current_trial_order=None, trial_state=None,
+                    completed_trials=0, total_trials=12, next_trial_order=1, break_required=False,
+                    interruption_reason=None, accepted_clean_seconds=0, wall_clock_seconds=0,
+                )
+
+        class WebSocket:
+            async def send_json(self, payload):
+                messages.append(payload)
+
+        settings = Settings(collection_lock_dir=str(tmp_path / "locks"))
+        monkeypatch.setattr(module, "get_settings", lambda: settings)
+        first = CollectionConnectionManager()
+        second = CollectionConnectionManager()
+        first_task = asyncio.create_task(first._pump(101, FirstSource(), Runner()))
+        await asyncio.wait_for(first_started.wait(), timeout=0.5)
+
+        second._clients[202].add(WebSocket())
+        await second._pump(202, SecondSource(), Runner())
+        assert second_connects == []
+        assert messages[-1]["stream_error"] == "Muse device is already in use"
+        assert "private-device-id" not in str(messages)
+
+        finish_first.set()
+        await asyncio.wait_for(first_task, timeout=0.5)
+        await second._pump(202, SecondSource(), Runner())
+        assert second_connects == [True]
+
+    asyncio.run(scenario())
+
+
+def test_device_lease_is_released_after_source_connection_failure(tmp_path, monkeypatch):
+    module = importlib.import_module("app.ws.collection_manager")
+
+    async def scenario():
+        disconnects = []
+
+        class FailingSource:
+            async def connect(self, _device_id):
+                raise module.MuseStreamError("LSL source is unavailable")
+
+            async def samples(self):
+                if False:
+                    yield None
+
+            async def disconnect(self):
+                disconnects.append(True)
+
+        class Runner:
+            session = type("Session", (), {"device_id": "failure-device"})()
+
+            def state(self):
+                return CollectionRunnerState(
+                    session_id=1, state=CollectionSessionState.preparation, active_baseline=None,
+                    current_trial_id=None, current_trial_order=None, trial_state=None,
+                    completed_trials=0, total_trials=12, next_trial_order=1, break_required=False,
+                    interruption_reason=None, accepted_clean_seconds=0, wall_clock_seconds=0,
+                )
+
+        settings = Settings(collection_lock_dir=str(tmp_path / "locks"))
+        monkeypatch.setattr(module, "get_settings", lambda: settings)
+        await CollectionConnectionManager()._pump(303, FailingSource(), Runner())
+
+        replacement = module.DeviceLease(settings.collection_lock_dir, "failure-device")
+        replacement.acquire()
+        replacement.release()
+        assert disconnects == [True]
+
+    asyncio.run(scenario())
+
+
+def test_device_lease_rolls_back_process_registry_when_os_lock_errors(tmp_path, monkeypatch):
+    module = importlib.import_module("app.ws.collection_manager")
+    real_file_lock = module.FileLock
+
+    class BrokenFileLock:
+        def __init__(self, _path):
+            pass
+
+        def acquire(self, *, timeout):
+            assert timeout == 0
+            raise OSError("lock directory became unavailable")
+
+    monkeypatch.setattr(module, "FileLock", BrokenFileLock)
+    with pytest.raises(OSError, match="became unavailable"):
+        module.DeviceLease(tmp_path, "error-device").acquire()
+
+    monkeypatch.setattr(module, "FileLock", real_file_lock)
+    recovered = module.DeviceLease(tmp_path, "error-device")
+    recovered.acquire()
+    recovered.release()

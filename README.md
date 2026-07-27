@@ -1,5 +1,7 @@
 # Dream Comicverse 🧠🎨
 
+> Muse 2 dataset operators: follow [`backend/COLLECTION_OPERATIONS.md`](backend/COLLECTION_OPERATIONS.md). The ordinary `backend/start_backend.ps1` development launcher uses reload and must not be used during active collection.
+
 > ระบบต้นแบบสร้างการ์ตูนคอมิกจากสัญญาณคลื่นสมอง (EEG) ด้วย Generative AI  
 > **Login:** `admin@dreamcomic.local` / `Admin1234!`
 
