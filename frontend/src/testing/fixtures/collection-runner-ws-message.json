@@ -1,0 +1,53 @@
+{
+  "sequence": 1,
+  "session_id": 1,
+  "state": "preparation",
+  "active_baseline": null,
+  "current_trial_id": null,
+  "current_trial_order": null,
+  "current_stimulus_id": null,
+  "current_stimulus_title": null,
+  "trial_state": null,
+  "completed_trials": 0,
+  "total_trials": 0,
+  "next_trial_order": 1,
+  "next_trial_id": 1,
+  "next_stimulus_id": 1,
+  "next_stimulus_title": "Safe clip",
+  "break_required": false,
+  "interruption_reason": null,
+  "accepted_clean_seconds": 0.0,
+  "wall_clock_seconds": 0.0,
+  "file_recovery_required": false,
+  "sensors": {
+    "tp9": {
+      "state": "unknown",
+      "quality_score": 0.0,
+      "timestamp": 0.0,
+      "sequence": 0
+    },
+    "af7": {
+      "state": "unknown",
+      "quality_score": 0.0,
+      "timestamp": 0.0,
+      "sequence": 0
+    },
+    "af8": {
+      "state": "unknown",
+      "quality_score": 0.0,
+      "timestamp": 0.0,
+      "sequence": 0
+    },
+    "tp10": {
+      "state": "unknown",
+      "quality_score": 0.0,
+      "timestamp": 0.0,
+      "sequence": 0
+    }
+  },
+  "sampling_rate_hz": null,
+  "sampling_rate_ok": false,
+  "live_sensor_ready": false,
+  "stimulus_start_ready": false,
+  "quality_source": "derived_eeg_window"
+}

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.dataset_collection import (
     CollectionSession,
+    CollectionSessionState,
     CollectionTrial,
     EmotionStimulus,
     Quadrant,
@@ -41,6 +42,13 @@ def _has_complete_schedule_rows(trials: list[CollectionTrial]) -> bool:
     )
 
 
+def has_complete_trial_schedule(db: Session, session: CollectionSession) -> bool:
+    return (
+        session.total_trials == TOTAL_TRIALS
+        and _has_complete_schedule_rows(_load_trials(db, session.id))
+    )
+
+
 def _reload_winner_schedule(db: Session, session_id: int) -> list[CollectionTrial]:
     winner_session = db.get(CollectionSession, session_id)
     winner_trials = _load_trials(db, session_id)
@@ -68,6 +76,13 @@ def create_trial_schedule(
         ).one_or_none()
         if locked_session is None:
             raise ScheduleUnavailableError("Unable to create trial schedule")
+        if (
+            locked_session.state is not CollectionSessionState.preparation
+            or not locked_session.device_id
+        ):
+            raise ScheduleUnavailableError(
+                "Trial schedule requires preparation with a selected device"
+            )
 
         existing = _load_trials(db, session_id)
         if existing:

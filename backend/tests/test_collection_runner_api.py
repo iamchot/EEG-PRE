@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
+import json
 import subprocess
 import sys
 import threading
@@ -359,6 +360,63 @@ def test_collection_websocket_auth_closes_before_accept(client, monkeypatch):
     assert missing_session.value.code == 4404
 
 
+def test_collection_websocket_message_matches_angular_contract_fixture(client):
+    session_id, stimulus_id = client.app.state.ids
+    with client.app.state.factory() as db:
+        trial = CollectionTrial(
+            session_id=session_id,
+            stimulus_id=stimulus_id,
+            randomized_order=1,
+            state=TrialState.scheduled,
+        )
+        db.add(trial)
+        db.commit()
+
+    fixture_path = (
+        Path(__file__).parents[2]
+        / "frontend"
+        / "src"
+        / "testing"
+        / "fixtures"
+        / "collection-runner-ws-message.json"
+    )
+    expected = json.loads(fixture_path.read_text(encoding="utf-8"))
+    with client.websocket_connect(
+        f"{BASE}/ws/{session_id}?token={client.app.state.admin_token}"
+    ) as websocket:
+        message = websocket.receive_json()
+
+    assert message["sequence"] > 0
+    assert {**message, "sequence": expected["sequence"]} == expected
+
+
+def test_terminal_session_websocket_never_starts_a_muse_source(client, monkeypatch):
+    session_id, _ = client.app.state.ids
+    with client.app.state.factory() as db:
+        collection_session = db.get(CollectionSession, session_id)
+        collection_session.state = CollectionSessionState.completed
+        collection_session.completed_trials = 12
+        collection_session.total_trials = 12
+        collection_session.device_id = "muse-summary-only"
+        collection_session.device_name = "Muse 2"
+        db.commit()
+
+    source_creations = []
+    monkeypatch.setattr(
+        dataset_collection.collection_manager,
+        "_source_factory",
+        lambda: source_creations.append(True),
+    )
+    with client.websocket_connect(
+        f"{BASE}/ws/{session_id}?token={client.app.state.admin_token}"
+    ) as websocket:
+        assert websocket.receive_json()["state"] == "completed"
+
+    assert source_creations == []
+    assert session_id not in dataset_collection.collection_manager._sources
+    assert session_id not in dataset_collection.collection_manager._tasks
+
+
 def test_stimulus_media_fails_closed_and_serves_verified_video(client):
     _, stimulus_id = client.app.state.ids
     root = Path(client.app.state.collection_settings.collection_stimulus_dir)
@@ -555,7 +613,14 @@ def test_device_selected_after_websocket_starts_source_task():
                 return None
 
         class FakeRunner:
-            session = type("Session", (), {"device_id": "muse-late"})()
+            session = type(
+                "Session",
+                (),
+                {
+                    "device_id": "muse-late",
+                    "state": CollectionSessionState.preparation,
+                },
+            )()
 
         manager = CollectionConnectionManager(source_factory=WaitingSource)
         manager._runners[12] = FakeRunner()
@@ -589,7 +654,14 @@ def test_natural_stream_end_cleans_up_and_can_restart():
                 self.disconnected += 1
 
         class FakeRunner:
-            session = type("Session", (), {"device_id": "muse-restart"})()
+            session = type(
+                "Session",
+                (),
+                {
+                    "device_id": "muse-restart",
+                    "state": CollectionSessionState.preparation,
+                },
+            )()
 
             def state(self):
                 return CollectionRunnerState(

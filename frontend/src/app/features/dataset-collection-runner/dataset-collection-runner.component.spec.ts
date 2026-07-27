@@ -58,7 +58,13 @@ describe('DatasetCollectionRunnerComponent', () => {
   let fixture: ComponentFixture<DatasetCollectionRunnerComponent>;
   let component: DatasetCollectionRunnerComponent;
   let api: jasmine.SpyObj<DatasetCollectionService>;
-  let ws: { state: ReturnType<typeof signal<CollectionRunnerState | null>>; isConnected: ReturnType<typeof signal<boolean>>; connect: jasmine.Spy; disconnect: jasmine.Spy };
+  let ws: {
+    state: ReturnType<typeof signal<CollectionRunnerState | null>>;
+    streamError: ReturnType<typeof signal<string | null>>;
+    isConnected: ReturnType<typeof signal<boolean>>;
+    connect: jasmine.Spy;
+    disconnect: jasmine.Spy;
+  };
 
   beforeEach(async () => {
     api = jasmine.createSpyObj<DatasetCollectionService>('DatasetCollectionService', [
@@ -75,7 +81,13 @@ describe('DatasetCollectionRunnerComponent', () => {
     api.getStimulusMedia.and.returnValue(of(new Blob(['video'], { type: 'video/mp4' })));
     api.getOverview.and.returnValue(of({ participants: 0, sessions: 0, trials: 0, review_counts: { pending: 0, accepted: 0, rejected: 0 }, quadrant_counts: { positive_low: 0, positive_high: 0, negative_low: 0, negative_high: 0 } }));
     api.listParticipants.and.returnValue(of({ items: [] })); api.listStimuli.and.returnValue(of({ items: [] })); api.listSessions.and.returnValue(of({ items: [] }));
-    ws = { state: signal<CollectionRunnerState | null>(null), isConnected: signal(false), connect: jasmine.createSpy('connect'), disconnect: jasmine.createSpy('disconnect') };
+    ws = {
+      state: signal<CollectionRunnerState | null>(null),
+      streamError: signal<string | null>(null),
+      isConnected: signal(false),
+      connect: jasmine.createSpy('connect'),
+      disconnect: jasmine.createSpy('disconnect'),
+    };
 
     await TestBed.configureTestingModule({
       imports: [DatasetCollectionRunnerComponent, DatasetCollectionComponent],
@@ -308,6 +320,45 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(component.mediaError()).toBeTrue();
     component.ngOnDestroy();
     expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('interrupts Backend exactly once when media fails after stimulus start', () => {
+    spyOn(URL, 'createObjectURL').and.returnValue('blob:broken-after-start');
+    api.interrupt.and.returnValue(of(runnerState({
+      state: 'interrupted',
+      current_trial_id: 21,
+      current_stimulus_id: 11,
+      trial_state: 'interrupted',
+      interruption_reason: 'Stimulus playback failed after Backend start',
+    })));
+    component.applyState(runnerState({
+      state: 'in_progress',
+      current_trial_id: 21,
+      current_trial_order: 1,
+      current_stimulus_id: 11,
+      trial_state: 'stimulus',
+    }));
+    const video = {
+      pause: jasmine.createSpy('pause'),
+      currentTime: 20,
+    } as unknown as HTMLVideoElement;
+
+    component.onMediaError(video);
+    component.onMediaError(video);
+
+    expect(api.interrupt).toHaveBeenCalledOnceWith(13, {
+      reason: 'Stimulus playback failed after Backend start',
+    });
+    expect(component.runnerState()?.state).toBe('interrupted');
+    expect(component.error()).toContain('playback');
+  });
+
+  it('shows safe Muse stream errors to the operator', () => {
+    ws.streamError.set('Muse disconnected');
+
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Muse disconnected');
   });
 
   it('starts only after playing, finishes once on ended, and sends no browser marker payload', () => {

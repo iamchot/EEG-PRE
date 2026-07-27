@@ -2,6 +2,7 @@ import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { of } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
+import backendContractMessage from '../../../testing/fixtures/collection-runner-ws-message.json';
 import { AuthService } from './auth.service';
 import { DatasetCollectionService, CollectionRunnerState } from './dataset-collection.service';
 import { DatasetCollectionWsService } from './dataset-collection-ws.service';
@@ -110,6 +111,29 @@ describe('DatasetCollectionWsService', () => {
 
     socket.message(JSON.stringify({ sequence: 3, ...state, completed_trials: 1 }));
     expect(service.state()?.completed_trials).toBe(1);
+  });
+
+  it('accepts the real Backend websocket contract fixture', () => {
+    service.connect(1);
+    const socket = FakeWebSocket.instances[0];
+
+    socket.message(JSON.stringify(backendContractMessage));
+
+    expect(service.state()?.next_trial_id).toBe(1);
+    expect(service.state()?.next_stimulus_id).toBe(1);
+    expect(service.state()?.next_stimulus_title).toBe('Safe clip');
+  });
+
+  it('surfaces safe stream errors instead of discarding them', () => {
+    service.connect(13);
+    const socket = FakeWebSocket.instances[0];
+
+    socket.message(JSON.stringify({ sequence: 1, stream_error: 'Muse disconnected', ...state }));
+
+    const streamError = (
+      service as unknown as { streamError?: () => string | null }
+    ).streamError;
+    expect(streamError?.()).toBe('Muse disconnected');
   });
 
   it('rejects invalid JSON and schema-invalid messages', () => {

@@ -20,12 +20,14 @@ from app.models.dataset_collection import (
     CollectionSessionState,
     CollectionTrial,
     DatasetParticipant,
+    EmotionStimulus,
     TrialState,
 )
 from app.services.dataset_labels import derive_labels
 from app.services.muse_stream import MuseQualityObservation
 from app.services.raw_eeg_writer import EEGSample, RawFileResult
 from app.services.signal_processor import SensorQuality
+from app.services.trial_scheduler import has_complete_trial_schedule
 
 
 SENSOR_NAMES = ("tp9", "af7", "af8", "tp10")
@@ -107,6 +109,9 @@ class CollectionStateMachine:
         self._baseline_clean_seconds = float(settings.collection_baseline_min_clean_seconds)
         self._rest_min_seconds = float(settings.collection_rest_min_seconds)
         self._rest_max_seconds = float(settings.collection_rest_max_seconds)
+        self._stimulus_finish_grace_seconds = float(
+            settings.collection_stimulus_finish_grace_seconds
+        )
         self._sampling_rate_expected_hz = float(settings.collection_sampling_rate_hz)
         self._sampling_rate_tolerance_hz = float(settings.collection_sampling_tolerance_hz)
         self._writer: EEGWriter | None = None
@@ -272,6 +277,10 @@ class CollectionStateMachine:
         kind = BaselineKind(kind)
         allowed = self.session.state in {CollectionSessionState.preparation, CollectionSessionState.baseline}
         self._require(allowed and self.session.device_id is not None, "baseline requires a selected device")
+        self._require(
+            has_complete_trial_schedule(self.db, self.session),
+            "baseline requires exactly 12 persisted schedule rows",
+        )
         if kind is BaselineKind.eyes_open:
             self._require(not self.session.eyes_open_baseline_path, "eyes-open baseline is already complete")
         else:
@@ -445,6 +454,12 @@ class CollectionStateMachine:
 
     def start_stimulus(self, trial_id: int) -> CollectionRunnerState:
         trial = self._require_trial(trial_id, TrialState.rest)
+        stimulus = self.db.get(EmotionStimulus, trial.stimulus_id)
+        self._require(
+            stimulus is not None
+            and STIMULUS_MIN_SECONDS <= stimulus.duration_seconds <= STIMULUS_MAX_SECONDS,
+            "stimulus content duration must be between 45 and 60 seconds",
+        )
         elapsed = self._elapsed()
         self._require(elapsed >= self._rest_min_seconds, f"rest requires at least {self._rest_min_seconds:g} seconds")
         if elapsed > self._rest_max_seconds:
@@ -487,9 +502,16 @@ class CollectionStateMachine:
         trial = self._require_trial(trial_id, TrialState.stimulus)
         elapsed = self._elapsed()
         self._require(elapsed >= STIMULUS_MIN_SECONDS, "stimulus requires at least 45 seconds")
-        if elapsed > STIMULUS_MAX_SECONDS:
-            self.interrupt("Stimulus exceeded 60 seconds")
-            raise InvalidTransitionError("stimulus must not exceed 60 seconds; Trial was interrupted")
+        finish_deadline = STIMULUS_MAX_SECONDS + self._stimulus_finish_grace_seconds
+        if elapsed > finish_deadline:
+            self.interrupt(
+                f"Stimulus exceeded 60 seconds plus "
+                f"{self._stimulus_finish_grace_seconds:g}-second finish grace"
+            )
+            raise InvalidTransitionError(
+                "stimulus must not exceed 60-second content plus bounded finish grace; "
+                "Trial was interrupted"
+            )
         assert self._writer is not None
         self._write_marker("stimulus_end", trial.id)
         self._write_marker("rating_start", trial.id)

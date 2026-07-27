@@ -41,6 +41,7 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
         · Signal quality: derived EEG window
         · {{ samplingRateLabel() }}
       </div>
+      @if (ws.streamError()) { <div class="error" role="alert">{{ ws.streamError() }}</div> }
       @if (error()) { <div class="error" role="alert">{{ error() }}</div> }
 
       <section class="progress-card" aria-label="Collection progress">
@@ -304,10 +305,12 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   }
 
   onMediaError(video?: HTMLVideoElement): void {
+    const failedAfterBackendStart = this.runnerState()?.trial_state === 'stimulus';
     this.rewindMedia(video);
     this.mediaSubscription?.unsubscribe(); this.mediaSubscription = undefined;
     const url = this.mediaUrl(); if (url) URL.revokeObjectURL(url);
     this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(true);
+    if (failedAfterBackendStart) this.handlePostStartPlaybackFailure(video ?? this.activeVideo);
   }
 
   retryPlayback(): void {
@@ -397,28 +400,30 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
 
   private resumeAfterBackendStart(video: HTMLVideoElement | null): void {
     if (!video) return;
-    void video.play().catch(() => {
-      if (this.playbackFailureHandled) return;
-      this.playbackFailureHandled = true;
-      this.playbackStarted = false;
-      this.pendingEnded = false;
-      this.rewindMedia(video);
-      const reason = 'Stimulus playback failed after Backend start';
-      this.actionSubscription?.unsubscribe();
-      this.actionSubscription = undefined;
-      this.busy.set(true);
-      this.error.set('');
-      this.safetyInterruptSubscription = this.api.interrupt(this.sessionId, { reason }).subscribe({
-        next: state => {
-          this.busy.set(false);
-          this.applyState(state);
-          this.error.set('Stimulus playback failed; collection was interrupted for recovery');
-        },
-        error: err => {
-          this.busy.set(false);
-          this.fail(err);
-        },
-      });
+    void video.play().catch(() => this.handlePostStartPlaybackFailure(video));
+  }
+
+  private handlePostStartPlaybackFailure(video: HTMLVideoElement | null): void {
+    if (this.playbackFailureHandled) return;
+    this.playbackFailureHandled = true;
+    this.playbackStarted = false;
+    this.pendingEnded = false;
+    if (video) this.rewindMedia(video);
+    const reason = 'Stimulus playback failed after Backend start';
+    this.actionSubscription?.unsubscribe();
+    this.actionSubscription = undefined;
+    this.busy.set(true);
+    this.error.set('');
+    this.safetyInterruptSubscription = this.api.interrupt(this.sessionId, { reason }).subscribe({
+      next: state => {
+        this.busy.set(false);
+        this.applyState(state);
+        this.error.set('Stimulus playback failed; collection was interrupted for recovery');
+      },
+      error: err => {
+        this.busy.set(false);
+        this.fail(err);
+      },
     });
   }
 

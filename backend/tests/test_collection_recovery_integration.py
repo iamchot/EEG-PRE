@@ -124,10 +124,6 @@ def test_real_writer_recovery_preserves_raw_trial_and_schedule(tmp_path):
                     )
                 )
         db.commit()
-        create_trial_schedule(db, collection_session, seed=9001)
-        initial_schedule = _schedule(db, collection_session)
-        session_id = collection_session.id
-
         runner = CollectionStateMachine(
             db,
             collection_session,
@@ -137,6 +133,10 @@ def test_real_writer_recovery_preserves_raw_trial_and_schedule(tmp_path):
             settings=settings,
         )
         runner.select_device("fake-muse", "Fake Muse")
+        create_trial_schedule(db, collection_session, seed=9001)
+        initial_schedule = _schedule(db, collection_session)
+        session_id = collection_session.id
+
         _finish_baseline(runner, clock, BaselineKind.eyes_open)
         _finish_baseline(runner, clock, BaselineKind.eyes_closed)
         assert collection_session.eyes_open_wall_clock_seconds == pytest.approx(60.0)

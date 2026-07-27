@@ -46,6 +46,7 @@ from app.services.dataset_collection_service import (
 )
 from app.services.auth_service import decode_token, get_user_by_id
 from app.services.collection_state_machine import CollectionStateError
+from app.services.collection_state_response import collection_state_response
 from app.services.trial_scheduler import ScheduleUnavailableError, create_trial_schedule
 from app.ws.collection_manager import CollectionContextUnavailableError, collection_manager
 
@@ -204,37 +205,7 @@ def _runner_trial(runner, session_id: int, trial_id: int) -> CollectionTrial:
 
 
 def _state_response(db: Session, state) -> CollectionRunnerStateResponse:
-    response = CollectionRunnerStateResponse.model_validate(state)
-    if state.current_trial_id is not None:
-        row = db.execute(
-            select(CollectionTrial.stimulus_id, EmotionStimulus.title)
-            .join(EmotionStimulus, EmotionStimulus.id == CollectionTrial.stimulus_id)
-            .where(CollectionTrial.id == state.current_trial_id)
-        ).first()
-        if row is None:
-            return response
-        return response.model_copy(update={
-            "current_stimulus_id": row.stimulus_id,
-            "current_stimulus_title": row.title,
-        })
-    if state.next_trial_order is None:
-        return response
-    row = db.execute(
-        select(CollectionTrial.id, CollectionTrial.stimulus_id, EmotionStimulus.title)
-        .join(EmotionStimulus, EmotionStimulus.id == CollectionTrial.stimulus_id)
-        .where(
-            CollectionTrial.session_id == state.session_id,
-            CollectionTrial.randomized_order == state.next_trial_order,
-            CollectionTrial.state == TrialState.scheduled,
-        )
-    ).first()
-    if row is None:
-        return response
-    return response.model_copy(update={
-        "next_trial_id": row.id,
-        "next_stimulus_id": row.stimulus_id,
-        "next_stimulus_title": row.title,
-    })
+    return collection_state_response(db, state)
 
 
 @router.post("/sessions/{session_id}/schedule", response_model=CollectionRunnerStateResponse)

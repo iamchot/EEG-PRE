@@ -108,7 +108,11 @@ def setup_runner(db):
     )
     db.add(participant)
     db.flush()
-    session = CollectionSession(participant_id=participant.id)
+    session = CollectionSession(
+        participant_id=participant.id,
+        device_id="muse-scheduled",
+        device_name="Muse 2",
+    )
     db.add(session)
     for quadrant in Quadrant:
         for index in range(3):
@@ -188,6 +192,27 @@ def test_invalid_transition_is_rejected_without_commit(setup_runner):
     with pytest.raises(InvalidTransitionError):
         runner.start_trial_rest()
     assert session.state is CollectionSessionState.preparation
+
+
+@pytest.mark.parametrize("persisted_rows", [0, 11])
+def test_baseline_requires_exactly_twelve_persisted_schedule_rows(
+    setup_runner, persisted_rows
+):
+    runner, session, _, _, _ = setup_runner
+    trials = list(
+        runner.db.scalars(
+            select(CollectionTrial)
+            .where(CollectionTrial.session_id == session.id)
+            .order_by(CollectionTrial.randomized_order)
+        )
+    )
+    for trial in trials[persisted_rows:]:
+        runner.db.delete(trial)
+    session.total_trials = 12
+    runner.db.commit()
+
+    with pytest.raises(InvalidTransitionError, match="12 persisted"):
+        runner.start_baseline(BaselineKind.eyes_open)
 
 
 def test_clean_time_requires_all_four_good_and_fresh_sensors(setup_runner):
@@ -1065,10 +1090,62 @@ def test_rest_and_stimulus_enforce_early_and_late_bounds(setup_runner):
     clock.advance(44.9)
     with pytest.raises(InvalidTransitionError, match="45"):
         runner.finish_stimulus(state.current_trial_id)
-    clock.advance(15.2)
+    clock.advance(20.2)
     with pytest.raises(InvalidTransitionError, match="60"):
         runner.finish_stimulus(state.current_trial_id)
     assert runner.session.state is CollectionSessionState.interrupted
+
+
+def test_sixty_second_stimulus_accepts_bounded_finish_transport_grace(setup_runner):
+    runner, _, clock, _, _ = setup_runner
+    prepare_ready(runner, clock)
+    state = runner.start_trial_rest()
+    trial = runner.db.get(CollectionTrial, state.current_trial_id)
+    stimulus = runner.db.get(EmotionStimulus, trial.stimulus_id)
+    stimulus.duration_seconds = 60
+    runner.db.commit()
+    clock.advance(10)
+    runner.start_stimulus(state.current_trial_id)
+
+    clock.advance(62)
+
+    finished = runner.finish_stimulus(state.current_trial_id)
+    assert finished.trial_state is TrialState.rating
+    assert trial.wall_clock_seconds == pytest.approx(62)
+
+
+def test_stimulus_finish_transport_grace_remains_bounded(setup_runner):
+    runner, _, clock, _, _ = setup_runner
+    prepare_ready(runner, clock)
+    state = runner.start_trial_rest()
+    trial = runner.db.get(CollectionTrial, state.current_trial_id)
+    stimulus = runner.db.get(EmotionStimulus, trial.stimulus_id)
+    stimulus.duration_seconds = 60
+    runner.db.commit()
+    clock.advance(10)
+    runner.start_stimulus(state.current_trial_id)
+
+    clock.advance(65.1)
+
+    with pytest.raises(InvalidTransitionError, match="grace"):
+        runner.finish_stimulus(state.current_trial_id)
+    assert runner.session.state is CollectionSessionState.interrupted
+
+
+def test_stimulus_start_rejects_content_outside_forty_five_to_sixty_seconds(
+    setup_runner,
+):
+    runner, _, clock, _, _ = setup_runner
+    prepare_ready(runner, clock)
+    state = runner.start_trial_rest()
+    trial = runner.db.get(CollectionTrial, state.current_trial_id)
+    stimulus = runner.db.get(EmotionStimulus, trial.stimulus_id)
+    stimulus.duration_seconds = 60.1
+    runner.db.commit()
+    clock.advance(10)
+
+    with pytest.raises(InvalidTransitionError, match="45.*60"):
+        runner.start_stimulus(state.current_trial_id)
 
 
 def test_post_rating_rest_blocks_early_start_and_records_late_protocol_deviation(setup_runner):

@@ -45,6 +45,7 @@ export class DatasetCollectionWsService implements OnDestroy {
   private destroyed = false;
 
   readonly state = signal<CollectionRunnerState | null>(null);
+  readonly streamError = signal<string | null>(null);
   readonly isConnected = signal(false);
 
   constructor(
@@ -59,6 +60,7 @@ export class DatasetCollectionWsService implements OnDestroy {
     this.sessionId = sessionId;
     this.latestSequence = 0;
     this.state.set(null);
+    this.streamError.set(null);
     this.openSocket(sessionId, false);
   }
 
@@ -104,6 +106,7 @@ export class DatasetCollectionWsService implements OnDestroy {
       if (!message || message.sequence <= this.latestSequence) return;
       this.latestSequence = message.sequence;
       const { sequence: _sequence, stream_error: _streamError, ...runnerState } = message;
+      this.streamError.set(message.stream_error ?? null);
       this.state.set(runnerState);
     };
     socket.onerror = () => {

@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/dataset-collection-spec",
+    "resolveJsonModule": true,
     "types": ["jasmine"]
   },
   "files": [

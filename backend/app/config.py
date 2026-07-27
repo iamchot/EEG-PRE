@@ -1,5 +1,6 @@
 from __future__ import annotations
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,7 @@ class Settings(BaseSettings):
     collection_baseline_min_clean_seconds: int = 30
     collection_rest_min_seconds: int = 10
     collection_rest_max_seconds: int = 15
+    collection_stimulus_finish_grace_seconds: float = Field(default=5.0, ge=0, le=10)
 
     # Emotion Classification
     emotion_rule_version: str = "v1.0"

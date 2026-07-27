@@ -130,7 +130,11 @@ def make_session(db, participant_code="P001"):
     )
     db.add(participant)
     db.flush()
-    collection_session = CollectionSession(participant_id=participant.id)
+    collection_session = CollectionSession(
+        participant_id=participant.id,
+        device_id=f"muse-{participant_code}",
+        device_name="Muse 2",
+    )
     db.add(collection_session)
     db.commit()
     return collection_session
@@ -188,6 +192,23 @@ def test_schedule_persists_three_approved_stimuli_per_quadrant_and_orders_one_to
         assert stimulus.approval_state is StimulusApprovalState.approved
     assert counts == {quadrant: 3 for quadrant in Quadrant}
     assert session.total_trials == 12
+
+
+def test_schedule_creation_requires_preparation_with_a_selected_device(db):
+    missing_device = make_session(db, "P001")
+    missing_device.device_id = None
+    wrong_state = make_session(db, "P002")
+    wrong_state.state = "ready"
+    add_stimuli(db, approved_per_quadrant=3)
+    db.commit()
+
+    for collection_session in (missing_device, wrong_state):
+        with pytest.raises(
+            ScheduleUnavailableError,
+            match="preparation.*selected device",
+        ):
+            create_trial_schedule(db, collection_session, seed=17)
+        assert collection_session.total_trials == 0
 
 
 def test_explicit_seed_produces_deterministic_order(db):

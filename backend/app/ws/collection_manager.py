@@ -6,18 +6,17 @@ import threading
 import weakref
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import TypeVar
 
 from fastapi import WebSocket
 from filelock import FileLock, Timeout
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models.dataset_collection import CollectionSession, CollectionSessionState, TrialState
 from app.services.collection_state_machine import CollectionStateMachine, InvalidTransitionError
+from app.services.collection_state_response import collection_state_response
 from app.services.muse_stream import LSLMuseStreamSource, MuseStreamError, MuseStreamSource
 from app.services.raw_eeg_writer import AtomicEEGWriter
 
@@ -174,6 +173,12 @@ class CollectionConnectionManager:
             runner = self._runners.get(session_id)
             if runner is None or not runner.session.device_id:
                 return
+            if runner.session.state in {
+                CollectionSessionState.completed,
+                CollectionSessionState.failed,
+                CollectionSessionState.withdrawn,
+            }:
+                return
             device_id = runner.session.device_id
             if self._source_factory is None:
                 settings = get_settings()
@@ -229,17 +234,8 @@ class CollectionConnectionManager:
             self._sequences[session_id] += 1
             sequence = self._sequences[session_id]
             clients = tuple(self._clients.get(session_id, ()))
-        if isinstance(state, BaseModel):
-            payload = state.model_dump(mode="json")
-        elif isinstance(state, dict):
-            payload = dict(state)
-        elif is_dataclass(state):
-            payload = {
-                key: (value.value if hasattr(value, "value") else value)
-                for key, value in asdict(state).items()
-            }
-        else:
-            raise TypeError("collection state must be a DTO, mapping, or Pydantic model")
+            runner_db = self._runner_sessions.get(session_id)
+            payload = collection_state_response(runner_db, state).model_dump(mode="json")
         payload = {"sequence": sequence, **payload}
         if error:
             payload["stream_error"] = error
