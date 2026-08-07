@@ -1,75 +1,28 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import threading
 import weakref
 from collections import defaultdict
 from collections.abc import Callable
-from pathlib import Path
 from typing import TypeVar
 
 from fastapi import WebSocket
-from filelock import FileLock, Timeout
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models.dataset_collection import CollectionSession, CollectionSessionState, TrialState
+from app.schemas.muse import MuseBridgeState, MuseOwner
+from app.services.muse_ble import MuseBleDevice
+from app.services.muse_bridge_manager import ManagedMuseBridgeManager, managed_muse_bridge_manager
 from app.services.collection_state_machine import CollectionStateMachine, InvalidTransitionError
 from app.services.collection_state_response import collection_state_response
+from app.services.muse_device_lease import DeviceLease, DeviceLeaseUnavailableError
 from app.services.muse_stream import LSLMuseStreamSource, MuseStreamError, MuseStreamSource
 from app.services.raw_eeg_writer import AtomicEEGWriter
 
 
 T = TypeVar("T")
-
-_device_registry_guard = threading.Lock()
-_device_registry: dict[str, object] = {}
-
-
-class DeviceLeaseUnavailableError(MuseStreamError):
-    """Public, device-neutral conflict raised when acquisition is already owned."""
-
-
-class DeviceLease:
-    """A nonblocking process registry plus crash-safe OS file lease for one device."""
-
-    def __init__(self, lock_dir: str | Path, device_id: str):
-        digest = hashlib.sha256(device_id.encode("utf-8")).hexdigest()
-        self.path = Path(lock_dir) / f"{digest}.lock"
-        self._digest = digest
-        self._owner = object()
-        self._lock = FileLock(self.path)
-        self._acquired = False
-
-    def acquire(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with _device_registry_guard:
-            if self._digest in _device_registry:
-                raise DeviceLeaseUnavailableError("Muse device is already in use")
-            _device_registry[self._digest] = self._owner
-        try:
-            self._lock.acquire(timeout=0)
-        except BaseException as exc:
-            with _device_registry_guard:
-                if _device_registry.get(self._digest) is self._owner:
-                    _device_registry.pop(self._digest, None)
-            if isinstance(exc, Timeout):
-                raise DeviceLeaseUnavailableError("Muse device is already in use") from exc
-            raise
-        self._acquired = True
-
-    def release(self) -> None:
-        if not self._acquired:
-            return
-        try:
-            self._lock.release()
-        finally:
-            with _device_registry_guard:
-                if _device_registry.get(self._digest) is self._owner:
-                    _device_registry.pop(self._digest, None)
-            self._acquired = False
-
 
 class CollectionContextUnavailableError(RuntimeError):
     """Raised when capture is requested without a live Muse WebSocket context."""
@@ -78,14 +31,20 @@ class CollectionContextUnavailableError(RuntimeError):
 class CollectionConnectionManager:
     """Own and serialize every access to an active collection runner."""
 
-    def __init__(self, source_factory: Callable[[], MuseStreamSource] | None = None):
+    def __init__(
+        self,
+        source_factory: Callable[[], MuseStreamSource] | None = None,
+        bridge_manager: ManagedMuseBridgeManager | None = None,
+    ):
         self._source_factory = source_factory
+        self._bridge_manager = bridge_manager or managed_muse_bridge_manager
         self._clients: dict[int, set[WebSocket]] = defaultdict(set)
         self._runners: dict[int, CollectionStateMachine] = {}
         self._runner_sessions: dict[int, Session] = {}
         self._sources: dict[int, MuseStreamSource] = {}
         self._connected_sources: set[int] = set()
         self._tasks: dict[int, asyncio.Task] = {}
+        self._ensure_locks: dict[int, asyncio.Lock] = {}
         self._sequences: dict[int, int] = defaultdict(int)
         self._lock_registry_guard = threading.Lock()
         self._locks: weakref.WeakValueDictionary[int, threading.RLock] = weakref.WeakValueDictionary()
@@ -163,6 +122,11 @@ class CollectionConnectionManager:
             self._drop_runner_unlocked(session_id)
 
     async def ensure_source(self, session_id: int) -> None:
+        ensure_lock = self._ensure_locks.setdefault(session_id, asyncio.Lock())
+        async with ensure_lock:
+            await self._ensure_source(session_id)
+
+    async def _ensure_source(self, session_id: int) -> None:
         """Start or restart acquisition when a client and selected device exist."""
         with self._session_lock(session_id):
             if not self._clients.get(session_id):
@@ -180,27 +144,47 @@ class CollectionConnectionManager:
             }:
                 return
             device_id = runner.session.device_id
-            if self._source_factory is None:
-                settings = get_settings()
-                source = LSLMuseStreamSource(
-                    expected_sampling_rate_hz=settings.collection_sampling_rate_hz,
-                    sampling_tolerance_hz=settings.collection_sampling_tolerance_hz,
+            device_name = getattr(runner.session, "device_name", None) or "Muse"
+        owner = MuseOwner(kind="collection", session_id=session_id)
+        bridge_status = await self._bridge_manager.connect(
+            owner,
+            MuseBleDevice(address=device_id, name=device_name),
+        )
+        if bridge_status.state is not MuseBridgeState.connected:
+            return
+        installed = False
+        try:
+            with self._session_lock(session_id):
+                if not self._clients.get(session_id) or self._tasks.get(session_id) is not None:
+                    return
+                runner = self._runners.get(session_id)
+                if runner is None or runner.session.device_id != device_id:
+                    return
+                if self._source_factory is None:
+                    settings = get_settings()
+                    source = LSLMuseStreamSource(
+                        expected_sampling_rate_hz=settings.collection_sampling_rate_hz,
+                        sampling_tolerance_hz=settings.collection_sampling_tolerance_hz,
+                    )
+                else:
+                    source = self._source_factory()
+                source_clock = getattr(source, "source_clock", None)
+                source_sequence = getattr(source, "latest_source_sequence", None)
+                source_boundary = getattr(source, "synchronize_boundary", None)
+                if callable(source_clock) and callable(source_sequence):
+                    runner.bind_source(
+                        source_clock,
+                        source_sequence,
+                        source_boundary if callable(source_boundary) else None,
+                    )
+                self._sources[session_id] = source
+                self._tasks[session_id] = asyncio.create_task(
+                    self._pump(session_id, source, device_id=device_id)
                 )
-            else:
-                source = self._source_factory()
-            source_clock = getattr(source, "source_clock", None)
-            source_sequence = getattr(source, "latest_source_sequence", None)
-            source_boundary = getattr(source, "synchronize_boundary", None)
-            if callable(source_clock) and callable(source_sequence):
-                runner.bind_source(
-                    source_clock,
-                    source_sequence,
-                    source_boundary if callable(source_boundary) else None,
-                )
-            self._sources[session_id] = source
-            self._tasks[session_id] = asyncio.create_task(
-                self._pump(session_id, source, device_id=device_id)
-            )
+                installed = True
+        finally:
+            if not installed:
+                await self._bridge_manager.release(owner)
 
     async def stop_source(self, session_id: int) -> None:
         with self._session_lock(session_id):
@@ -219,6 +203,7 @@ class CollectionConnectionManager:
                 await task
             except asyncio.CancelledError:
                 pass
+        await self._bridge_manager.release(MuseOwner(kind="collection", session_id=session_id))
 
     async def publish(self, session_id: int, state=None) -> None:
         if state is None:
@@ -263,14 +248,11 @@ class CollectionConnectionManager:
         if runner is not None:
             with self._session_lock(session_id):
                 self._runners.setdefault(session_id, runner)
-        lease = None
         try:
             if device_id is None:
                 device_id = self.run_active(session_id, lambda active: active.session.device_id)
             if not device_id:
                 return
-            lease = DeviceLease(get_settings().collection_lock_dir, device_id)
-            lease.acquire()
             await source.connect(device_id)
             with self._session_lock(session_id):
                 if self._sources.get(session_id) is source:
@@ -304,11 +286,6 @@ class CollectionConnectionManager:
                 await source.disconnect()
             except Exception:
                 pass
-            if lease is not None:
-                try:
-                    lease.release()
-                except Exception:
-                    pass
             current = asyncio.current_task()
             with self._session_lock(session_id):
                 self._connected_sources.discard(session_id)

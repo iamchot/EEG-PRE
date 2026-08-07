@@ -1,9 +1,11 @@
 ﻿import { Component, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { PersonaService, Persona, ArtStyle } from '../../core/services/persona.service';
 import { ComicService, Comic } from '../../core/services/comic.service';
+import { ServiceHealth, SystemHealthState, SystemHealthService } from '../../core/services/system-health.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -23,18 +25,19 @@ import { ComicService, Comic } from '../../core/services/comic.service';
         </div>
         <div class="hero-panel" aria-label="Studio status summary">
           <div class="studio-orb">DC</div>
-          <div class="mini-status"><span class="dot good"></span><div><strong>ComfyUI Engine</strong><small>Ready for comic panels</small></div></div>
-          <div class="mini-status"><span class="dot warn"></span><div><strong>Muse 2 Device</strong><small>Connect during session</small></div></div>
-          <div class="mini-status"><span class="dot good"></span><div><strong>Gemini Story</strong><small>Prompt pipeline enabled</small></div></div>
+          @for (item of heroStatus(); track item.label) {
+            <div class="mini-status"><span class="dot" [class]="item.state"></span><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div></div>
+          }
         </div>
       </section>
 
       <section class="status-grid" aria-label="System status">
-        @for (item of systemStatus; track item.label) {
-          <article class="status-card card">
-            <div class="status-top"><span class="dot" [class.good]="item.state === 'good'" [class.warn]="item.state === 'warn'"></span><span>{{ item.label }}</span></div>
-            <strong>{{ item.value }}</strong>
-            <small>{{ item.hint }}</small>
+        @for (item of systemStatus(); track item.label) {
+          <article class="status-card card" [attr.data-health-service]="item.label" [attr.data-health-state]="item.state">
+            <div class="status-top"><span class="dot" [class]="item.state"></span><span>{{ item.label }}</span></div>
+            <strong>{{ stateLabel(item.state) }}</strong>
+            <small>{{ item.detail }}</small>
+            <small>Checked: {{ item.checkedAt || 'Not checked yet' }}</small>
           </article>
         }
       </section>
@@ -113,42 +116,7 @@ import { ComicService, Comic } from '../../core/services/comic.service';
       </section>
     </main>
   `,
-  styles: [`
-    .dashboard-shell { width:min(1180px, calc(100% - 32px)); margin:0 auto; padding:32px 0 56px; display:grid; gap:24px; }
-    .hero { padding:34px; display:grid; grid-template-columns:1.3fr .7fr; gap:28px; overflow:hidden; position:relative; }
-    .hero::after { content:''; position:absolute; inset:auto -12% -38% 38%; height:260px; background:radial-gradient(circle, rgba(244,114,182,.18), transparent 70%); pointer-events:none; }
-    .eyebrow { color:var(--color-secondary); text-transform:uppercase; letter-spacing:.14em; font-weight:800; font-size:.72rem; }
-    .hero-copy p { max-width:720px; font-size:1.08rem; }
-    .hero-actions { display:flex; gap:12px; flex-wrap:wrap; margin-top:22px; }
-    .hero-panel { border:1px solid var(--color-border); border-radius:22px; background:rgba(11,16,32,.55); padding:20px; display:grid; gap:14px; align-content:center; }
-    .studio-orb { width:88px; height:88px; border-radius:28px; display:grid; place-items:center; font:800 1.6rem var(--font-en); background:linear-gradient(135deg,var(--color-primary),var(--color-accent-pink)); box-shadow:0 24px 70px rgba(139,92,246,.32); }
-    .mini-status, .status-top { display:flex; align-items:center; gap:10px; }
-    .mini-status small, .status-card small, .persona-main span, .comic-row span { display:block; color:var(--color-text-muted); font-size:.82rem; }
-    .dot { width:10px; height:10px; border-radius:50%; background:var(--color-neutral); flex:0 0 auto; }
-    .dot.good { background:var(--color-success); box-shadow:0 0 0 5px rgba(34,197,94,.12); }
-    .dot.warn { background:var(--color-warning); box-shadow:0 0 0 5px rgba(245,158,11,.12); }
-    .status-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
-    .status-card { padding:18px; display:grid; gap:8px; }
-    .status-card strong { font:800 1.15rem var(--font-en); }
-    .content-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
-    .studio-card { padding:24px; display:grid; gap:18px; align-content:start; }
-    .section-title { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
-    .section-title h2 { margin:.2rem 0 0; }
-    .persona-form { display:grid; gap:14px; padding:16px; border:1px solid var(--color-border); border-radius:16px; background:rgba(15,23,42,.58); }
-    .inline-actions { display:flex; gap:10px; flex-wrap:wrap; }
-    .persona-list, .comic-list { display:grid; gap:10px; }
-    .persona-row { display:grid; grid-template-columns:auto 1fr auto auto; align-items:center; gap:12px; padding:12px; border:1px solid var(--color-border); border-radius:16px; background:rgba(11,16,32,.45); }
-    .avatar { width:42px; height:42px; border-radius:14px; display:grid; place-items:center; font:800 1rem var(--font-en); background:rgba(244,114,182,.16); color:#FBCFE8; }
-    .persona-main { min-width:0; }
-    .persona-main span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .comic-row { display:grid; grid-template-columns:90px 1fr; gap:12px; align-items:center; padding:12px; border:1px solid var(--color-border); border-radius:16px; text-decoration:none; background:rgba(11,16,32,.45); transition:transform .16s ease,border-color .16s ease; }
-    .comic-row:hover { transform:translateY(-2px); border-color:rgba(167,139,250,.55); }
-    .thumb-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:3px; }
-    .thumb-grid img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; background:var(--color-surface-soft); }
-    .empty-box { padding:24px; border:1px dashed var(--color-border-strong); border-radius:16px; color:var(--color-text-muted); text-align:center; background:rgba(15,23,42,.35); }
-    @media (max-width:920px) { .hero,.content-grid { grid-template-columns:1fr; } .status-grid { grid-template-columns:repeat(2,1fr); } }
-    @media (max-width:560px) { .status-grid { grid-template-columns:1fr; } .persona-row { grid-template-columns:auto 1fr; } .persona-row .badge,.persona-row button { grid-column:2; justify-self:start; } }
-  `],
+  styleUrl: './dashboard.component.css',
 })
 export class DashboardComponent implements OnInit {
   personas = signal<Persona[]>([]);
@@ -159,16 +127,17 @@ export class DashboardComponent implements OnInit {
   personaAppearance = '';
   personaStyle: ArtStyle = 'Manga';
 
-  readonly systemStatus = [
-    { label: 'Muse 2 Device', value: 'Session controlled', hint: 'เชื่อมต่อในขั้น Device', state: 'warn' },
-    { label: 'ComfyUI Engine', value: 'Local ready', hint: 'ใช้ checkpoint เดียวเพื่อความนิ่ง', state: 'good' },
-    { label: 'Gemini API', value: 'Story service', hint: 'สร้าง prompt และบทบรรยาย', state: 'good' },
-    { label: 'Database', value: 'History saved', hint: 'เก็บ session และ comic result', state: 'good' },
-  ];
+  readonly systemStatus = computed(() => this.systemStatusFromHealth());
+  readonly heroStatus = computed(() => this.systemStatus().filter((status) => status.label !== 'API'));
 
-  constructor(readonly auth: AuthService, private personaService: PersonaService, private comicService: ComicService) {}
+  constructor(
+    readonly auth: AuthService,
+    private personaService: PersonaService,
+    private comicService: ComicService,
+    private systemHealth: SystemHealthService,
+  ) {}
 
-  ngOnInit() { this.loadPersonas(); this.comicService.getAll(0, 6).subscribe((c) => this.recentComics.set(c)); }
+  ngOnInit() { this.loadPersonas(); this.comicService.getAll(0, 6).subscribe((c) => this.recentComics.set(c)); this.systemHealth.refresh(); }
   loadPersonas() { this.personaService.getAll().subscribe((p) => this.personas.set(p)); }
   savePersona() {
     const body = { persona_name: this.personaName.trim(), appearance: this.personaAppearance.trim(), art_style: this.personaStyle };
@@ -179,4 +148,36 @@ export class DashboardComponent implements OnInit {
   cancelPersona() { this.showPersonaForm.set(false); this.editingPersona.set(null); this.personaName = ''; this.personaAppearance = ''; this.personaStyle = 'Manga'; }
   getPanels(c: Comic) { return [c.panel_1_url, c.panel_2_url, c.panel_3_url, c.panel_4_url].filter(Boolean) as string[]; }
   emotionLabel(e: string | null) { return e ? `Emotion: ${e}` : 'Emotion pending'; }
+  stateLabel(state: SystemHealthState) { return state.charAt(0).toUpperCase() + state.slice(1); }
+
+  private systemStatusFromHealth(): DashboardSystemStatus[] {
+    const health = this.systemHealth.health();
+    if (health) {
+      return [
+        this.toDashboardStatus('API', health.api),
+        this.toDashboardStatus('ComfyUI', health.comfyui),
+        this.toDashboardStatus('Muse', health.muse),
+        this.toDashboardStatus('Gemini', health.gemini),
+      ];
+    }
+
+    const state: SystemHealthState = this.systemHealth.loading()
+      ? 'checking'
+      : this.systemHealth.error()
+        ? 'unavailable'
+        : 'unknown';
+    const detail = state === 'unavailable' ? 'Health check failed' : state === 'checking' ? 'Checking system health' : 'Not checked yet';
+    return ['API', 'ComfyUI', 'Muse', 'Gemini'].map((label) => ({ label, state, detail, checkedAt: null }));
+  }
+
+  private toDashboardStatus(label: string, health: ServiceHealth): DashboardSystemStatus {
+    return { label, state: health.state, detail: health.detail, checkedAt: health.checked_at };
+  }
+}
+
+interface DashboardSystemStatus {
+  label: string;
+  state: SystemHealthState;
+  detail: string;
+  checkedAt: string | null;
 }

@@ -15,6 +15,12 @@ import {
   SensorStatus,
 } from '../../core/services/eeg-ws.service';
 import { PersonaService } from '../../core/services/persona.service';
+import {
+  MuseConnectionStatus,
+  MuseDevice,
+  MuseDeviceService,
+  MuseScanStatus,
+} from '../../core/services/muse-device.service';
 import { EegSessionComponent } from './eeg-session.component';
 
 const sensor = (state: SensorStatus['state']): SensorStatus => ({
@@ -45,11 +51,27 @@ class EegWsStub {
   sendCommand = jasmine.createSpy('sendCommand');
 }
 
+class MuseDeviceStub {
+  scanStatus = signal<MuseScanStatus>({ scanId: null, state: 'idle', devices: [], detail: null });
+  connectionStatus = signal<MuseConnectionStatus>({ owner: null, state: 'idle', detail: null });
+  connectedDevice = signal<MuseDevice | null>(null);
+  scan = jasmine.createSpy('scan').and.callFake(() => this.scanStatus.set({
+    scanId: 'scan-1', state: 'scanning', devices: [], detail: null,
+  }));
+  cancelScan = jasmine.createSpy('cancelScan');
+  connectUser = jasmine.createSpy('connectUser').and.callFake((_sessionId: number, device: MuseDevice) => {
+    this.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'starting_bridge', detail: null });
+    return of({ owner: { kind: 'user', sessionId: 7 }, state: 'starting_bridge', detail: null });
+  });
+  disconnectUser = jasmine.createSpy('disconnectUser');
+}
+
 describe('EegSessionComponent', () => {
   let fixture: ComponentFixture<EegSessionComponent>;
   let component: EegSessionComponent;
   let http: HttpTestingController;
   let eegWs: EegWsStub;
+  let muse: MuseDeviceStub;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -58,6 +80,7 @@ describe('EegSessionComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: EegWsService, useClass: EegWsStub },
+        { provide: MuseDeviceService, useClass: MuseDeviceStub },
         { provide: PersonaService, useValue: { getAll: () => of([]) } },
         { provide: ComicService, useValue: { generate: () => of({ id: 1 }) } },
         {
@@ -70,6 +93,7 @@ describe('EegSessionComponent', () => {
     fixture = TestBed.createComponent(EegSessionComponent);
     component = fixture.componentInstance;
     eegWs = TestBed.inject(EegWsService) as unknown as EegWsStub;
+    muse = TestBed.inject(MuseDeviceService) as unknown as MuseDeviceStub;
     http = TestBed.inject(HttpTestingController);
     fixture.detectChanges();
     http.expectOne(`${environment.apiUrl}/sessions`).flush({ id: 7 });
@@ -84,6 +108,9 @@ describe('EegSessionComponent', () => {
       Record<'tp9' | 'af7' | 'af8' | 'tp10', SensorStatus['state']>
     > = {}
   ) {
+    if (!['DISCOVERING', 'DEVICE_CONFIRMATION', 'CONNECTING'].includes(phase)) {
+      muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connected', detail: null });
+    }
     eegWs.latestMessage.set({
       phase,
       tp9: sensor(states.tp9 ?? 'good'),
@@ -160,7 +187,7 @@ describe('EegSessionComponent', () => {
       { name: 'Muse-A9C7', address: 'AA:BB' },
       { name: 'Muse-B123', address: 'CC:DD' },
     ];
-    component.discoveredDevices.set(devices);
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices, detail: null });
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;
@@ -189,7 +216,7 @@ describe('EegSessionComponent', () => {
       { name: 'Muse-A9C7', address: 'AA:BB' },
       { name: 'Muse-B123', address: 'CC:DD' },
     ];
-    component.discoveredDevices.set(devices);
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices, detail: null });
     fixture.detectChanges();
 
     let radios = Array.from(
@@ -217,116 +244,107 @@ describe('EegSessionComponent', () => {
     expect(component.selectedDevice()).toEqual(devices[0]);
   });
 
-  it('disables scanning while the local connection service is unavailable', () => {
-    eegWs.isConnected.set(false);
+  it('shows the scan spinner and 10–30 second guidance immediately without a not-found message', () => {
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('#btn-scan')?.click();
     fixture.detectChanges();
 
-    const button = (fixture.nativeElement as HTMLElement)
-      .querySelector<HTMLButtonElement>('#btn-scan');
-    expect(button?.disabled).toBeTrue();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(muse.scan).toHaveBeenCalledOnceWith();
+    expect(element.querySelector('.scan-spinner')).not.toBeNull();
+    expect(element.textContent).toContain('10–30 seconds');
+    expect(element.textContent).not.toContain('No Muse headset found');
   });
 
-  it('guards direct scan attempts while the local connection service is unavailable', () => {
-    eegWs.isConnected.set(false);
-
-    component.scanDevices();
-
-    http.expectNone(`${environment.apiUrl}/sessions/scan`);
-    expect(component.scanning()).toBeFalse();
-  });
-
-  it('renders a successful scan and sends the phase transition', () => {
-    const device = { name: 'Muse-A9C7', address: 'AA:BB' };
-
-    component.scanDevices();
-    http.expectOne(`${environment.apiUrl}/sessions/scan`).flush({
-      devices: [device],
-    });
+  it('renders a found headset as a selectable accessible radio option', () => {
+    const device = { name: 'Creative Muse', address: 'AA:BB' };
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices: [device], detail: null });
     fixture.detectChanges();
 
-    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain(device.name);
-    expect(text).toContain(device.address);
-    expect(eegWs.sendCommand).toHaveBeenCalledOnceWith('phase_transition', {
-      phase: 'DEVICE_CONFIRMATION',
-    });
-  });
-
-  it('shows a retry action when a scan finds no device', () => {
-    component.scanDevices();
-    http.expectOne(`${environment.apiUrl}/sessions/scan`).flush({ devices: [] });
-    fixture.detectChanges();
-
-    expect(component.scanError()).not.toBe('');
-    expect((fixture.nativeElement as HTMLElement).querySelector('#btn-scan'))
-      .not.toBeNull();
-  });
-
-  it('shows a retry action when scanning fails', () => {
-    component.scanDevices();
-    http
-      .expectOne(`${environment.apiUrl}/sessions/scan`)
-      .flush('failed', { status: 503, statusText: 'Unavailable' });
-    fixture.detectChanges();
-
-    expect(component.scanError()).not.toBe('');
-    expect(component.discoveredDevices()).toEqual([]);
-    expect((fixture.nativeElement as HTMLElement).querySelector('#btn-scan'))
-      .not.toBeNull();
-  });
-
-  it('uses the exact confirm-device POST contract and command', () => {
-    const device = { name: 'Muse-A9C7', address: 'AA:BB' };
-    component.selectDevice(device);
-
-    component.confirmDevice();
-
-    const request = http.expectOne(
-      `${environment.apiUrl}/sessions/7/confirm-device?device_name=Muse-A9C7&device_id=AA:BB`
-    );
-    expect(request.request.method).toBe('POST');
-    expect(request.request.body).toBeNull();
-    request.flush({});
-    expect(eegWs.sendCommand).toHaveBeenCalledOnceWith('confirm_device', {
-      device_name: device.name,
-      device_id: device.address,
-    });
-  });
-
-  it('retains selection, explains connection failure, allows retry, and sends no command on failure', () => {
-    const device = { name: 'Muse-A9C7', address: 'AA:BB' };
-    component.discoveredDevices.set([device]);
-    component.selectDevice(device);
-
-    component.confirmDevice();
-    http
-      .expectOne(
-        `${environment.apiUrl}/sessions/7/confirm-device?device_name=Muse-A9C7&device_id=AA:BB`
-      )
-      .flush('failed', { status: 503, statusText: 'Unavailable' });
-    fixture.detectChanges();
-
+    const option = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[role="radio"]');
+    expect(option?.textContent).toContain(device.name);
+    option?.click();
     expect(component.selectedDevice()).toEqual(device);
-    expect(component.connectionError()).toContain('Muse-A9C7');
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
-      component.connectionError()
-    );
-    expect(eegWs.sendCommand).not.toHaveBeenCalledWith(
-      'confirm_device',
-      jasmine.anything()
-    );
+  });
 
+  it('explains a terminal not-found scan and offers a retry without showing it while scanning', () => {
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'not_found', devices: [], detail: null });
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[role="alert"]')?.textContent).toContain('No Muse headset found');
+    expect(element.querySelector<HTMLButtonElement>('#btn-scan')?.textContent).toContain('Try scanning again');
+  });
+
+  it('maps typed device states to semantic external-style classes', () => {
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.device-state.idle')).not.toBeNull();
+
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'scanning', devices: [], detail: null });
+    fixture.detectChanges();
+    expect(element.querySelector('.device-state.busy')).not.toBeNull();
+
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices: [{ name: 'Creative Muse', address: 'AA:BB' }], detail: null });
+    fixture.detectChanges();
+    expect(element.querySelector('.device-state.available')).not.toBeNull();
+
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'failed', devices: [], detail: 'scan_failed' });
+    fixture.detectChanges();
+    expect(element.querySelector('.device-state.failed')).not.toBeNull();
+
+    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connected', detail: null });
+    fixture.detectChanges();
+    expect(element.querySelector('.service-status.connected')).not.toBeNull();
+  });
+
+  it('shows Bluetooth then LSL connection guidance from typed transport stages', () => {
+    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connecting_bluetooth', detail: null });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Connecting through Bluetooth');
+
+    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'waiting_for_lsl', detail: null });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Waiting for the EEG signal (LSL)');
+  });
+
+  it('advances to sensor fitting only after a verified connected status', () => {
+    setPhase('FITTING');
+    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'waiting_for_lsl', detail: null });
+    fixture.detectChanges();
+    expect(component.stage()).toBe('device');
+    expect((fixture.nativeElement as HTMLElement).querySelector('#btn-baseline')).toBeNull();
+
+    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connected', detail: null });
+    fixture.detectChanges();
+    expect(component.stage()).toBe('prepare');
+    expect((fixture.nativeElement as HTMLElement).querySelector('#btn-baseline')).not.toBeNull();
+  });
+
+  it('clears a typed scan failure when retrying', () => {
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'failed', devices: [], detail: 'scan_failed' });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent)
+      .toContain('Unable to scan');
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('#btn-scan')?.click();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('does not treat a green transport connection as green sensor contacts', () => {
+    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connected', detail: null });
+    setPhase('FITTING', { tp9: 'poor' });
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-state="poor"]')).not.toBeNull();
+    expect(element.querySelector<HTMLButtonElement>('#btn-baseline')?.disabled).toBeTrue();
+  });
+
+  it('connects the selected headset through the typed user client', () => {
+    const device = { name: 'Creative Muse', address: 'AA:BB' };
+    component.selectDevice(device);
     component.confirmDevice();
-    http
-      .expectOne(
-        `${environment.apiUrl}/sessions/7/confirm-device?device_name=Muse-A9C7&device_id=AA:BB`
-      )
-      .flush({});
-    expect(component.connectionError()).toBe('');
-    expect(eegWs.sendCommand).toHaveBeenCalledOnceWith('confirm_device', {
-      device_name: device.name,
-      device_id: device.address,
-    });
+
+    expect(muse.connectUser).toHaveBeenCalledOnceWith(7, device);
   });
 
   it('uses the exact start-baseline POST contract and command', () => {

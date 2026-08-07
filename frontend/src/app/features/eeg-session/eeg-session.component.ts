@@ -1,11 +1,12 @@
 import { DecimalPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Component, OnDestroy, OnInit, computed, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { environment } from '../../../environments/environment';
 import { EegWsService } from '../../core/services/eeg-ws.service';
 import { ComicService } from '../../core/services/comic.service';
+import { MuseConnectionState, MuseDevice, MuseDeviceService } from '../../core/services/muse-device.service';
 import { Persona, PersonaService } from '../../core/services/persona.service';
 import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sensor/horseshoe-sensor.component';
 
@@ -21,9 +22,9 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
           <h1>เชื่อมต่อ Muse 2</h1>
           <p>เตรียมอุปกรณ์ให้พร้อมก่อนเริ่มสร้างเรื่องราว</p>
         </div>
-        <div class="service-status" [class.online]="eegWs.isConnected()" role="status">
+        <div class="service-status" [class.online]="connectionStatus().state === 'connected'" [class.connected]="connectionStatus().state === 'connected'" role="status">
           <span class="status-dot" aria-hidden="true"></span>
-          {{ eegWs.isConnected() ? 'ระบบพร้อม' : 'ยังไม่เชื่อมต่อ' }}
+          {{ connectionStatus().state === 'connected' ? 'Headset connected' : 'Headset setup' }}
         </div>
       </header>
 
@@ -47,17 +48,28 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
         <article class="stage-panel" aria-live="polite">
           @switch (stage()) {
             @case ('device') {
+              <div class="device-state"
+                [class.idle]="deviceState() === 'idle'"
+                [class.busy]="deviceState() === 'busy'"
+                [class.available]="deviceState() === 'available'"
+                [class.failed]="deviceState() === 'failed'"
+              >
               <p class="section-kicker">ขั้นตอนที่ 1</p>
-              <h2>ค้นหาอุปกรณ์ใกล้เคียง</h2>
-              <p>เปิด Muse 2 และ Bluetooth จากนั้นค้นหาอุปกรณ์ที่อยู่ใกล้คอมพิวเตอร์เครื่องนี้</p>
+              <h2>Creative Headset Setup</h2>
+              <p>Turn on your Muse headset and keep it close while this creative session prepares its signal.</p>
 
-              @if (!eegWs.isConnected()) {
+              @if (connectionStatus().state !== 'connected' && !isConnecting()) {
                 <div class="inline-message warning">
                   เปิดบริการเชื่อมต่อในเครื่องให้พร้อมก่อนค้นหา Muse 2
                 </div>
               }
-
-              @if (discoveredDevices().length > 0) {
+              @if (isConnecting()) {
+                <div class="device-status busy" role="status">
+                  <span class="spinner" aria-hidden="true"></span>
+                  <strong>{{ connectionCopy() }}</strong>
+                  <span>Keep the headset powered on while setup continues.</span>
+                </div>
+              } @else if (scanStatus().state === 'found') {
                 <div class="device-list" role="radiogroup" aria-label="อุปกรณ์ Muse 2 ที่ค้นพบ">
                   @for (device of discoveredDevices(); track device.address; let i = $index) {
                     <button
@@ -76,23 +88,27 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
                   }
                 </div>
                 <button id="btn-connect" class="btn primary-action" [disabled]="!selectedDevice()" (click)="confirmDevice()">
-                  เชื่อมต่ออุปกรณ์
+                  Connect selected headset
                 </button>
                 @if (connectionError()) {
-                  <div class="inline-message" role="alert">{{ connectionError() }}</div>
+                  <div class="device-status failed" role="alert">{{ connectionError() }}</div>
                 }
               } @else {
                 @if (scanError()) {
-                  <div class="inline-message" role="alert">{{ scanError() }}</div>
+                  <div class="device-status failed" role="alert">{{ scanError() }}</div>
                 }
-                <button id="btn-scan" class="btn primary-action" (click)="scanDevices()" [disabled]="scanning() || !eegWs.isConnected()">
+                <button id="btn-scan" class="btn primary-action" (click)="scanDevices()" [disabled]="scanning()">
                   @if (scanning()) {
-                    <span class="spinner" aria-hidden="true"></span> กำลังค้นหา…
+                    <span class="spinner scan-spinner" aria-hidden="true"></span> Searching for a headset…
                   } @else {
-                    {{ scanError() ? 'ค้นหาอีกครั้ง' : 'ค้นหา Muse 2' }}
+                    {{ scanError() ? 'Try scanning again' : 'Find my Muse headset' }}
                   }
                 </button>
+                @if (scanning()) {
+                  <p class="scan-guidance busy">This can take 10–30 seconds. We will keep looking until the scan finishes.</p>
+                }
               }
+              </div>
             }
 
             @case ('prepare') {
@@ -114,7 +130,7 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
               <h2>20 seconds neutral state</h2>
               <p>นั่งนิ่ง ๆ ผ่อนคลายใบหน้า และลืมตาตามธรรมชาติ ระบบจะ reset baseline หากสัญญาณหลุด</p>
               <div class="timer-block"><strong>{{ 20 - eegWs.baselineSeconds() | number:'1.0-0' }}</strong><span>seconds left</span></div>
-              <div class="progress-track"><div class="progress-fill" [style.width.%]="(eegWs.baselineSeconds() / 20) * 100"></div></div>
+              <progress class="session-progress" max="20" [value]="eegWs.baselineSeconds()">{{ eegWs.baselineSeconds() }} / 20</progress>
               @if (!eegWs.allSensorsGood()) { <div class="alert alert-warning">Signal lost. Restarting baseline. สัญญาณหลุด ระบบจะเริ่มนับใหม่</div> }
             }
 
@@ -142,7 +158,7 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
               <p>ระบบจะนับเฉพาะช่วงที่สัญญาณ Good ครบทั้ง 4 จุด ช่วง poor/stale จะถูกตัดทิ้งและหยุดเวลาไว้</p>
               <div class="record-meter">
                 <strong>{{ eegWs.acceptedSeconds() | number:'1.0-0' }} / 30 sec</strong>
-                <div class="progress-track"><div class="progress-fill" [class.paused]="currentPhase() === 'PAUSED_SIGNAL_QUALITY'" [style.width.%]="(eegWs.acceptedSeconds() / 30) * 100"></div></div>
+                <progress class="session-progress" [class.paused]="currentPhase() === 'PAUSED_SIGNAL_QUALITY'" max="30" [value]="eegWs.acceptedSeconds()">{{ eegWs.acceptedSeconds() }} / 30</progress>
                 <small>Wall clock {{ eegWs.wallClockSeconds() | number:'1.0-0' }} / 120 sec</small>
               </div>
               @if (currentPhase() === 'PAUSED_SIGNAL_QUALITY') { <div class="alert alert-warning">Paused at {{ eegWs.acceptedSeconds() | number:'1.0-0' }} sec — ปรับสายคาดและรอให้ Good ครบ 4 จุด</div> }
@@ -182,12 +198,18 @@ import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sens
 })
 export class EegSessionComponent implements OnInit, OnDestroy {
   currentPhase = computed(() => this.eegWs.phase());
-  scanning = signal(false);
-  scanError = signal('');
-  connectionError = signal('');
   generating = signal(false);
-  discoveredDevices = signal<{ name: string; address: string }[]>([]);
-  selectedDevice = signal<{ name: string; address: string } | null>(null);
+  readonly museDevice = inject(MuseDeviceService);
+  readonly scanStatus = this.museDevice.scanStatus;
+  readonly connectionStatus = this.museDevice.connectionStatus;
+  readonly discoveredDevices = computed(() => this.scanStatus().devices);
+  readonly scanning = computed(() => this.scanStatus().state === 'scanning');
+  readonly scanError = computed(() => {
+    if (this.scanStatus().state === 'not_found') return 'No Muse headset found. Check that it is powered on, then try scanning again.';
+    return this.scanStatus().state === 'failed' ? 'Unable to scan for a Muse headset. Please try again.' : '';
+  });
+  readonly connectionError = computed(() => this.connectionStatus().state === 'failed' ? 'The headset could not connect. Please check Bluetooth and try again.' : '');
+  selectedDevice = signal<MuseDevice | null>(null);
   personas = signal<Persona[]>([]);
   detectedEmotion = signal('');
   selectedPersonaId: number | null = null;
@@ -203,14 +225,35 @@ export class EegSessionComponent implements OnInit, OnDestroy {
     { key: 'comic', label: 'สร้างคอมิก' },
   ];
 
-  constructor(readonly eegWs: EegWsService, private http: HttpClient, private personaService: PersonaService, private comicService: ComicService, private router: Router) {}
-  ngOnInit() { this.personaService.getAll().subscribe((p) => this.personas.set(p)); this.createSession(); }
-  ngOnDestroy() { this.eegWs.disconnect(); }
+  constructor(
+    readonly eegWs: EegWsService,
+    private http: HttpClient,
+    private personaService: PersonaService,
+    private comicService: ComicService,
+    private router: Router,
+  ) {}
+  ngOnInit() {
+    this.personaService.getAll().subscribe((p) => this.personas.set(p));
+    this.createSession();
+  }
+  ngOnDestroy() {
+    this.museDevice.cancelScan();
+    this.eegWs.disconnect();
+    const dbId = this.dbSessionId();
+    if (dbId) {
+      this.museDevice.disconnectUser(dbId).subscribe();
+    }
+  }
 
   stage = computed(() => {
     if (this.generating()) return 'generate';
+    const conn = this.connectionStatus();
+    const isOwnerConnected = conn.state === 'connected' &&
+      conn.owner?.kind === 'user' &&
+      conn.owner?.sessionId === this.dbSessionId();
+    if (!isOwnerConnected) return 'device';
     const p = this.currentPhase();
-    if (p === 'DISCOVERING' || p === 'DEVICE_CONFIRMATION' || p === 'CONNECTING') return 'device';
+    if (p === 'DISCOVERING' || p === 'DEVICE_CONFIRMATION' || p === 'CONNECTING') return 'prepare';
     if (p === 'PREPARATION' || p === 'FITTING') return 'prepare';
     if (p === 'BASELINE') return 'baseline';
     if (p === 'READY') return 'ready';
@@ -228,33 +271,11 @@ export class EegSessionComponent implements OnInit, OnDestroy {
     });
   }
   scanDevices() {
-    if (!this.eegWs.isConnected()) {
-      this.scanning.set(false);
-      return;
-    }
-    this.scanning.set(true);
-    this.scanError.set('');
-    this.discoveredDevices.set([]);
     this.selectedDevice.set(null);
-    this.http.get<{ devices: { name: string; address: string }[] }>(`${environment.apiUrl}/sessions/scan`).subscribe({
-      next: ({ devices }) => {
-        this.discoveredDevices.set(devices);
-        this.scanning.set(false);
-        if (devices.length === 0) {
-          this.scanError.set('ยังไม่พบ Muse 2 ลองตรวจสอบว่าอุปกรณ์เปิดอยู่และ Bluetooth พร้อมใช้งาน');
-          return;
-        }
-        this.eegWs.sendCommand('phase_transition', { phase: 'DEVICE_CONFIRMATION' });
-      },
-      error: () => {
-        this.scanning.set(false);
-        this.scanError.set('ค้นหาอุปกรณ์ไม่สำเร็จ ตรวจสอบการเชื่อมต่อในเครื่องแล้วลองอีกครั้ง');
-      },
-    });
+    this.museDevice.scan();
   }
-  selectDevice(d: { name: string; address: string }) {
+  selectDevice(d: MuseDevice) {
     this.selectedDevice.set(d);
-    this.connectionError.set('');
   }
   onDeviceKeydown(event: KeyboardEvent, index: number) {
     const direction = ['ArrowDown', 'ArrowRight'].includes(event.key)
@@ -275,26 +296,30 @@ export class EegSessionComponent implements OnInit, OnDestroy {
     options?.[nextIndex]?.focus();
   }
   confirmDevice() {
-    const d = this.selectedDevice(); if (!d) return;
-    this.connectionError.set('');
-    const sendConfirmation = () => this.eegWs.sendCommand('confirm_device', {
-      device_name: d.name,
-      device_id: d.address,
-    });
-    if (!this.sessionId()) {
-      sendConfirmation();
-      return;
-    }
-    this.http.post(
-      `${environment.apiUrl}/sessions/${this.sessionId()}/confirm-device`,
-      null,
-      { params: { device_name: d.name, device_id: d.address } },
-    ).subscribe({
-      next: sendConfirmation,
-      error: () => this.connectionError.set(
-        `เชื่อมต่อ ${d.name} ไม่สำเร็จ ตรวจสอบว่าอุปกรณ์ยังเปิดอยู่แล้วลองอีกครั้ง`,
-      ),
-    });
+    const device = this.selectedDevice();
+    const sessionId = this.dbSessionId();
+    if (!device || !sessionId) return;
+    this.museDevice.connectUser(sessionId, device).subscribe();
+  }
+  isConnecting() {
+    return ['starting_bridge', 'connecting_bluetooth', 'waiting_for_lsl', 'disconnecting']
+      .includes(this.connectionStatus().state);
+  }
+  deviceState(): 'idle' | 'busy' | 'available' | 'connected' | 'failed' {
+    if (this.connectionStatus().state === 'connected') return 'connected';
+    if (this.isConnecting() || this.scanning()) return 'busy';
+    if (this.scanStatus().state === 'found') return 'available';
+    if (this.scanStatus().state === 'not_found' || this.scanStatus().state === 'failed' || this.connectionStatus().state === 'failed') return 'failed';
+    return 'idle';
+  }
+  connectionCopy(): string {
+    const copy: Partial<Record<MuseConnectionState, string>> = {
+      starting_bridge: 'Preparing the creative headset bridge',
+      connecting_bluetooth: 'Connecting through Bluetooth',
+      waiting_for_lsl: 'Waiting for the EEG signal (LSL)',
+      disconnecting: 'Disconnecting headset',
+    };
+    return copy[this.connectionStatus().state] ?? 'Preparing headset setup';
   }
   startBaseline() { if (this.sessionId()) this.http.post(`${environment.apiUrl}/sessions/${this.sessionId()}/start-baseline`, {}).subscribe(); this.eegWs.sendCommand('start_baseline'); }
   startRecording() { if (this.sessionId()) this.http.post(`${environment.apiUrl}/sessions/${this.sessionId()}/start-recording`, {}).subscribe(); this.eegWs.sendCommand('start_recording'); }

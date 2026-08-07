@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/dashboard-health-spec",
+    "resolveJsonModule": true,
+    "types": ["jasmine"]
+  },
+  "files": [
+    "src/app/core/services/system-health.service.spec.ts",
+    "src/app/features/dashboard/dashboard.component.spec.ts"
+  ]
+}

@@ -23,6 +23,9 @@ button.primary, .success a { border-color: transparent; background: #7257d5; tex
 button:disabled { opacity: .45; cursor: not-allowed; }
 :focus-visible { outline: 3px solid #c7b0ff; outline-offset: 3px; }
 .hint { margin: 0; padding-left: 12px; border-left: 3px solid #8d68f1; }
+.muse-connection { margin: 0; padding: 10px 12px; border-left: 3px solid #6f7899; background: #0b1023; }
+.muse-connection[data-state='connected'] { border-color: #4fb88b; }
+.muse-connection[data-state='failed'] { border-color: #d34f73; }
 .contact-confirmations { display: grid; gap: 8px; margin: 0; padding: 15px; border: 1px solid #37415f; border-radius: 12px; }
 .contact-confirmations legend { padding: 0 6px; font-weight: 800; } .contact-confirmations p { margin: 0; font-size: .88rem; }
 .contact-confirmations label { grid-template-columns: 28px 1fr; align-items: center; min-height: 44px; font-weight: 600; cursor: pointer; }

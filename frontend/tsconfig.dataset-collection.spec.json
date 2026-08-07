@@ -6,9 +6,12 @@
     "types": ["jasmine"]
   },
   "files": [
+    "src/app/app.component.spec.ts",
     "src/app/features/dataset-collection/dataset-collection.component.spec.ts",
     "src/app/features/dataset-collection-runner/dataset-collection-runner.component.spec.ts",
     "src/app/core/services/dataset-collection.service.spec.ts",
-    "src/app/core/services/dataset-collection-ws.service.spec.ts"
+    "src/app/core/services/dataset-collection-ws.service.spec.ts",
+    "src/app/core/services/muse-device.service.spec.ts",
+    "src/app/features/eeg-session/eeg-session.component.spec.ts"
   ]
 }

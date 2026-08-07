@@ -3,7 +3,7 @@ import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.responses import FileResponse
@@ -14,6 +14,7 @@ from app.middleware.auth_middleware import AdminUser
 from app.models.dataset_collection import (
     BaselineKind,
     CollectionSession,
+    CollectionSessionState,
     CollectionTrial,
     DatasetParticipant,
     EmotionStimulus,
@@ -37,6 +38,7 @@ from app.schemas.dataset_collection import (
     StimulusListResponse,
     StimulusResponse,
 )
+from app.schemas.muse import MuseBridgeState, MuseConnectionStatus, MuseOwner
 from app.services.dataset_collection_service import (
     DatasetConflictError,
     ParticipantUnavailableError,
@@ -48,6 +50,8 @@ from app.services.auth_service import decode_token, get_user_by_id
 from app.services.collection_state_machine import CollectionStateError
 from app.services.collection_state_response import collection_state_response
 from app.services.trial_scheduler import ScheduleUnavailableError, create_trial_schedule
+from app.services.muse_ble import MuseBleDevice
+from app.services.muse_bridge_manager import managed_muse_bridge_manager
 from app.ws.collection_manager import CollectionContextUnavailableError, collection_manager
 
 router = APIRouter(prefix="/admin/dataset-collection", tags=["Admin Dataset Collection"])
@@ -64,6 +68,11 @@ class QuadrantCounts(BaseModel):
     positive_high: int = 0
     negative_low: int = 0
     negative_high: int = 0
+
+
+class MuseConnectRequest(BaseModel):
+    address: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=100)
 
 
 class CollectionOverviewResponse(BaseModel):
@@ -159,6 +168,44 @@ def _collection_session(db: Session, session_id: int) -> CollectionSession:
     if collection_session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection session not found")
     return collection_session
+
+
+def _bridgeable_collection_session(db: Session, session_id: int) -> CollectionSession:
+    collection_session = _collection_session(db, session_id)
+    if collection_session.state in {
+        CollectionSessionState.completed,
+        CollectionSessionState.failed,
+        CollectionSessionState.withdrawn,
+    }:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Collection session is terminal")
+    return collection_session
+
+
+@router.post("/sessions/{session_id}/muse", response_model=MuseConnectionStatus)
+async def connect_collection_muse(
+    session_id: int,
+    body: MuseConnectRequest,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    _bridgeable_collection_session(db, session_id)
+    return await managed_muse_bridge_manager.connect(
+        MuseOwner(kind="collection", session_id=session_id),
+        MuseBleDevice(address=body.address, name=body.name),
+    )
+
+
+@router.get("/sessions/{session_id}/muse", response_model=MuseConnectionStatus)
+async def collection_muse_status(session_id: int, admin: AdminUser, db: Session = Depends(get_db)):
+    _collection_session(db, session_id)
+    return await managed_muse_bridge_manager.status(MuseOwner(kind="collection", session_id=session_id))
+
+
+@router.delete("/sessions/{session_id}/muse", response_model=MuseConnectionStatus)
+async def disconnect_collection_muse(session_id: int, admin: AdminUser, db: Session = Depends(get_db)):
+    _collection_session(db, session_id)
+    await collection_manager.stop_source(session_id)
+    return await managed_muse_bridge_manager.status(MuseOwner(kind="collection", session_id=session_id))
 
 
 def _run_session(db: Session, session_id: int, operation):

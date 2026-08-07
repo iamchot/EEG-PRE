@@ -36,6 +36,7 @@ from app.routers import dataset_collection
 from app.services.auth_service import create_access_token
 from app.services.collection_state_machine import CollectionRunnerState
 from app.services.muse_stream import LSLMuseStreamSource, MuseDevice, MuseStreamError
+from app.schemas.muse import MuseBridgeState
 from app.services.raw_eeg_writer import EEGSample
 from app.services.signal_processor import SensorQuality
 from app.ws.collection_manager import CollectionConnectionManager
@@ -444,9 +445,11 @@ def test_stimulus_media_fails_closed_and_serves_verified_video(client):
     assert client.get(f"{BASE}/stimuli/{stimulus_id}/media", headers=auth(client)).status_code == 404
 
 
-def test_ordinary_eeg_websocket_source_is_unchanged():
+def test_ordinary_eeg_websocket_source_is_authenticated():
     source = Path("app/routers/eeg_session.py").read_text(encoding="utf-8")
-    assert "async def eeg_websocket(session_id: str, websocket: WebSocket):" in source
+    assert "async def eeg_websocket(" in source
+    assert "token: str | None = Query(default=None)" in source
+    assert "decode_token(token)" in source
     assert "collection_manager" not in source
 
 
@@ -622,7 +625,18 @@ def test_device_selected_after_websocket_starts_source_task():
                 },
             )()
 
-        manager = CollectionConnectionManager(source_factory=WaitingSource)
+        class ConnectedBridge:
+            def __init__(self):
+                self.released = []
+
+            async def connect(self, owner, device):
+                return type("Status", (), {"state": MuseBridgeState.connected})()
+
+            async def release(self, owner):
+                self.released.append(owner)
+
+        bridge = ConnectedBridge()
+        manager = CollectionConnectionManager(source_factory=WaitingSource, bridge_manager=bridge)
         manager._runners[12] = FakeRunner()
         manager._clients[12].add(object())
         await manager.ensure_source(12)
@@ -630,6 +644,7 @@ def test_device_selected_after_websocket_starts_source_task():
         assert 12 in manager._tasks
         assert 12 in manager._connected_sources
         await manager.stop_source(12)
+        assert bridge.released[0].session_id == 12
 
     asyncio.run(scenario())
 
@@ -675,7 +690,14 @@ def test_natural_stream_end_cleans_up_and_can_restart():
             async def send_json(self, payload):
                 return None
 
-        manager = CollectionConnectionManager(source_factory=EndingSource)
+        class ConnectedBridge:
+            async def connect(self, owner, device):
+                return type("Status", (), {"state": MuseBridgeState.connected})()
+
+            async def release(self, owner):
+                return None
+
+        manager = CollectionConnectionManager(source_factory=EndingSource, bridge_manager=ConnectedBridge())
         manager._runners[13] = FakeRunner()
         manager._clients[13].add(WebSocket())
         await manager.ensure_source(13)
@@ -1075,14 +1097,12 @@ def test_device_lease_uses_only_hash_and_blocks_an_independent_process(tmp_path)
     after_crash.release()
 
 
-def test_two_managers_reject_same_device_until_source_cleanup(tmp_path, monkeypatch):
-    module = importlib.import_module("app.ws.collection_manager")
+def test_collection_pump_does_not_acquire_a_second_device_lease():
 
     async def scenario():
         first_started = asyncio.Event()
         finish_first = asyncio.Event()
         second_connects = []
-        messages = []
 
         class FirstSource:
             async def connect(self, _device_id):
@@ -1118,27 +1138,81 @@ def test_two_managers_reject_same_device_until_source_cleanup(tmp_path, monkeypa
                     interruption_reason=None, accepted_clean_seconds=0, wall_clock_seconds=0,
                 )
 
-        class WebSocket:
-            async def send_json(self, payload):
-                messages.append(payload)
-
-        settings = Settings(collection_lock_dir=str(tmp_path / "locks"))
-        monkeypatch.setattr(module, "get_settings", lambda: settings)
         first = CollectionConnectionManager()
         second = CollectionConnectionManager()
         first_task = asyncio.create_task(first._pump(101, FirstSource(), Runner()))
         await asyncio.wait_for(first_started.wait(), timeout=0.5)
 
-        second._clients[202].add(WebSocket())
         await second._pump(202, SecondSource(), Runner())
-        assert second_connects == []
-        assert messages[-1]["stream_error"] == "Muse device is already in use"
-        assert "private-device-id" not in str(messages)
+        assert second_connects == [True]
 
         finish_first.set()
         await asyncio.wait_for(first_task, timeout=0.5)
-        await second._pump(202, SecondSource(), Runner())
-        assert second_connects == [True]
+
+    asyncio.run(scenario())
+
+
+def test_ensure_source_releases_bridge_owner_when_client_changes_during_startup():
+    async def scenario():
+        started = asyncio.Event()
+        finish = asyncio.Event()
+
+        class Bridge:
+            def __init__(self):
+                self.released = []
+
+            async def connect(self, owner, device):
+                started.set()
+                await finish.wait()
+                return type("Status", (), {"state": MuseBridgeState.connected})()
+
+            async def release(self, owner):
+                self.released.append(owner)
+
+        class Runner:
+            session = type("Session", (), {"device_id": "muse-1", "device_name": "Muse-1", "state": CollectionSessionState.preparation})()
+
+        bridge = Bridge()
+        manager = CollectionConnectionManager(source_factory=lambda: object(), bridge_manager=bridge)
+        manager._runners[77] = Runner()
+        manager._clients[77].add(object())
+        task = asyncio.create_task(manager.ensure_source(77))
+        await started.wait()
+        manager._clients.pop(77)
+        finish.set()
+        await task
+        assert [owner.session_id for owner in bridge.released] == [77]
+        assert 77 not in manager._sources
+        assert 77 not in manager._tasks
+
+    asyncio.run(scenario())
+
+
+def test_ensure_source_releases_bridge_owner_when_source_construction_fails():
+    async def scenario():
+        class Bridge:
+            def __init__(self):
+                self.released = []
+
+            async def connect(self, owner, device):
+                return type("Status", (), {"state": MuseBridgeState.connected})()
+
+            async def release(self, owner):
+                self.released.append(owner)
+
+        class Runner:
+            session = type("Session", (), {"device_id": "muse-2", "device_name": "Muse-2", "state": CollectionSessionState.preparation})()
+
+        bridge = Bridge()
+        manager = CollectionConnectionManager(
+            source_factory=lambda: (_ for _ in ()).throw(RuntimeError("factory failed")),
+            bridge_manager=bridge,
+        )
+        manager._runners[78] = Runner()
+        manager._clients[78].add(object())
+        with pytest.raises(RuntimeError, match="factory failed"):
+            await manager.ensure_source(78)
+        assert [owner.session_id for owner in bridge.released] == [78]
 
     asyncio.run(scenario())
 
@@ -1184,7 +1258,7 @@ def test_device_lease_is_released_after_source_connection_failure(tmp_path, monk
 
 
 def test_device_lease_rolls_back_process_registry_when_os_lock_errors(tmp_path, monkeypatch):
-    module = importlib.import_module("app.ws.collection_manager")
+    module = importlib.import_module("app.services.muse_device_lease")
     real_file_lock = module.FileLock
 
     class BrokenFileLock:

@@ -12,6 +12,7 @@ import {
 } from '../../core/services/dataset-collection.service';
 import { DatasetCollectionWsService } from '../../core/services/dataset-collection-ws.service';
 import { SensorStatus } from '../../core/services/eeg-ws.service';
+import { MuseConnectionStatus, MuseDevice, MuseDeviceService } from '../../core/services/muse-device.service';
 import { HorseshoeSensorComponent, SensorKey } from '../../shared/components/horseshoe-sensor/horseshoe-sensor.component';
 
 type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | 'stimulus' |
@@ -53,12 +54,17 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
         @case ('device') {
           <section class="workspace" data-stage="device">
             <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
-            <form class="action-card" (ngSubmit)="selectDevice()">
+            <section class="action-card">
               <p class="step">Step 1</p><h2>ค้นหาและเลือก Muse</h2>
-              <p>วาง Muse 2 ใกล้เครื่องคอมพิวเตอร์ เปิดอุปกรณ์ แล้วระบุอุปกรณ์สำหรับ Session นี้</p>
-              <label for="device-id">Device ID<input id="device-id" name="deviceId" required [(ngModel)]="deviceId" placeholder="เช่น Muse-2-A1"></label>
-              <label for="device-name">Device label<input id="device-name" name="deviceName" required [(ngModel)]="deviceName"></label>
-              <button class="primary" type="submit" [disabled]="busy() || !deviceId.trim()">เลือกอุปกรณ์</button>
+              <p>ค้นหา Muse ใกล้เครื่องคอมพิวเตอร์ แล้วเชื่อมต่ออุปกรณ์ที่พบสำหรับ Session นี้</p>
+              <button id="scan-muse" class="primary" type="button" (click)="scanMuse()" [disabled]="busy() || muse.scanStatus().state === 'scanning'">ค้นหา Muse</button>
+              @if (muse.scanStatus().state === 'scanning') { <p class="hint">กำลังค้นหา Muse…</p> }
+              @if (muse.scanStatus().state === 'not_found') { <p class="hint">ไม่พบ Muse ที่พร้อมเชื่อมต่อ ลองค้นหาอีกครั้ง</p> }
+              @if (muse.scanStatus().state === 'failed') { <p class="error" role="alert">ไม่สามารถค้นหา Muse ได้</p> }
+              @for (device of muse.scanStatus().devices; track device.address) {
+                <button type="button" data-muse-device (click)="connectMuse(device)" [disabled]="busy()">{{ device.name }} · {{ device.address }}</button>
+              }
+              <p class="muse-connection" [attr.data-state]="muse.connectionStatus().state">{{ museConnectionLabel() }}</p>
               @if (devicePersisted() && (runnerState()?.total_trials ?? 0) === 0) {
                 <button id="prepare-schedule" type="button" (click)="prepareSchedule()" [disabled]="busy()">เตรียม Schedule 12 Trial</button>
               }
@@ -72,7 +78,7 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
               <button type="button" (click)="startBaseline('eyes_open')" [disabled]="busy() || !canStartBaseline()">เริ่ม Baseline ลืมตา</button>
               <p class="hint">Backend จะตรวจ clean-signal gate จริงระหว่าง Baseline</p>
               <p class="hint">Baseline ลืมตาต้องมาก่อน Baseline หลับตาเสมอ</p>
-            </form>
+            </section>
           </section>
         }
         @case ('eyes_open') {
@@ -173,8 +179,6 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     { type: 'touch_device', label: 'สัมผัสอุปกรณ์' }, { type: 'device_loss', label: 'อุปกรณ์หลุด' },
   ];
   readonly sessionId: number;
-  deviceId = '';
-  deviceName = 'Muse 2';
   artifactNote = '';
   valence = 5;
   arousal = 5;
@@ -190,11 +194,13 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   private playbackFailureHandled = false;
   private destroyed = false;
   private activeVideo: HTMLVideoElement | null = null;
+  private selectedMuse: MuseDevice | null = null;
 
   constructor(
     route: ActivatedRoute,
     private readonly api: DatasetCollectionService,
     readonly ws: DatasetCollectionWsService,
+    readonly muse: MuseDeviceService,
   ) {
     this.sessionId = Number(route.snapshot.paramMap.get('id'));
     effect(() => {
@@ -203,6 +209,15 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
         this.initialSubscription?.unsubscribe();
         this.initialSubscription = undefined;
         this.applyState(state);
+      }
+    });
+    effect(() => {
+      const connection = this.muse.connectionStatus();
+      const selected = this.selectedMuse;
+      if (!this.destroyed && selected && !this.busy() && !this.devicePersisted()
+        && connection.owner?.kind === 'collection' && connection.owner.sessionId === this.sessionId
+        && connection.state === 'connected') {
+        this.persistConnectedMuse(selected);
       }
     });
   }
@@ -245,15 +260,28 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       && !!this.runnerState()?.live_sensor_ready && this.sensorKeys.every(key => this.contacts()[key]);
   }
 
-  selectDevice(): void {
-    if (!this.deviceId.trim()) return;
+  scanMuse(): void { this.muse.scan(); }
+
+  connectMuse(device: MuseDevice): void {
+    if (this.busy()) return;
+    this.selectedMuse = device;
     this.contacts.set({ tp9: false, af7: false, af8: false, tp10: false });
     this.devicePersisted.set(false);
-    this.run(
-      this.api.selectDevice(this.sessionId, { device_id: this.deviceId.trim(), device_name: this.deviceName.trim() || 'Muse 2' }),
-      undefined,
-      () => this.devicePersisted.set(true),
-    );
+    this.busy.set(true);
+    this.error.set('');
+    this.actionSubscription = this.muse.connectAdmin(this.sessionId, device).subscribe({
+      next: status => {
+        this.busy.set(false);
+        if (status.state === 'connected') this.persistConnectedMuse(device);
+        else if (status.state === 'failed') this.error.set('Muse connection could not be established');
+      },
+      error: err => { this.busy.set(false); this.fail(err); },
+    });
+  }
+
+  museConnectionLabel(): string {
+    const status = this.muse.connectionStatus();
+    return this.connectionStageLabel(status);
   }
 
   prepareSchedule(): void {
@@ -367,6 +395,26 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     if (state.trial_state === 'rating') return 'rating';
     if (state.break_required) return 'break';
     return 'ready';
+  }
+
+  private persistConnectedMuse(device: MuseDevice): void {
+    this.run(
+      this.api.selectDevice(this.sessionId, { device_id: device.address, device_name: device.name }),
+      undefined,
+      () => this.devicePersisted.set(true),
+    );
+  }
+
+  private connectionStageLabel(status: MuseConnectionStatus): string {
+    switch (status.state) {
+      case 'starting_bridge': return 'Starting Muse bridge';
+      case 'connecting_bluetooth': return 'Connecting Bluetooth';
+      case 'waiting_for_lsl': return 'Waiting for LSL';
+      case 'connected': return 'Muse connected';
+      case 'failed': return 'Muse connection unavailable';
+      case 'disconnecting': return 'Disconnecting Muse';
+      default: return 'No Muse connected';
+    }
   }
 
   private loadMedia(stimulusId: number): void {

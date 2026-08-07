@@ -31,6 +31,10 @@ def disconnect(session_id: str, websocket: WebSocket) -> None:
             del _sessions[session_id]
 
 
+def has_clients(session_id: str) -> bool:
+    return bool(_sessions.get(session_id))
+
+
 async def broadcast(session_id: str, message: dict) -> None:
     """Send message to all clients subscribed to this session."""
     if session_id not in _sessions:

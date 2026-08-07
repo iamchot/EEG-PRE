@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     comfyui_url: str = "http://127.0.0.1:8188"
     comfyui_output_dir: str = "./comfyui_outputs"
 
+    # Authenticated dependency health
+    health_comfyui_timeout_seconds: float = 2.0
+    health_gemini_timeout_seconds: float = 8.0
+    health_cache_ttl_seconds: float = 30.0
+
     # EEG
     raw_eeg_dir: str = "./recordings"
     baseline_seconds: int = 20
@@ -47,6 +52,11 @@ class Settings(BaseSettings):
     collection_rest_min_seconds: int = 10
     collection_rest_max_seconds: int = 15
     collection_stimulus_finish_grace_seconds: float = Field(default=5.0, ge=0, le=10)
+
+    # Muse BLE
+    muse_scan_timeout_seconds: float = 30.0
+    muse_connect_timeout_seconds: float = 45.0
+    muse_lsl_timeout_seconds: float = 10.0
 
     # Emotion Classification
     emotion_rule_version: str = "v1.0"

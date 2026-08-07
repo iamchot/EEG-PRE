@@ -1,4 +1,6 @@
-import { ComponentFixture, fakeAsync, flushMicrotasks, TestBed } from '@angular/core/testing';
+import { ComponentFixture, fakeAsync, flushMicrotasks, TestBed, tick } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { of, Subject, throwError } from 'rxjs';
@@ -9,6 +11,8 @@ import {
   DatasetCollectionService,
 } from '../../core/services/dataset-collection.service';
 import { DatasetCollectionWsService } from '../../core/services/dataset-collection-ws.service';
+import { MuseDeviceService } from '../../core/services/muse-device.service';
+import { environment } from '../../../environments/environment';
 import { routes } from '../../app.routes';
 import { DatasetCollectionComponent } from '../dataset-collection/dataset-collection.component';
 import { DatasetCollectionRunnerComponent } from './dataset-collection-runner.component';
@@ -54,6 +58,68 @@ const runnerState = (overrides: Partial<CollectionRunnerState> = {}): Collection
   ...overrides,
 });
 
+describe('DatasetCollectionRunnerComponent Admin Muse HTTP contract', () => {
+  let fixture: ComponentFixture<DatasetCollectionRunnerComponent>;
+  let component: DatasetCollectionRunnerComponent;
+  let api: jasmine.SpyObj<DatasetCollectionService>;
+  let ws: {
+    state: ReturnType<typeof signal<CollectionRunnerState | null>>;
+    streamError: ReturnType<typeof signal<string | null>>;
+    isConnected: ReturnType<typeof signal<boolean>>;
+    connect: jasmine.Spy;
+    disconnect: jasmine.Spy;
+  };
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    api = jasmine.createSpyObj<DatasetCollectionService>('DatasetCollectionService', [
+      'getRunnerState', 'selectDevice', 'startBaseline', 'startTrialRest', 'startStimulus',
+      'finishStimulus', 'markArtifact', 'submitRating', 'interrupt', 'resume', 'getStimulusMedia', 'createSchedule',
+    ]);
+    api.getRunnerState.and.returnValue(of(runnerState({ total_trials: 0, next_trial_order: null, next_trial_id: null, next_stimulus_id: null, next_stimulus_title: null })));
+    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 0, next_trial_order: null, next_trial_id: null, next_stimulus_id: null, next_stimulus_title: null })));
+    ws = {
+      state: signal<CollectionRunnerState | null>(null), streamError: signal<string | null>(null), isConnected: signal(false),
+      connect: jasmine.createSpy('connect'), disconnect: jasmine.createSpy('disconnect'),
+    };
+    await TestBed.configureTestingModule({
+      imports: [DatasetCollectionRunnerComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(), MuseDeviceService,
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: (key: string) => key === 'id' ? '13' : null } } } },
+        { provide: DatasetCollectionService, useValue: api },
+        { provide: DatasetCollectionWsService, useValue: ws },
+      ],
+    }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
+    fixture = TestBed.createComponent(DatasetCollectionRunnerComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  afterEach(() => { fixture.destroy(); http.verify(); });
+
+  it('posts a discovered Admin Muse and persists it only after the real service poll verifies connected', fakeAsync(() => {
+    component.connectMuse({ address: 'AA:BB:CC:DD', name: 'Studio Muse' });
+    const connect = http.expectOne(`${environment.apiUrl}/admin/dataset-collection/sessions/13/muse`);
+    expect(connect.request.body).toEqual({ address: 'AA:BB:CC:DD', name: 'Studio Muse' });
+    connect.flush({ owner: { kind: 'collection', session_id: 13 }, state: 'waiting_for_lsl', detail: null });
+    expect(api.selectDevice).not.toHaveBeenCalled();
+
+    tick(500);
+    http.expectOne(`${environment.apiUrl}/admin/dataset-collection/sessions/13/muse`).flush({
+      owner: { kind: 'collection', session_id: 13 }, state: 'connected', detail: null,
+    });
+    fixture.detectChanges();
+    expect(api.selectDevice).toHaveBeenCalledOnceWith(13, { device_id: 'AA:BB:CC:DD', device_name: 'Studio Muse' });
+
+    TestBed.inject(MuseDeviceService).disconnectAdmin(13).subscribe();
+    const disconnect = http.expectOne(`${environment.apiUrl}/admin/dataset-collection/sessions/13/muse`);
+    expect(disconnect.request.method).toBe('DELETE');
+    disconnect.flush({ owner: { kind: 'collection', session_id: 13 }, state: 'idle', detail: null });
+  }));
+});
+
 describe('DatasetCollectionRunnerComponent', () => {
   let fixture: ComponentFixture<DatasetCollectionRunnerComponent>;
   let component: DatasetCollectionRunnerComponent;
@@ -64,6 +130,13 @@ describe('DatasetCollectionRunnerComponent', () => {
     isConnected: ReturnType<typeof signal<boolean>>;
     connect: jasmine.Spy;
     disconnect: jasmine.Spy;
+  };
+  let muse: {
+    scanStatus: ReturnType<typeof signal>;
+    connectionStatus: ReturnType<typeof signal>;
+    connectedDevice: ReturnType<typeof signal>;
+    scan: jasmine.Spy;
+    connectAdmin: jasmine.Spy;
   };
 
   beforeEach(async () => {
@@ -88,6 +161,13 @@ describe('DatasetCollectionRunnerComponent', () => {
       connect: jasmine.createSpy('connect'),
       disconnect: jasmine.createSpy('disconnect'),
     };
+    muse = {
+      scanStatus: signal({ scanId: null, state: 'idle', devices: [], detail: null }),
+      connectionStatus: signal({ owner: null, state: 'idle', detail: null }),
+      connectedDevice: signal(null),
+      scan: jasmine.createSpy('scan'),
+      connectAdmin: jasmine.createSpy('connectAdmin'),
+    };
 
     await TestBed.configureTestingModule({
       imports: [DatasetCollectionRunnerComponent, DatasetCollectionComponent],
@@ -96,6 +176,7 @@ describe('DatasetCollectionRunnerComponent', () => {
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: (key: string) => key === 'id' ? '13' : null } } } },
         { provide: DatasetCollectionService, useValue: api },
         { provide: DatasetCollectionWsService, useValue: ws },
+        { provide: MuseDeviceService, useValue: muse },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(DatasetCollectionRunnerComponent);
@@ -108,24 +189,35 @@ describe('DatasetCollectionRunnerComponent', () => {
   it('loads the route session id, connects its Admin stream, and never regenerates a schedule on refresh', () => {
     expect(api.getRunnerState).toHaveBeenCalledOnceWith(13);
     expect(ws.connect).toHaveBeenCalledOnceWith(13);
+    expect(muse.connectAdmin).not.toHaveBeenCalled();
     expect(api.createSchedule).not.toHaveBeenCalled();
     expect(fixture.nativeElement.textContent).toContain('Schedule not prepared');
     expect(fixture.nativeElement.textContent).not.toContain('Trial 12');
   });
 
-  it('prepares a fresh schedule only after persisted device selection and an explicit Admin click', () => {
-    ws.isConnected.set(true);
-    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 0 })));
+  it('persists a discovered Muse only after the exact managed connected stage and an explicit schedule click', () => {
+    const device = { address: 'AA:BB:CC:DD', name: 'Studio Muse' };
+    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices: [device], detail: null });
+    muse.connectAdmin.and.returnValue(of({ owner: { kind: 'collection', sessionId: 13 }, state: 'waiting_for_lsl', detail: null }));
+    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 0, next_trial_order: null, next_trial_id: null, next_stimulus_id: null, next_stimulus_title: null })));
     api.createSchedule.and.returnValue(of(runnerState({ total_trials: 12 })));
-    component.deviceId = 'Muse-A';
-    component.selectDevice();
     fixture.detectChanges();
-    const schedule: HTMLButtonElement = fixture.nativeElement.querySelector('#prepare-schedule');
+
+    const deviceButton = fixture.nativeElement.querySelector('[data-muse-device]') as HTMLButtonElement;
+    expect(deviceButton).not.toBeNull();
+    deviceButton.click();
+    expect(muse.connectAdmin).toHaveBeenCalledOnceWith(13, device);
+    expect(api.selectDevice).not.toHaveBeenCalled();
+
+    muse.connectAdmin.and.returnValue(of({ owner: { kind: 'collection', sessionId: 13 }, state: 'connected', detail: null }));
+    deviceButton.click();
+    expect(api.selectDevice).toHaveBeenCalledOnceWith(13, { device_id: 'AA:BB:CC:DD', device_name: 'Studio Muse' });
+
+    fixture.detectChanges();
+    const schedule = fixture.nativeElement.querySelector('#prepare-schedule') as HTMLButtonElement;
     expect(schedule).not.toBeNull();
-    expect(api.createSchedule).not.toHaveBeenCalled();
     schedule.click();
     expect(api.createSchedule).toHaveBeenCalledOnceWith(13);
-    expect(api.startBaseline).not.toHaveBeenCalled();
   });
 
   it('registers the runner route with both authentication and Admin guards', () => {
@@ -134,14 +226,19 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(route?.canActivate).toEqual([authGuard, adminGuard]);
   });
 
-  it('renders Creative Headset Setup, Muse sensor points, device selection, and the non-medical notice', () => {
+  it('renders Creative Headset Setup, Muse discovery progress, sensor points, and the non-medical notice', () => {
+    muse.connectionStatus.set({ owner: { kind: 'collection', sessionId: 13 }, state: 'waiting_for_lsl', detail: null });
+    fixture.detectChanges();
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Creative Headset Setup');
     expect(text).toContain('TP9');
     expect(text).toContain('AF7');
     expect(text).toContain('AF8');
     expect(text).toContain('TP10');
-    expect(fixture.nativeElement.querySelector('#device-id')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('#scan-muse')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('#device-id')).toBeNull();
+    expect(fixture.nativeElement.querySelector('#device-name')).toBeNull();
+    expect(text).toContain('Waiting for LSL');
     expect(text.toLowerCase()).toContain('entertainment');
     expect(text.toLowerCase()).toContain('not medical');
     expect(text).toContain('derived EEG');
@@ -151,8 +248,8 @@ describe('DatasetCollectionRunnerComponent', () => {
     component.startBaseline('eyes_closed');
     expect(api.startBaseline).not.toHaveBeenCalled();
     ws.isConnected.set(true);
-    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 12, sensors: measuredGoodSensors, sampling_rate_hz: 256, sampling_rate_ok: true, live_sensor_ready: true })));
-    component.deviceId = 'Muse-A'; component.selectDevice();
+    component.applyState(runnerState({ total_trials: 12, sensors: measuredGoodSensors, sampling_rate_hz: 256, sampling_rate_ok: true, live_sensor_ready: true }));
+    component.devicePersisted.set(true);
     for (const key of component.sensorKeys) component.setContact(key, true);
     api.startBaseline.and.returnValue(of(runnerState({ state: 'baseline', active_baseline: 'eyes_open' })));
     component.startBaseline('eyes_open');
@@ -164,9 +261,7 @@ describe('DatasetCollectionRunnerComponent', () => {
 
   it('keeps manual confirmations separate and gates baseline on four measured live sensors too', () => {
     ws.isConnected.set(true);
-    component.deviceId = 'Muse-A';
-    api.selectDevice.and.returnValue(of(runnerState({ total_trials: 12 })));
-    component.selectDevice();
+    component.devicePersisted.set(true);
     fixture.detectChanges();
     const confirmations = Array.from(fixture.nativeElement.querySelectorAll('[data-contact-confirmation]')) as HTMLInputElement[];
     expect(confirmations.length).toBe(4);
@@ -287,8 +382,8 @@ describe('DatasetCollectionRunnerComponent', () => {
     for (const key of component.sensorKeys) component.setContact(key, true);
     ws.isConnected.set(true);
     expect(component.canStartBaseline()).toBeTrue();
-    component.deviceId = 'Muse-B';
-    component.selectDevice();
+    muse.connectAdmin.and.returnValue(of({ owner: { kind: 'collection', sessionId: 13 }, state: 'connected', detail: null }));
+    component.connectMuse({ address: 'AA:BB:CC:DD', name: 'Muse-B' });
     for (const key of component.sensorKeys) expect(component.sensorStatus(key).state).toBe('unknown');
     expect(component.canStartBaseline()).toBeFalse();
   });
