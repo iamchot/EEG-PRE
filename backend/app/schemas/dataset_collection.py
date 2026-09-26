@@ -149,4 +149,6 @@ class CollectionRunnerStateResponse(BaseModel):
     sampling_rate_ok: bool = False
     live_sensor_ready: bool = False
     stimulus_start_ready: bool = False
+    eyes_open_complete: bool = False
+    eyes_closed_complete: bool = False
     quality_source: str = "derived_eeg_window"

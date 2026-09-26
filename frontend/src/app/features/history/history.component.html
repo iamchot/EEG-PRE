@@ -1,0 +1,61 @@
+<div class="history-page">
+  <div class="page-header">
+    <div>
+      <h1>{{ 'history.title' | translate }}</h1>
+    </div>
+    <a routerLink="/eeg-session" class="btn btn-primary" id="btn-new-comic">
+      {{ 'history.new_comic' | translate }}
+    </a>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-center">
+      <div class="spinner" style="width:40px;height:40px;border-width:3px"></div>
+    </div>
+  }
+
+  <div class="gallery-grid">
+    @for (comic of comics(); track comic.id) {
+      <a routerLink="/comic/{{ comic.id }}" class="gallery-card card" [id]="'gallery-' + comic.id">
+        <div class="panels-preview">
+          @for (url of getPanels(comic); track url) {
+            <img [src]="url" [alt]="'Panel'" class="panel-mini" loading="lazy"/>
+          }
+          @if (getPanels(comic).length === 0) {
+            <div class="no-panels">ไม่มีภาพ</div>
+          }
+        </div>
+        <div class="gallery-info">
+          <p class="story-text">{{ comic.input_story }}</p>
+          <div class="gallery-tags">
+            @if (comic.emotion) {
+              <span class="badge badge-accent">{{ emotionEmoji(comic.emotion) }}</span>
+            }
+            @if (comic.persona_name) {
+              <span class="badge badge-neutral">{{ comic.persona_name }}</span>
+            }
+          </div>
+          <time class="comic-date" [attr.datetime]="comic.created_at">
+            {{ comic.created_at | date:'d MMM yyyy HH:mm' }}
+          </time>
+        </div>
+      </a>
+    } @empty {
+      @if (!loading()) {
+        <div class="empty-state">
+          <h2>{{ 'history.no_comics' | translate }}</h2>
+          <p>{{ 'history.no_comics_desc' | translate }}</p>
+          <a routerLink="/eeg-session" class="btn btn-primary" id="btn-start-first">{{ 'history.start_now' | translate }}</a>
+        </div>
+      }
+    }
+  </div>
+
+  @if (hasMore()) {
+    <div class="load-more">
+      <button class="btn btn-secondary" (click)="loadMore()" [disabled]="loading()" id="btn-load-more">
+        {{ 'history.load_more' | translate }}
+      </button>
+    </div>
+  }
+</div>

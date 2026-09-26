@@ -114,6 +114,8 @@ export interface CollectionRunnerState {
   sampling_rate_ok: boolean;
   live_sensor_ready: boolean;
   stimulus_start_ready: boolean;
+  eyes_open_complete?: boolean;
+  eyes_closed_complete?: boolean;
   quality_source: 'derived_eeg_window';
 }
 

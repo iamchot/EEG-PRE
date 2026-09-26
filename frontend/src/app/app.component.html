@@ -1,1 +1,156 @@
-<router-outlet />
+@if (auth.isLoggedIn()) {
+  <div class="app-layout">
+    <nav class="sidebar" aria-label="Main menu">
+      <div class="sidebar-brand">
+        <div class="brand-icon-wrap" aria-hidden="true">
+          <span class="brand-badge">🧠</span>
+        </div>
+        <div class="brand-name">Dream<br />Comicverse</div>
+      </div>
+
+      <ul class="nav-list" role="list">
+        @if (auth.isAdmin()) {
+          <li>
+            <a
+              routerLink="/admin"
+              routerLinkActive="active"
+              class="nav-link"
+              id="nav-admin"
+              ><span>{{ "nav.admin" | translate }}</span></a
+            >
+          </li>
+        } @else {
+          <li>
+            <a
+              routerLink="/dashboard"
+              routerLinkActive="active"
+              class="nav-link"
+              id="nav-dashboard"
+              ><span class="nav-icon" aria-hidden="true">⊞</span
+              ><span>{{ "nav.dashboard" | translate }}</span></a
+            >
+          </li>
+          <li>
+            <a
+              routerLink="/persona"
+              routerLinkActive="active"
+              class="nav-link"
+              id="nav-persona"
+              ><span class="nav-icon" aria-hidden="true">◎</span
+              ><span>{{ "nav.personas" | translate }}</span></a
+            >
+          </li>
+          <li>
+            <a
+              routerLink="/eeg-session"
+              routerLinkActive="active"
+              class="nav-link"
+              id="nav-create"
+              ><span class="nav-icon" aria-hidden="true">✦</span
+              ><span>{{ "nav.create" | translate }}</span></a
+            >
+          </li>
+          <li>
+            <a
+              routerLink="/history"
+              routerLinkActive="active"
+              class="nav-link"
+              id="nav-history"
+              ><span class="nav-icon" aria-hidden="true">◷</span
+              ><span>{{ "nav.history" | translate }}</span></a
+            >
+          </li>
+        }
+      </ul>
+
+      <div class="sidebar-spacer"></div>
+
+      <div
+        class="device-status"
+        data-testid="muse-status"
+        [class.connected]="museStatusTone() === 'connected'"
+        [class.busy]="museStatusTone() === 'busy'"
+        [class.failed]="museStatusTone() === 'failed'"
+      >
+        <span class="device-label">{{ "muse.status" | translate }}</span>
+        <div class="device-row">
+          <span class="device-dot"></span
+          ><span class="device-name">{{ museStatusLabel() }}</span>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="user-row">
+          <div class="user-avatar" aria-hidden="true">{{ userInitial() }}</div>
+          <div class="user-info">
+            <div class="user-name">{{ auth.currentUser()?.username }}</div>
+            <div class="user-role">{{ auth.currentUser()?.role }}</div>
+          </div>
+          <button
+            class="logout-btn"
+            (click)="logout()"
+            [title]="'nav.logout' | translate"
+            id="btn-logout"
+          >
+            →
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <div class="main-shell">
+      <header class="top-header">
+        <div class="header-spacer"></div>
+        <button
+          type="button"
+          class="lang-switch-btn"
+          (click)="toggleLang()"
+          [title]="
+            langService.currentLang() === 'th'
+              ? 'Switch to English'
+              : 'สลับเป็นภาษาไทย'
+          "
+        >
+          <span
+            class="lang-pill"
+            [class.active]="langService.currentLang() === 'th'"
+            >ภาษาไทย TH</span
+          >
+          <span class="lang-divider">|</span>
+          <span
+            class="lang-pill"
+            [class.active]="langService.currentLang() === 'en'"
+            >English EN</span
+          >
+        </button>
+      </header>
+      <main class="main-content" id="main-content"><router-outlet /></main>
+    </div>
+  </div>
+} @else {
+  <div class="floating-lang-container">
+    <button
+      type="button"
+      class="lang-switch-btn floating-lang"
+      (click)="toggleLang()"
+      [title]="
+        langService.currentLang() === 'th'
+          ? 'Switch to English'
+          : 'สลับเป็นภาษาไทย'
+      "
+    >
+      <span
+        class="lang-pill"
+        [class.active]="langService.currentLang() === 'th'"
+        >ภาษาไทย TH</span
+      >
+      <span class="lang-divider">|</span>
+      <span
+        class="lang-pill"
+        [class.active]="langService.currentLang() === 'en'"
+        >English EN</span
+      >
+    </button>
+  </div>
+  <router-outlet />
+}

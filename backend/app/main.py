@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import os
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+if sys.platform == "win32":
+    try:
+        loop = asyncio.get_running_loop()
+        if not hasattr(asyncio, "ProactorEventLoop") or not isinstance(loop, asyncio.ProactorEventLoop):
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception:
+        pass
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

@@ -136,10 +136,16 @@ def compute_epoch_psd(epoch: np.ndarray, fs: float = SAMPLING_RATE) -> tuple[np.
 
 
 def is_artifact(epoch: np.ndarray) -> bool:
-    """Return True if epoch contains artifacts (blink, muscle, flatline)."""
+    """Return True if epoch contains artifacts (blink, muscle, flatline).
+
+    The flatline check is skipped for single-sample batches (N < 2) because
+    std(axis=0) is always 0 for a 1-row matrix, which would incorrectly flag
+    every Web Bluetooth averaged sample as a flatline artifact.
+    """
     if np.any(np.abs(epoch) > ARTIFACT_AMPLITUDE_UV):
         return True
-    if np.any(np.std(epoch, axis=0) < ARTIFACT_FLATLINE_STD):
+    # Flatline check only valid with at least 2 samples per window
+    if epoch.shape[0] >= 2 and np.any(np.std(epoch, axis=0) < ARTIFACT_FLATLINE_STD):
         return True
     if np.any(~np.isfinite(epoch)):
         return True
@@ -336,6 +342,10 @@ def estimate_sensor_state(
 ) -> SensorQuality:
     """
     Determine per-sensor state: unknown | poor | good | stale.
+
+    Uses amplitude statistics only.  State flicker is handled upstream via
+    debounce in collection_manager._apply_quality_debounce(), so this function
+    intentionally returns a raw per-packet estimate without hysteresis.
     """
     if now - last_timestamp > STALE_TIMEOUT_SECONDS:
         return SensorQuality(state="stale", quality_score=0.0, timestamp=now)
@@ -343,19 +353,32 @@ def estimate_sensor_state(
     ch_data = samples[:, channel_idx] if samples.ndim > 1 else samples
     ch_data = ch_data[np.isfinite(ch_data)]
 
-    if len(ch_data) < 16:
+    if len(ch_data) == 0:
         return SensorQuality(state="unknown", quality_score=0.0, timestamp=now)
 
     std = float(np.std(ch_data))
     peak = float(np.max(np.abs(ch_data)))
 
-    if std < ARTIFACT_FLATLINE_STD or peak > ARTIFACT_AMPLITUDE_UV:
-        quality = 10.0
+    if len(ch_data) < 16:
+        # Small batch fallback: evaluate peak and non-zero amplitude
+        if std < ARTIFACT_FLATLINE_STD or peak > ARTIFACT_AMPLITUDE_UV or peak == 0.0:
+            return SensorQuality(state="poor", quality_score=10.0, timestamp=now)
+
+    # Temporal channels (0: TP9, 3: TP10) have wider impedance tolerance behind ears
+    is_tp = channel_idx in (0, 3)
+    max_peak = 250.0 if is_tp else 200.0
+    min_std = 0.8 if is_tp else 1.0
+    max_std = 95.0 if is_tp else 80.0
+
+    if std < min_std or std > max_std or peak > max_peak or peak == 0.0:
+        quality = 15.0 if (std > 0 and peak < 300) else 0.0
         return SensorQuality(state="poor", quality_score=quality, timestamp=now)
 
-    score = 100.0 - min(abs(std - 35.0) * 1.8, 80.0)
-    penalty = min(max(peak - 100.0, 0.0) / 5.0, 35.0)
+    target_std = 20.0 if is_tp else 30.0
+    score = 100.0 - min(abs(std - target_std) * 1.0, 60.0)
+    penalty = min(max(peak - 120.0, 0.0) / 8.0, 25.0)
     quality = max(0.0, min(100.0, score - penalty))
 
-    state = "good" if quality >= 60.0 else "poor"
+    state = "good" if quality >= 35.0 else "poor"
     return SensorQuality(state=state, quality_score=quality, timestamp=now)
+

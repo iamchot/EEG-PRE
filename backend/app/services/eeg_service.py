@@ -180,7 +180,12 @@ class EEGStateMachine:
 
     # ── Sample ingestion ────────────────────────────────────────────────────
 
-    def ingest_samples(self, samples: np.ndarray, timestamps: np.ndarray) -> None:
+    def ingest_samples(
+        self,
+        samples: np.ndarray,
+        timestamps: np.ndarray,
+        sensor_qualities: Optional[dict[str, SensorQuality]] = None,
+    ) -> None:
         """
         Called by LSL receiver with new EEG samples.
         samples.shape = (N, 4)  channels = [TP9, AF7, AF8, TP10]
@@ -189,7 +194,11 @@ class EEGStateMachine:
         self.state.last_sample_time = now
 
         # Update per-sensor quality
-        self._update_sensors(samples, now)
+        if sensor_qualities:
+            for key, sq in sensor_qualities.items():
+                self.state.sensors[key.lower()] = sq
+        else:
+            self._update_sensors(samples, now)
 
         phase = self.state.phase
 

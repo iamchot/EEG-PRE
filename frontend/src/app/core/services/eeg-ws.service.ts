@@ -1,6 +1,7 @@
 import { Injectable, signal, computed } from '@angular/core';
 import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
+import type { WebBtSensorRaw } from './muse-web-bluetooth.service';
 
 export type SensorState = 'unknown' | 'poor' | 'good' | 'stale';
 export type DeviceState = 'disconnected' | 'connecting' | 'connected';
@@ -107,6 +108,22 @@ export class EegWsService {
 
   sendCommand(cmd: string, extras: Record<string, unknown> = {}) {
     this.send({ cmd, ...extras });
+  }
+
+  /**
+   * Forward a raw EEG sample from Web Bluetooth to the backend.
+   * The backend WebSocket handler interprets cmd='eeg_sample' and
+   * feeds it into EEGStateMachine.ingest_samples().
+   */
+  sendEegSample(sample: WebBtSensorRaw): void {
+    this.send({
+      cmd: 'eeg_sample',
+      tp9: sample.tp9,
+      af7: sample.af7,
+      af8: sample.af8,
+      tp10: sample.tp10,
+      timestamp: sample.timestamp,
+    });
   }
 
   private _scheduleReconnect(sessionId: string) {

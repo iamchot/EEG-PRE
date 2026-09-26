@@ -55,12 +55,14 @@ class UserEEGStreamRunner:
                 machine.ingest_samples(
                     np.array([[sample.tp9, sample.af7, sample.af8, sample.tp10]], dtype=float),
                     np.array([sample.timestamp], dtype=float),
+                    sensor_qualities=incoming.sensors,
                 )
                 await eeg_manager.broadcast(str(session_id), machine.to_ws_dict())
             await self._mark_disconnected(session_id, machine)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            import traceback; traceback.print_exc()
             await self._mark_disconnected(session_id, machine)
         finally:
             try:

@@ -14,27 +14,27 @@ class Comic(Base):
 
     __tablename__ = "comics"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    session_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("eeg_sessions.id"), nullable=True, index=True)
-    persona_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("personas.id"), nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="รหัสการ์ตูนที่สร้างขึ้น (Primary Key)")
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True, comment="รหัสผู้ใช้ที่เป็นเจ้าของ (FK -> users.id)")
+    session_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("eeg_sessions.id"), nullable=True, index=True, comment="รหัสเซสชันคลื่นสมองที่ใช้อารมณ์มากำกับ (FK -> eeg_sessions.id)")
+    persona_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("personas.id"), nullable=True, comment="รหัสตัวละคร/สไตล์ที่เลือกใช้ (FK -> personas.id)")
 
-    input_story: Mapped[str] = mapped_column(Text, nullable=False)
-    generated_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    input_story: Mapped[str] = mapped_column(Text, nullable=False, comment="เนื้อเรื่องหรือข้อความที่ผู้ใช้พิมพ์เข้ามา")
+    generated_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="พรอมต์ที่ AI สรุปสำหรับนำไปสร้างภาพ")
 
     # 4-panel image URLs
-    panel_1_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    panel_2_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    panel_3_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    panel_4_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    panel_1_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="URL ภาพการ์ตูนช่องที่ 1")
+    panel_2_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="URL ภาพการ์ตูนช่องที่ 2")
+    panel_3_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="URL ภาพการ์ตูนช่องที่ 3")
+    panel_4_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="URL ภาพการ์ตูนช่องที่ 4")
 
     # Panel dialogues from Gemini
-    panel_1_dialogue: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    panel_2_dialogue: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    panel_3_dialogue: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    panel_4_dialogue: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    panel_1_dialogue: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="บทสนทนาหรือคำบรรยายการ์ตูนช่องที่ 1")
+    panel_2_dialogue: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="บทสนทนาหรือคำบรรยายการ์ตูนช่องที่ 2")
+    panel_3_dialogue: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="บทสนทนาหรือคำบรรยายการ์ตูนช่องที่ 3")
+    panel_4_dialogue: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="บทสนทนาหรือคำบรรยายการ์ตูนช่องที่ 4")
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="เวลาที่สร้างการ์ตูน")
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="comics")  # type: ignore[name-defined]
@@ -48,12 +48,12 @@ class Rating(Base):
 
     __tablename__ = "ratings"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    comic_id: Mapped[int] = mapped_column(Integer, ForeignKey("comics.id"), nullable=False, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    stars: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
-    feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="รหัสการให้คะแนนความพึงพอใจการ์ตูน (Primary Key)")
+    comic_id: Mapped[int] = mapped_column(Integer, ForeignKey("comics.id"), nullable=False, index=True, comment="รหัสการ์ตูนที่ให้คะแนน (FK -> comics.id)")
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, comment="รหัสผู้ใช้ที่ให้คะแนน (FK -> users.id)")
+    stars: Mapped[int] = mapped_column(Integer, nullable=False, comment="คะแนนความพึงพอใจ (1 ถึง 5 ดาว)")  # 1-5
+    feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="ความคิดเห็นหรือข้อเสนอแนะเพิ่มเติม")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="เวลาที่ให้คะแนน")
 
     comic: Mapped[Comic] = relationship("Comic", back_populates="ratings")
     user: Mapped["User"] = relationship("User", back_populates="ratings")  # type: ignore[name-defined]

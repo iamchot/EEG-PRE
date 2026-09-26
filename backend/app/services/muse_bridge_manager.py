@@ -35,6 +35,43 @@ class _Bridge:
     closed: bool = False
 
 
+class _AsyncStreamReader:
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    async def readline(self) -> bytes:
+        return await asyncio.get_running_loop().run_in_executor(None, self._stream.readline)
+
+
+class _AsyncPopen:
+    """Crash-safe process wrapper over standard subprocess.Popen when asyncio.create_subprocess_exec raises NotImplementedError on Windows."""
+
+    def __init__(self, popen: subprocess.Popen) -> None:
+        self._popen = popen
+        self.stdout = _AsyncStreamReader(popen.stdout)
+
+    @property
+    def returncode(self) -> int | None:
+        return self._popen.poll()
+
+    async def wait(self) -> int:
+        while self.returncode is None:
+            await asyncio.sleep(0.05)
+        return self.returncode
+
+    def terminate(self) -> None:
+        try:
+            self._popen.terminate()
+        except Exception:
+            pass
+
+    def kill(self) -> None:
+        try:
+            self._popen.kill()
+        except Exception:
+            pass
+
+
 class ManagedMuseBridgeManager:
     """Coordinate one verified LSL bridge and lease per physical Muse headset."""
 
@@ -149,7 +186,8 @@ class ManagedMuseBridgeManager:
                 async with self._guard:
                     await self._fail_bridge_unlocked(bridge, "device_in_use")
                 return
-            except Exception:
+            except Exception as exc:
+                import traceback; traceback.print_exc()
                 async with self._guard:
                     await self._fail_bridge_unlocked(bridge, "bridge_failed")
                 return
@@ -177,7 +215,8 @@ class ManagedMuseBridgeManager:
                 bridge.monitor_task = asyncio.create_task(self._monitor_process(bridge))
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            import traceback; traceback.print_exc()
             async with self._guard:
                 await self._fail_bridge_unlocked(bridge, "bridge_failed")
 
@@ -288,14 +327,30 @@ class ManagedMuseBridgeManager:
         self._owner_status[owner] = status
         return status.model_copy(deep=True)
 
+    @staticmethod
+    def _get_muselsl_path() -> str:
+        path = Path(sys.executable).with_name("muselsl.exe")
+        if path.is_file():
+            return str(path)
+        venv_path = Path(__file__).resolve().parents[2] / ".venv" / "Scripts" / "muselsl.exe"
+        if venv_path.is_file():
+            return str(venv_path)
+        return str(path)
+
     async def _launch_process(self, address: str):
-        command = (str(Path(sys.executable).with_name("muselsl.exe")), "stream", "--address", address,
+        command = (self._get_muselsl_path(), "stream", "--address", address,
                    "--backend", "bleak", "--lsltime")
         environment = os.environ.copy()
         environment["PYTHONUNBUFFERED"] = "1"
-        result = self._process_factory(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-                                       env=environment, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        return await result if inspect.isawaitable(result) else result
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            result = self._process_factory(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+                                           env=environment, creationflags=creationflags)
+            return await result if inspect.isawaitable(result) else result
+        except NotImplementedError:
+            popen = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     env=environment, creationflags=creationflags)
+            return _AsyncPopen(popen)
 
     async def _wait_for_bluetooth(self, bridge: _Bridge) -> str:
         signal = asyncio.create_task(bridge.ble_connected.wait())
@@ -355,7 +410,13 @@ class ManagedMuseBridgeManager:
                 return
             line = raw.decode("utf-8", "replace").strip()
             self._record_diagnostic(bridge, line)
-            if line == "BLE connected.":
+            if (
+                line in {"BLE connected.", "Connected.", "Connection established."}
+                or line.startswith("Streaming")
+                or "Control message" in line
+                or '"rc":0' in line
+                or '"rc": 0' in line
+            ):
                 bridge.ble_connected.set()
 
     def _close_bridge_unlocked(self, bridge: _Bridge) -> asyncio.Task | None:

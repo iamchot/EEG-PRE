@@ -17,8 +17,8 @@ class UserRole(str, enum.Enum):
 class Role(Base):
     __tablename__ = "roles"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="รหัสบทบาทสิทธิ์ (Primary Key)")
+    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, comment="ชื่อบทบาท เช่น user, admin")
 
     users: Mapped[list[User]] = relationship("User", back_populates="role")
 
@@ -26,14 +26,14 @@ class Role(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role_id: Mapped[int] = mapped_column(Integer, ForeignKey("roles.id"), nullable=False, default=1)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="รหัสผู้ใช้ (Primary Key)")
+    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True, comment="ชื่อบัญชีผู้ใช้สำหรับล็อกอิน")
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True, comment="อีเมลผู้ใช้งาน")
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False, comment="รหัสผ่านที่เข้ารหัสความปลอดภัยด้วย bcrypt")
+    role_id: Mapped[int] = mapped_column(Integer, ForeignKey("roles.id"), nullable=False, default=1, comment="สิทธิ์การใช้งาน (FK -> roles.id)")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, comment="สถานะเปิดใช้งานบัญชี (1=ใช้งานได้, 0=ถูกระงับ)")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="วันที่ลงทะเบียน")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), comment="วันที่แก้ไขข้อมูลล่าสุด")
 
     role: Mapped[Role] = relationship("Role", back_populates="users")
     personas: Mapped[list["Persona"]] = relationship("Persona", back_populates="user", cascade="all, delete-orphan")

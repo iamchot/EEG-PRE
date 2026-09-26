@@ -744,7 +744,7 @@ def test_baseline_metadata_commit_failure_survives_recreation(setup_runner, monk
     assert recreated.session.eyes_open_baseline_path is not None
     resumed = recreated.resume()
     assert resumed.file_recovery_required is False
-    assert resumed.state is CollectionSessionState.preparation
+    assert resumed.state is CollectionSessionState.baseline
 
 
 def test_interrupt_aborts_partial_and_persists_reason(setup_runner):

@@ -18,8 +18,10 @@ function initAuth(auth: AuthService, http: HttpClient) {
     if (!auth.getToken()) return Promise.resolve();
     return firstValueFrom(
       http.get<UserPublic>(`${environment.apiUrl}/auth/me`).pipe(
-        catchError(() => {
-          auth.logout();
+        catchError((err) => {
+          if (err?.status === 401 || err?.status === 403) {
+            auth.logout();
+          }
           return of(null);
         }),
       ),

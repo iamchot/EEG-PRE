@@ -1,0 +1,253 @@
+<main class="runner-shell">
+  <header class="runner-header">
+    <div>
+      <a routerLink="/admin/dataset-collection" class="back-link">← {{ 'runner.back' | translate }}</a>
+      <p class="eyebrow">{{ 'runner.eyebrow' | translate }}</p>
+      <h1>{{ 'runner.title' | translate }}</h1>
+      <p>Session {{ sessionId }} · {{ trialProgressLabel() }}</p>
+    </div>
+    <aside class="notice" data-testid="non-medical-notice">
+      {{ 'dataset.notice' | translate }}
+    </aside>
+  </header>
+
+  <div class="connection" role="status" aria-live="polite">
+    <span class="status-dot" [class.online]="ws.isConnected()"></span>
+    {{ ws.isConnected() ? ('runner.live_connected' | translate) : ('runner.persisted_state' | translate) }}
+    · {{ 'runner.signal_quality' | translate }}
+    · {{ samplingRateLabel() }}
+    @if (museBt.state() === 'streaming') {
+      <span class="muse-live-badge">✓ Muse: {{ museBt.deviceName() ?? 'Connected' }}</span>
+    } @else {
+      <button class="reconnect-btn" type="button" (click)="scanMuse()"
+        [disabled]="busy() || museBt.state() === 'requesting' || museBt.state() === 'connecting' || !museBt.isSupported">
+        @if (museBt.state() === 'requesting' || museBt.state() === 'connecting') {
+          กำลังเชื่อมต่อ Muse 2…
+        } @else {
+          เชื่อมต่อ Muse 2
+        }
+      </button>
+    }
+  </div>
+  @if (ws.streamError()) { <div class="error" role="alert">{{ toThaiError(ws.streamError()) }}</div> }
+  @if (error()) { <div class="error" role="alert">{{ toThaiError(error()) }}</div> }
+
+  <section class="progress-card" aria-label="Collection progress">
+    <div><span>{{ 'runner.progress' | translate }}</span><strong>{{ trialProgressLabel() }}</strong></div>
+    <progress [value]="runnerState()?.completed_trials ?? 0" max="12">{{ runnerState()?.completed_trials ?? 0 }} of 12</progress>
+  </section>
+
+  @switch (stage()) {
+    @case ('device') {
+      <section class="workspace" data-stage="device">
+        <div>
+          <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
+          <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
+            @for (key of sensorKeys; track key) {
+              <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+                <span class="sensor-dot"></span>
+                <span class="sensor-name">{{ key.toUpperCase() }}</span>
+                <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+              </div>
+            }
+          </div>
+          <app-eeg-waveform [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" [isConnected]="ws.isConnected()" />
+        </div>
+        <section class="action-card">
+          <p class="step">Step 1</p><h2>{{ 'runner.scan_select_muse' | translate }}</h2>
+          <p>{{ 'runner.scan_desc' | translate }}</p>
+          @if (!museBt.isSupported) {
+            <div class="error" role="alert">เบราว์เซอร์นี้ไม่รองรับ Web Bluetooth — กรุณาใช้ Chrome หรือ Edge</div>
+          }
+          <button id="scan-muse" class="primary" type="button" (click)="scanMuse()"
+            [disabled]="busy() || museBt.state() === 'requesting' || museBt.state() === 'connecting' || (!museBt.isSupported && !muse)">
+            @if (museBt.state() === 'requesting' || museBt.state() === 'connecting') {
+              กำลังเชื่อมต่อ Muse 2…
+            } @else {
+              {{ 'session.scan_btn' | translate }}
+            }
+          </button>
+          @if (muse?.scanStatus()?.devices?.length) {
+            <div class="scanned-devices">
+              @for (device of muse?.scanStatus()?.devices ?? []; track device.address) {
+                <button type="button" class="device-select-btn" data-muse-device (click)="connectMuse(device)">{{ device.name }} ({{ device.address }})</button>
+              }
+            </div>
+          }
+          @if (museBt.error()) { <p class="error" role="alert">{{ museBt.error() }}</p> }
+          <p class="muse-connection" [attr.data-state]="museBt.state()">{{ museConnectionLabel() }}</p>
+          @if (isDeviceReady() && (runnerState()?.total_trials ?? 0) === 0) {
+            <button id="prepare-schedule" class="primary" type="button" (click)="prepareSchedule()" [disabled]="busy()">
+              @if (busy()) { กำลังเตรียม Schedule… } @else { {{ 'runner.prepare_schedule_btn' | translate }} }
+            </button>
+          }
+          <fieldset class="contact-confirmations">
+            <div class="contact-header">
+              <legend>{{ 'runner.admin_contact_confirm' | translate }}</legend>
+              <button type="button" class="confirm-all-btn" (click)="confirmAllContacts()" [disabled]="busy()">
+                ✓ {{ 'runner.confirm_all_contacts' | translate }}
+              </button>
+            </div>
+            <p>{{ 'runner.admin_contact_desc' | translate }}</p>
+            @for (key of sensorKeys; track key) {
+              <label><input data-contact-confirmation type="checkbox" [checked]="contacts()[key]" (change)="setContact(key, $any($event.target).checked)"><span>{{ key.toUpperCase() }} สัมผัสผิวแล้ว</span></label>
+            }
+          </fieldset>
+          @if (runnerState()?.eyes_open_complete) {
+            @if (!runnerState()?.eyes_closed_complete) {
+              <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy() || !canStartBaseline()">{{ 'runner.start_baseline_closed' | translate }}</button>
+            } @else {
+              <button class="primary" type="button" (click)="stage.set('ready')">ไปยังขั้นตอนถัดไป (พร้อมเก็บ Trial)</button>
+            }
+          } @else {
+            <button class="primary" type="button" (click)="startBaseline('eyes_open')" [disabled]="busy() || !canStartBaseline()">{{ 'runner.start_baseline_open' | translate }}</button>
+          }
+          <p class="hint">{{ 'runner.clean_gate_hint' | translate }}</p>
+          <p class="hint">{{ 'runner.open_before_closed_hint' | translate }}</p>
+        </section>
+
+      </section>
+    }
+    @case ('eyes_open') {
+      <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
+      <section class="focus-card" data-stage="eyes_open" aria-live="polite">
+        <p class="step">Baseline 1 of 2</p><h2>ลืมตาและมองจุดกึ่งกลาง</h2>
+        <div class="fixation" aria-label="Fixation point">+</div>
+        <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
+        <p>{{ seconds(runnerState()?.wall_clock_seconds) }}s wall · {{ seconds(runnerState()?.accepted_clean_seconds) }}s clean</p>
+      </section>
+    }
+    @case ('eyes_closed') {
+      <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
+      <section class="focus-card" data-stage="eyes_closed" aria-live="polite">
+        <p class="step">Baseline 2 of 2</p><h2>หลับตาและอยู่นิ่ง</h2>
+        <div class="fixation" aria-label="Fixation point">+</div>
+        <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
+        @if (runnerState()?.active_baseline === 'eyes_closed') {
+          <p>{{ seconds(runnerState()?.wall_clock_seconds) }}s wall · {{ seconds(runnerState()?.accepted_clean_seconds) }}s clean</p>
+        } @else {
+          <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy() || !canStartBaseline()">{{ 'runner.start_baseline_closed' | translate }}</button>
+        }
+      </section>
+    }
+    @case ('ready') {
+      <section class="focus-card" data-stage="ready"><p class="step">พร้อมเก็บ Trial</p><h2>Trial {{ displayedTrialOrder() }} / 12</h2>
+        <p>คลิปถัดไป: {{ runnerState()?.next_stimulus_title ?? 'รอข้อมูลคลิป' }}</p>
+        <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
+          @for (key of sensorKeys; track key) {
+            <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+              <span class="sensor-dot"></span>
+              <span class="sensor-name">{{ key.toUpperCase() }}</span>
+              <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+            </div>
+          }
+        </div>
+        <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy() || !runnerState()?.next_trial_id">เริ่มช่วงพักก่อนคลิป</button>
+      </section>
+    }
+    @case ('rest') {
+      <section class="media-layout" data-stage="rest">
+        <div class="focus-card">
+          <p class="step">Rest / Fixation</p>
+          <h2>มองจุดกึ่งกลางและอยู่นิ่ง</h2>
+          <div class="fixation" aria-label="Fixation point">+</div>
+          <p>เป้าหมาย 10–15 วินาที · Backend: {{ seconds(runnerState()?.wall_clock_seconds) }}s</p>
+
+          <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
+            @for (key of sensorKeys; track key) {
+              <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+                <span class="sensor-dot"></span>
+                <span class="sensor-name">{{ key.toUpperCase() }}</span>
+                <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+              </div>
+            }
+          </div>
+
+          @if ((runnerState()?.wall_clock_seconds ?? 0) > 15) {
+            <div class="rest-timeout-box" role="alert">
+              <p class="rest-timeout-msg">ช่วงพักเกิน 15 วินาทีแล้ว (สัญญาณอาจยังไม่นิ่งหรือไม่เขียวครบ 4 จุด)</p>
+              <button class="restart-rest-btn" type="button" (click)="restartRest()" [disabled]="busy()">
+                ↺ สัญญาณหลุด — เริ่มช่วงพัก 10–15 วิใหม่อีกครั้ง
+              </button>
+            </div>
+          }
+        </div>
+        <ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
+      </section>
+    }
+    @case ('stimulus') {
+      <section class="media-layout" data-stage="stimulus"><ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
+        <aside class="artifact-card"><h2>Artifact marker</h2><label for="artifact-note">หมายเหตุ (ไม่บังคับ)<input id="artifact-note" [(ngModel)]="artifactNote"></label>
+          <div class="artifact-grid">@for (item of artifacts; track item.type) { <button type="button" (click)="markArtifact(item.type)" [disabled]="busy()">{{ item.label }}</button> }</div>
+        </aside>
+      </section>
+    }
+    @case ('rating') {
+      <form class="rating-card" data-stage="rating" (ngSubmit)="submitRating()">
+        <p class="step">Self-rating</p><h2>บันทึกความรู้สึกของผู้เข้าร่วม</h2>
+        <label for="valence">
+          Valence — ความรู้สึกดีหรือไม่ดี (1–9)
+          <span class="scale-hint">1 = ไม่ดีเลย / เศร้ามาก &nbsp;·&nbsp; 5 = กลาง ๆ &nbsp;·&nbsp; 9 = ดีมาก / มีความสุขมาก</span>
+          <input id="valence" name="valence" type="number" min="1" max="9" required [(ngModel)]="valence">
+        </label>
+        <label for="arousal">
+          Arousal — ระดับความตื่นตัว/กระตุ้น (1–9)
+          <span class="scale-hint">1 = สงบ / ง่วงซึม &nbsp;·&nbsp; 5 = กลาง ๆ &nbsp;·&nbsp; 9 = ตื่นตัวมาก / ตื่นเต้นมาก</span>
+          <input id="arousal" name="arousal" type="number" min="1" max="9" required [(ngModel)]="arousal">
+        </label>
+        <label for="confidence">
+          Confidence — ความมั่นใจในคำตอบ (1–5)
+          <span class="scale-hint">1 = ไม่มั่นใจเลย &nbsp;·&nbsp; 3 = พอมั่นใจ &nbsp;·&nbsp; 5 = มั่นใจมาก</span>
+          <input id="confidence" name="confidence" type="number" min="1" max="5" required [(ngModel)]="confidence">
+        </label>
+        <button class="primary" type="submit" [disabled]="busy() || !ratingsValid()">บันทึกคะแนน</button>
+
+      </form>
+    }
+    @case ('break') {
+      <section class="focus-card" data-stage="break"><p class="step">พักกลาง Session</p><h2>ครบ Trial 6 แล้ว</h2><p>พัก 3–5 นาที ตรวจความสบายและตำแหน่ง Muse ก่อนทำ Trial 7 ต่อ</p>
+        <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy()">เริ่ม Trial 7</button>
+      </section>
+    }
+    @case ('completed') { <section class="focus-card success" data-stage="completed"><h2>เก็บข้อมูลครบ 12 Trial</h2><p>ข้อมูลที่ commit แล้วพร้อมสำหรับขั้นตอนตรวจสอบ Dataset</p><a routerLink="/admin/dataset-collection">กลับหน้าสรุป</a></section> }
+    @case ('interrupted') { <section class="focus-card warning" data-stage="interrupted"><h2>Session ถูกขัดจังหวะ</h2><p>{{ runnerState()?.interruption_reason }}</p><p>เริ่ม Trial {{ displayedTrialOrder() }} ใหม่ในลำดับเดิม โดยไม่สุ่ม Schedule ใหม่</p><button class="primary" type="button" (click)="resume()" [disabled]="busy()">Resume same order</button></section> }
+    @case ('failed') { <section class="focus-card danger" data-stage="failed"><h2>ไม่สามารถดำเนิน Session ต่อได้</h2><p>ตรวจอุปกรณ์และสถานะไฟล์ก่อนกลับมาลองใหม่</p></section> }
+  }
+
+  @if (canEmergencyStop()) { <button class="emergency" type="button" (click)="emergencyStop()" [disabled]="busy()">Emergency stop</button> }
+
+  <ng-template #mediaPanel>
+    <section class="media-card">
+      <div><p class="step">Approved stimulus</p><h2>{{ runnerState()?.current_stimulus_title }}</h2></div>
+      @if (mediaError()) {
+        <div class="error" role="alert">
+          โหลดคลิปไม่สำเร็จ — จะยังไม่เริ่มบันทึก stimulus
+          <button type="button" class="retry-btn" (click)="retryMediaDownload()">ลองโหลดคลิปใหม่อีกครั้ง</button>
+        </div>
+      }
+      @if (finishRetryAvailable()) { <button type="button" (click)="retryFinish()" [disabled]="busy()">ลองยืนยันจบคลิปอีกครั้ง</button> }
+      @if (mediaUrl(); as source) {
+        <div class="video-shell">
+          <video #media [controls]="canControlMedia()" preload="auto" [src]="source" playsinline (playing)="onPlaying(media)" (ended)="onEnded()" (error)="onMediaError(media)" (loadedmetadata)="onVideoReady(media)" (canplay)="onVideoReady(media)" aria-label="Approved entertainment stimulus"></video>
+          @if (!canControlMedia()) {
+            <div class="media-lock" role="status">รอ Backend ยืนยันช่วง Rest และสัญญาณทั้ง 4 จุด</div>
+          } @else if (runnerState()?.trial_state === 'rest' && runnerState()?.stimulus_start_ready) {
+            <div class="stimulus-ready-banner">
+              <button class="stimulus-start-btn" type="button" (click)="triggerStimulusStart(media)">
+                ▶ สัญญาณพร้อมแล้ว — กดเริ่มดูคลิป
+              </button>
+            </div>
+          } @else if (autoplayBlocked()) {
+            <div class="stimulus-ready-banner" (click)="unblockAutoplay(media)">
+              <button class="stimulus-start-btn" type="button">
+                ▶ คลิกเพื่อเริ่มเล่นคลิป
+              </button>
+            </div>
+          }
+        </div>
+      }
+      @else if (!mediaError()) { <p role="status">กำลังโหลดคลิปที่ผ่านการอนุมัติ…</p> }
+    </section>
+  </ng-template>
+</main>
+

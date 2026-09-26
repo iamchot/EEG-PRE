@@ -147,7 +147,31 @@ export class DatasetCollectionWsService implements OnDestroy {
       error: () => undefined,
     });
   }
+
+  /** Send raw JSON over the WebSocket (if open). */
+  sendRaw(payload: object): void {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(payload));
+    }
+  }
+
+  /**
+   * Forward a raw EEG sample from Web Bluetooth (muse-js) to the backend
+   * Admin collection runner. The backend interprets cmd='eeg_sample_admin'
+   * and routes it into the collection state machine signal processing.
+   */
+  sendEegSample(sample: { tp9: number; af7: number; af8: number; tp10: number; timestamp: number }): void {
+    this.sendRaw({
+      cmd: 'eeg_sample_admin',
+      tp9: sample.tp9,
+      af7: sample.af7,
+      af8: sample.af8,
+      tp10: sample.tp10,
+      timestamp: sample.timestamp,
+    });
+  }
 }
+
 
 function parseMessage(raw: unknown): CollectionWsMessage | null {
   if (typeof raw !== 'string') return null;

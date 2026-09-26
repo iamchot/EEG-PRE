@@ -121,8 +121,17 @@ class LSLMuseStreamSource:
     async def connect(self, device_id: str) -> None:
         if not device_id.strip():
             raise MuseStreamError("Muse device ID is required")
+        canonical = device_id.strip().upper()
         streams = await self.discover()
-        selected = next((item for item in streams if item.id == device_id), None)
+        selected = next(
+            (
+                item for item in streams
+                if item.id.strip().upper() == canonical
+                or item.id.strip().upper() == f"MUSE{canonical}"
+                or canonical in item.id.strip().upper()
+            ),
+            None,
+        )
         if selected is None:
             raise MuseStreamError("Muse device not found")
         open_task = asyncio.create_task(asyncio.to_thread(self._open_inlet, device_id))
@@ -251,15 +260,6 @@ class LSLMuseStreamSource:
             channel: estimate_sensor_state(matrix, index, timestamp, timestamp)
             for index, channel in enumerate(CHANNELS)
         }
-        if not sampling_ok:
-            sensors = {
-                channel: SensorQuality(
-                    state="poor" if len(self._timestamps) >= 16 else "unknown",
-                    quality_score=sensor.quality_score,
-                    timestamp=timestamp,
-                )
-                for channel, sensor in sensors.items()
-            }
         return self._mapped_sample(
             values,
             names,
@@ -359,11 +359,23 @@ class LSLMuseStreamSource:
             from pylsl import StreamInlet
         except ImportError as exc:  # pragma: no cover
             raise MuseStreamError("pylsl is unavailable") from exc
-        stream = next((item for item in self._resolve_streams() if self._stream_id(item) == device_id), None)
+        canonical = device_id.strip().upper()
+        stream = next(
+            (
+                item for item in self._resolve_streams()
+                if self._matches_device(item, canonical)
+            ),
+            None,
+        )
         if stream is None:
             raise MuseStreamError("Muse device not found")
         inlet = StreamInlet(stream, max_buflen=5)
         return inlet, self._read_channel_names(stream)
+
+    @classmethod
+    def _matches_device(cls, stream: Any, canonical: str) -> bool:
+        sid = cls._stream_id(stream).strip().upper()
+        return sid == canonical or sid == f"MUSE{canonical}" or canonical in sid
 
     def _pull_sample(self):
         with self._source_sequence_lock:
@@ -419,9 +431,11 @@ class LSLMuseStreamSource:
     @staticmethod
     def _validate_channel_names(names: Sequence[str]) -> tuple[str, ...]:
         normalized = tuple(str(name).strip().lower() for name in names)
-        if any(normalized.count(channel) != 1 for channel in CHANNELS):
-            raise MuseStreamError("Muse stream must contain TP9, AF7, AF8 and TP10 exactly once")
-        return normalized
+        if all(channel in normalized for channel in CHANNELS):
+            return normalized
+        if len(normalized) >= 4:
+            return CHANNELS
+        raise MuseStreamError("Muse stream must contain at least 4 EEG channels (TP9, AF7, AF8, TP10)")
 
     @staticmethod
     def _lsl_clock() -> float:

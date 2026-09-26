@@ -1,0 +1,124 @@
+<main class="collection-shell">
+  <header class="page-header">
+    <div>
+      <a routerLink="/admin" class="back-link">← {{ 'nav.admin' | translate }}</a>
+      <h1>{{ 'dataset.title' | translate }}</h1>
+      <p>{{ 'dataset.subtitle' | translate }}</p>
+    </div>
+    <aside class="notice" data-testid="non-medical-notice">
+      {{ 'dataset.notice' | translate }}
+    </aside>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Dataset collection sections">
+    @for (tab of tabs(); track tab.key) {
+      <button type="button" role="tab" [attr.aria-selected]="activeTab() === tab.key"
+        [id]="'collection-tab-' + tab.key" [attr.aria-controls]="'collection-panel-' + tab.key"
+        [tabIndex]="activeTab() === tab.key ? 0 : -1" [class.active]="activeTab() === tab.key"
+        (click)="switchTab(tab.key)" (keydown)="onTabKeydown($event, tab.key)">{{ tab.label }}</button>
+    }
+  </nav>
+
+  @if (error()) { <div class="error" role="alert">{{ error() }}</div> }
+
+  @if (activeTab() === 'overview') {
+    <section id="collection-panel-overview" aria-labelledby="collection-tab-overview" class="panel" role="tabpanel">
+      <h2>{{ 'dataset.summary_title' | translate }}</h2>
+      @if (overviewLoading()) {
+        <p role="status">Loading overview…</p>
+      } @else {
+        @if (overview(); as stats) {
+          <div class="stat-grid">
+            <article class="stat-card"><span>{{ 'dataset.participants' | translate }}</span><strong>{{ stats.participants }}</strong></article>
+            <article class="stat-card"><span>{{ 'dataset.sessions' | translate }}</span><strong>{{ stats.sessions }}</strong></article>
+            <article class="stat-card"><span>{{ 'dataset.trials' | translate }}</span><strong>{{ stats.trials }}</strong></article>
+            <article class="stat-card"><span>{{ 'dataset.pending' | translate }}</span><strong>{{ stats.review_counts.pending }}</strong></article>
+          </div>
+        } @else { <p>Overview data is unavailable</p> }
+      }
+    </section>
+  }
+
+  @if (activeTab() === 'participants') {
+    <section id="collection-panel-participants" aria-labelledby="collection-tab-participants" class="split" role="tabpanel">
+      <form id="participant-form" class="panel form-card" (ngSubmit)="registerParticipant()">
+        <h2>{{ 'dataset.register_new_participant' | translate }}</h2>
+        <p>{{ 'dataset.auto_code_notice' | translate }}</p>
+        <label class="check-row" for="consent-confirmed">
+          <input id="consent-confirmed" name="consent_confirmed" type="checkbox" required
+            [(ngModel)]="consentConfirmed">
+          <span>{{ 'dataset.consent_checkbox' | translate }}</span>
+        </label>
+        <button id="register-participant" class="primary" type="submit"
+          [disabled]="!consentConfirmed || participantSubmitting()">
+          {{ participantSubmitting() ? 'Registering…' : ('dataset.register_participant' | translate) }}
+        </button>
+      </form>
+      <section class="panel"><h2>{{ 'dataset.participant_list' | translate }}</h2>
+        <div class="list">@if (participantsLoading()) { <p role="status">Loading participants…</p> } @else { @for (item of participants(); track item.id) {
+          <div class="list-row"><strong>{{ item.participant_code }}</strong><span class="badge">{{ item.state }}</span></div>
+        } @empty { <p>No participants registered</p> } }</div>
+      </section>
+    </section>
+  }
+
+  @if (activeTab() === 'stimuli') {
+    <section id="collection-panel-stimuli" aria-labelledby="collection-tab-stimuli" class="split" role="tabpanel">
+      <form class="panel form-card" (ngSubmit)="registerStimulus()">
+        <h2>{{ 'dataset.register_stimulus_title' | translate }}</h2>
+        <label>{{ 'dataset.stimulus_title_label' | translate }}<input name="title" required [(ngModel)]="stimulus.title" placeholder="e.g. Happy Clip 1"></label>
+        <label>{{ 'dataset.media_path_label' | translate }}<input name="file_path" required [(ngModel)]="stimulus.file_path" placeholder="e.g. assets/videos/stim_01.mp4"></label>
+        <label>{{ 'dataset.checksum_label' | translate }}<input name="checksum" required minlength="64" maxlength="64" [(ngModel)]="stimulus.checksum" placeholder="64-character hash"></label>
+        <label>{{ 'dataset.duration_label' | translate }}<input name="duration" type="number" min="45" max="60" required [(ngModel)]="stimulus.duration_seconds"></label>
+        <label>{{ 'dataset.target_quadrant_label' | translate }}<select id="target-quadrant" name="quadrant" required [(ngModel)]="stimulus.target_quadrant">
+          @for (quadrant of quadrants; track quadrant) { <option [value]="quadrant">{{ quadrant }}</option> }
+        </select></label>
+        <label>{{ 'dataset.approval_state_label' | translate }}<select name="approval" [(ngModel)]="stimulus.approval_state"><option value="draft">draft</option><option value="approved">approved</option><option value="retired">retired</option></select></label>
+        <label>{{ 'dataset.version_label' | translate }}<input name="version" required [(ngModel)]="stimulus.stimulus_set_version"></label>
+        <button class="primary" type="submit" [disabled]="stimulusSubmitting() || !isStimulusReady()">{{ stimulusSubmitting() ? 'Registering…' : ('dataset.register_stimulus' | translate) }}</button>
+      </form>
+      <section class="panel"><h2>{{ 'dataset.all_stimuli_list' | translate }}</h2><div class="list">@if (stimuliLoading()) { <p role="status">Loading stimuli…</p> } @else { @for (item of stimuli(); track item.id) {
+        <div class="list-row"><div><strong>{{ item.title }}</strong><small>{{ item.target_quadrant }} · {{ item.duration_seconds }} sec</small></div><span class="badge">{{ item.approval_state }}</span></div>
+      } @empty { <p>No stimuli registered</p> } }</div></section>
+    </section>
+  }
+
+  @if (activeTab() === 'sessions') {
+    <section id="collection-panel-sessions" aria-labelledby="collection-tab-sessions" class="split" role="tabpanel">
+      <form class="panel form-card" (ngSubmit)="createSession()">
+        <h2>{{ 'dataset.create_session' | translate }}</h2>
+        <label>Select Participant<select name="participant" required [(ngModel)]="sessionParticipantId">
+          <option [ngValue]="null">-- Select Participant --</option>
+          @for (item of activeParticipants(); track item.id) { <option [ngValue]="item.id">{{ item.participant_code }}</option> }
+        </select></label>
+        <label>Muse Device ID (optional)<input name="device_id" [(ngModel)]="deviceId" placeholder="e.g. Muse-A9C7"></label>
+        <label>Device Label (optional)<input name="device_name" [(ngModel)]="deviceName" placeholder="e.g. Muse 2"></label>
+        <button id="create-session" class="primary" type="submit" [disabled]="!hasActiveParticipant() || sessionSubmitting()">{{ sessionSubmitting() ? 'Creating…' : ('dataset.create_session' | translate) }}</button>
+      </form>
+      <section class="panel">
+        <h2>{{ 'dataset.sessions' | translate }}</h2>
+        <div class="list">
+          @if (sessionsLoading()) { <p role="status">Loading sessions…</p> }
+          @else {
+            @for (item of sessions(); track item.id) {
+              <div class="list-row">
+                <div class="session-info-col">
+                  <strong>Session #{{ item.id }}</strong>
+                  <small>State: {{ item.state }}</small>
+                </div>
+                <div class="session-action-col">
+                  <span class="badge state-badge">{{ item.state }}</span>
+                  @if (sessionActionLabel(item); as action) {
+                    <button type="button" class="btn-session-action" [routerLink]="['/admin/dataset-collection/sessions', item.id, 'run']">
+                      ▶ {{ action }}
+                    </button>
+                  }
+                </div>
+              </div>
+            } @empty { <p>No sessions created</p> }
+          }
+        </div>
+      </section>
+    </section>
+  }
+</main>

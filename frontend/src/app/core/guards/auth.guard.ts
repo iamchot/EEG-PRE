@@ -50,8 +50,10 @@ function roleGuard(audience: GuardAudience): ReturnType<CanActivateFn> {
       auth.currentUser.set(u);
       return decide(u);
     }),
-    catchError(() => {
-      auth.clearSession();
+    catchError((err) => {
+      if (err?.status === 401 || err?.status === 403) {
+        auth.clearSession();
+      }
       return of(audience === 'guest' ? true : router.createUrlTree(['/login']));
     }),
   );

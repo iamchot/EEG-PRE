@@ -1,0 +1,160 @@
+<div class="persona-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <a routerLink="/dashboard" class="back-btn" id="link-back-dashboard">
+      <span aria-hidden="true">←</span>
+    </a>
+    <div>
+      <h1>{{ 'persona.title' | translate }}</h1>
+    </div>
+    <button class="btn btn-primary" (click)="openCreate()" id="btn-create-persona">
+      + {{ 'persona.add_new' | translate }}
+    </button>
+  </div>
+
+  <!-- Art Style Filter -->
+  <div class="style-filters">
+    @for (s of artStyles; track s) {
+      <button class="style-chip" [class.active]="filterStyle() === s" (click)="filterStyle.set(filterStyle() === s ? null : s)">
+        {{ s }}
+      </button>
+    }
+  </div>
+
+  <!-- Persona Cards -->
+  <div class="persona-grid">
+    @for (p of filteredPersonas(); track p.id) {
+      <div class="persona-card">
+        <div class="persona-avatar">{{ p.persona_name[0].toUpperCase() }}</div>
+        <div class="persona-info">
+          <div class="persona-name">{{ p.persona_name }}</div>
+          <div class="persona-detail">{{ p.appearance || ('persona.no_detail' | translate) }}</div>
+          <div class="persona-badges">
+            <span class="style-badge">{{ p.art_style }}</span>
+          </div>
+        </div>
+        <div class="persona-actions">
+          <button class="icon-btn" (click)="openEdit(p)" [id]="'btn-edit-' + p.id" [title]="'persona.edit' | translate">แก้ไข</button>
+          <button class="icon-btn danger" (click)="deletePersona(p)" [id]="'btn-delete-' + p.id" [title]="'persona.delete' | translate">ลบ</button>
+        </div>
+      </div>
+    } @empty {
+      <div class="empty-state">
+        <h3>{{ 'persona.no_personas' | translate }}</h3>
+        <p>{{ 'persona.no_personas_desc' | translate }}</p>
+        <button class="btn btn-primary" (click)="openCreate()" style="margin-top:12px">{{ 'persona.create_first' | translate }}</button>
+      </div>
+    }
+  </div>
+</div>
+
+<!-- Modal -->
+@if (showModal()) {
+  <div class="modal-backdrop" (click)="closeModal()" role="dialog" aria-modal="true" aria-label="Persona Modal">
+    <div class="modal-panel" (click)="$event.stopPropagation()">
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <div class="modal-title-row">
+          <h2>{{ editingId() ? ('persona.edit' | translate) : ('persona.create_title' | translate) }}</h2>
+        </div>
+        <button class="close-btn" (click)="closeModal()" id="btn-modal-close" aria-label="Close">✕</button>
+      </div>
+
+      <form (ngSubmit)="savePersona()" novalidate class="modal-form">
+        <!-- Two columns -->
+        <div class="form-cols">
+          <!-- Left: Basic Info -->
+          <div class="form-col">
+            <div class="col-title">{{ 'persona.basic_info' | translate }}</div>
+
+            <div class="form-group">
+              <label class="form-label" for="pf-name">{{ 'persona.name' | translate }}</label>
+              <input id="pf-name" class="form-input" [(ngModel)]="form.persona_name" name="persona_name"
+                placeholder="เช่น Mew, Luna, Nira" required />
+            </div>
+
+            <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label" for="pf-age">{{ 'persona.age' | translate }}</label>
+                <input id="pf-age" type="number" class="form-input" [(ngModel)]="form.age" name="age"
+                  placeholder="20" min="1" max="200" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="pf-gender">{{ 'persona.gender' | translate }}</label>
+                <select id="pf-gender" class="form-select" [(ngModel)]="form.gender" name="gender">
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="col-title" style="margin-top:8px">{{ 'persona.outfit' | translate }} & {{ 'persona.distinctive' | translate }}</div>
+
+            <div class="form-group">
+              <label class="form-label" for="pf-outfit">{{ 'persona.outfit' | translate }}</label>
+              <input id="pf-outfit" class="form-input" [(ngModel)]="form.outfit" name="outfit"
+                placeholder="เช่น School uniform, Casual hoodie" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="pf-distinctive">{{ 'persona.distinctive' | translate }}</label>
+              <input id="pf-distinctive" class="form-input" [(ngModel)]="form.distinctive" name="distinctive"
+                placeholder="เช่น Glasses, Earring, Scar on cheek" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="pf-style">{{ 'persona.style' | translate }}</label>
+              <select id="pf-style" class="form-select" [(ngModel)]="form.art_style" name="art_style">
+                @for (s of artStyles; track s) {
+                  <option [value]="s">{{ s }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <!-- Right: Appearance -->
+          <div class="form-col">
+            <div class="col-title">{{ 'persona.appearance' | translate }}</div>
+
+            <div class="form-group">
+              <label class="form-label" for="pf-face">{{ 'persona.face' | translate }}</label>
+              <input id="pf-face" class="form-input" [(ngModel)]="form.face_features" name="face_features"
+                placeholder="เช่น Slim face, Big round eyes" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="pf-hair">{{ 'persona.hair' | translate }}</label>
+              <input id="pf-hair" class="form-input" [(ngModel)]="form.hairstyle" name="hairstyle"
+                placeholder="เช่น Short black hair, Long wavy blonde hair" />
+            </div>
+
+            <!-- Preview box -->
+            @if (form.persona_name) {
+              <div class="preview-box">
+                <div class="preview-avatar">{{ form.persona_name[0].toUpperCase() }}</div>
+                <div class="preview-info">
+                  <div class="preview-name">{{ form.persona_name }}</div>
+                  @if (form.age) { <div class="preview-meta">{{ 'persona.age' | translate }} {{ form.age }} · {{ form.gender }}</div> }
+                  <div class="preview-style">{{ form.art_style }}</div>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" (click)="closeModal()" id="btn-cancel">{{ 'persona.cancel' | translate }}</button>
+          <button type="submit" class="btn btn-primary" [disabled]="!form.persona_name.trim() || saving()" id="btn-save-persona">
+            @if (saving()) {
+              <span class="spinner-sm"></span> Saving…
+            } @else {
+              {{ 'persona.save' | translate }}
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+}

@@ -15,15 +15,15 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     secret_key: str = "change-me"
-    access_token_expire_minutes: int = 60
-    refresh_token_expire_days: int = 7
+    access_token_expire_minutes: int = 180  # 3 hours
+    refresh_token_expire_days: int = 30
 
     # Database
     database_url: str = "mysql+pymysql://dreamcomic:dreamcomic_pass@localhost:3306/dreamcomic"
 
     # AI
     gemini_api_key: str = "YOUR_GEMINI_API_KEY_HERE"
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-2.0-flash"
 
     # ComfyUI
     comfyui_url: str = "http://127.0.0.1:8188"

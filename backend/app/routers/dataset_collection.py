@@ -1,4 +1,6 @@
+import asyncio
 import hashlib
+import logging
 import mimetypes
 from pathlib import Path
 
@@ -55,6 +57,7 @@ from app.services.muse_bridge_manager import managed_muse_bridge_manager
 from app.ws.collection_manager import CollectionContextUnavailableError, collection_manager
 
 router = APIRouter(prefix="/admin/dataset-collection", tags=["Admin Dataset Collection"])
+log = logging.getLogger(__name__)
 
 
 class ReviewCounts(BaseModel):
@@ -286,8 +289,11 @@ async def select_collection_device(
                 lambda runner: runner.select_device(body.device_id, body.device_name),
             )
         )
+        # Discard stale EEG quality history so the new Muse connection starts fresh,
+        # but preserve active flag if Web Bluetooth is already streaming.
+        collection_manager.clear_web_bt_buffer(session_id, preserve_active_flag=True)
         response = await _publish_response(db, session_id, state)
-        await collection_manager.ensure_source(session_id)
+        asyncio.create_task(collection_manager.ensure_source(session_id))
         return response
     finally:
         collection_manager.release_if_idle(session_id)
@@ -300,8 +306,14 @@ async def start_collection_baseline(
     admin: AdminUser,
     db: Session = Depends(get_db),
 ):
+    """Start a baseline recording for the given session.
+
+    Admin confirms physical sensor contact via UI checkboxes, so
+    require_live_sensor_ready() is not used here.  Signal quality is
+    enforced naturally during accumulation — poor/unknown sensors simply
+    will not contribute accepted seconds to the 20-second target.
+    """
     def operation(runner):
-        runner.require_live_sensor_ready()
         return runner.start_baseline(kind)
 
     state = _safe_transition(lambda: _run_capture_session(db, session_id, operation))
@@ -432,7 +444,7 @@ async def resume_collection(session_id: int, admin: AdminUser, db: Session = Dep
     try:
         state = _safe_transition(lambda: _run_session(db, session_id, lambda runner: runner.resume()))
         response = await _publish_response(db, session_id, state)
-        await collection_manager.ensure_source(session_id)
+        asyncio.create_task(collection_manager.ensure_source(session_id))
         return response
     finally:
         collection_manager.release_if_idle(session_id)
@@ -501,8 +513,35 @@ async def collection_websocket(
     await websocket.accept()
     try:
         await collection_manager.connect(session_id, websocket, db)
+        # Release the request's checked-out DB connection back to QueuePool so
+        # long-lived WebSocket connections do not starve the pool.
+        try:
+            db.close()
+        except Exception:
+            pass
         while True:
-            await websocket.receive_text()
+            try:
+                data = await websocket.receive_json()
+            except Exception:
+                # receive_json failed (disconnect or parse error) — exit loop
+                break
+            cmd = data.get("cmd", "") if isinstance(data, dict) else ""
+            if cmd == "eeg_sample_admin":
+                # EEG sample forwarded from Web Bluetooth (muse-js) — Admin runner path.
+                # Routes into CollectionConnectionManager.ingest_web_bluetooth_sample()
+                # which feeds the collection state machine directly (no LSL bridge needed).
+                try:
+                    await collection_manager.ingest_web_bluetooth_sample(
+                        session_id,
+                        tp9=float(data.get("tp9", 0.0)),
+                        af7=float(data.get("af7", 0.0)),
+                        af8=float(data.get("af8", 0.0)),
+                        tp10=float(data.get("tp10", 0.0)),
+                        timestamp=float(data.get("timestamp", 0.0)),
+                    )
+                except Exception as exc:
+                    # Log but don't break — EEG errors are non-fatal for the WS loop
+                    log.warning("eeg_sample_admin error for session %s: %s", session_id, exc)
     except WebSocketDisconnect:
         pass
     finally:

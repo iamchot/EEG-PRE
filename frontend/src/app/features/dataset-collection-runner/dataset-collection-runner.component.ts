@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit, effect, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, Optional, effect, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
@@ -12,8 +12,13 @@ import {
 } from '../../core/services/dataset-collection.service';
 import { DatasetCollectionWsService } from '../../core/services/dataset-collection-ws.service';
 import { SensorStatus } from '../../core/services/eeg-ws.service';
-import { MuseConnectionStatus, MuseDevice, MuseDeviceService } from '../../core/services/muse-device.service';
 import { HorseshoeSensorComponent, SensorKey } from '../../shared/components/horseshoe-sensor/horseshoe-sensor.component';
+import { EegWaveformComponent } from '../../shared/components/eeg-waveform/eeg-waveform.component';
+import { MuseDevice, MuseDeviceService, MuseConnectionStatus } from '../../core/services/muse-device.service';
+
+import { TranslatePipe } from '../../core/pipes/translate.pipe';
+import { LanguageService, toThaiError } from '../../core/services/language.service';
+import { MuseWebBluetoothService } from '../../core/services/muse-web-bluetooth.service';
 
 type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | 'stimulus' |
   'rating' | 'break' | 'completed' | 'interrupted' | 'failed';
@@ -21,143 +26,8 @@ type RunnerStage = 'device' | 'eyes_open' | 'eyes_closed' | 'ready' | 'rest' | '
 @Component({
   selector: 'app-dataset-collection-runner',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, HorseshoeSensorComponent],
-  template: `
-    <main class="runner-shell">
-      <header class="runner-header">
-        <div>
-          <a routerLink="/admin/dataset-collection" class="back-link">← EEG Dataset Collection</a>
-          <p class="eyebrow">Admin collection workspace</p>
-          <h1>Creative Headset Setup</h1>
-          <p>Session {{ sessionId }} · {{ trialProgressLabel() }}</p>
-        </div>
-        <aside class="notice" data-testid="non-medical-notice">
-          For entertainment and prototype research only — not medical diagnosis or treatment.
-        </aside>
-      </header>
-
-      <div class="connection" role="status" aria-live="polite">
-        <span [class.online]="ws.isConnected()"></span>
-        {{ ws.isConnected() ? 'Live state connected' : 'Using persisted runner state' }}
-        · Signal quality: derived EEG window
-        · {{ samplingRateLabel() }}
-      </div>
-      @if (ws.streamError()) { <div class="error" role="alert">{{ ws.streamError() }}</div> }
-      @if (error()) { <div class="error" role="alert">{{ error() }}</div> }
-
-      <section class="progress-card" aria-label="Collection progress">
-        <div><span>Progress</span><strong>{{ trialProgressLabel() }}</strong></div>
-        <progress [value]="runnerState()?.completed_trials ?? 0" max="12">{{ runnerState()?.completed_trials ?? 0 }} of 12</progress>
-      </section>
-
-      @switch (stage()) {
-        @case ('device') {
-          <section class="workspace" data-stage="device">
-            <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
-            <section class="action-card">
-              <p class="step">Step 1</p><h2>ค้นหาและเลือก Muse</h2>
-              <p>ค้นหา Muse ใกล้เครื่องคอมพิวเตอร์ แล้วเชื่อมต่ออุปกรณ์ที่พบสำหรับ Session นี้</p>
-              <button id="scan-muse" class="primary" type="button" (click)="scanMuse()" [disabled]="busy() || muse.scanStatus().state === 'scanning'">ค้นหา Muse</button>
-              @if (muse.scanStatus().state === 'scanning') { <p class="hint">กำลังค้นหา Muse…</p> }
-              @if (muse.scanStatus().state === 'not_found') { <p class="hint">ไม่พบ Muse ที่พร้อมเชื่อมต่อ ลองค้นหาอีกครั้ง</p> }
-              @if (muse.scanStatus().state === 'failed') { <p class="error" role="alert">ไม่สามารถค้นหา Muse ได้</p> }
-              @for (device of muse.scanStatus().devices; track device.address) {
-                <button type="button" data-muse-device (click)="connectMuse(device)" [disabled]="busy()">{{ device.name }} · {{ device.address }}</button>
-              }
-              <p class="muse-connection" [attr.data-state]="muse.connectionStatus().state">{{ museConnectionLabel() }}</p>
-              @if (devicePersisted() && (runnerState()?.total_trials ?? 0) === 0) {
-                <button id="prepare-schedule" type="button" (click)="prepareSchedule()" [disabled]="busy()">เตรียม Schedule 12 Trial</button>
-              }
-              <fieldset class="contact-confirmations">
-                <legend>การยืนยันการสัมผัสโดย Admin</legend>
-                <p>เป็นการยืนยันว่าเซนเซอร์แตะผิวเท่านั้น ไม่ใช่ค่าคุณภาพสัญญาณแบบ live</p>
-                @for (key of sensorKeys; track key) {
-                  <label><input data-contact-confirmation type="checkbox" [checked]="contacts()[key]" (change)="setContact(key, $any($event.target).checked)"><span>{{ key.toUpperCase() }} สัมผัสผิวแล้ว</span></label>
-                }
-              </fieldset>
-              <button type="button" (click)="startBaseline('eyes_open')" [disabled]="busy() || !canStartBaseline()">เริ่ม Baseline ลืมตา</button>
-              <p class="hint">Backend จะตรวจ clean-signal gate จริงระหว่าง Baseline</p>
-              <p class="hint">Baseline ลืมตาต้องมาก่อน Baseline หลับตาเสมอ</p>
-            </section>
-          </section>
-        }
-        @case ('eyes_open') {
-          <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
-          <section class="focus-card" data-stage="eyes_open" aria-live="polite">
-            <p class="step">Baseline 1 of 2</p><h2>ลืมตาและมองจุดกึ่งกลาง</h2>
-            <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
-            <p>{{ seconds(runnerState()?.wall_clock_seconds) }}s wall · {{ seconds(runnerState()?.accepted_clean_seconds) }}s clean</p>
-          </section>
-        }
-        @case ('eyes_closed') {
-          <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
-          <section class="focus-card" data-stage="eyes_closed" aria-live="polite">
-            <p class="step">Baseline 2 of 2</p><h2>หลับตาและอยู่นิ่ง</h2>
-            <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
-            @if (runnerState()?.active_baseline === 'eyes_closed') {
-              <p>{{ seconds(runnerState()?.wall_clock_seconds) }}s wall · {{ seconds(runnerState()?.accepted_clean_seconds) }}s clean</p>
-            } @else {
-              <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy() || !canStartBaseline()">เริ่ม Baseline หลับตา</button>
-            }
-          </section>
-        }
-        @case ('ready') {
-          <section class="focus-card" data-stage="ready"><p class="step">พร้อมเก็บ Trial</p><h2>Trial {{ displayedTrialOrder() }} / 12</h2>
-            <p>คลิปถัดไป: {{ runnerState()?.next_stimulus_title ?? 'รอข้อมูลคลิป' }}</p>
-            <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy() || !runnerState()?.next_trial_id">เริ่มช่วงพักก่อนคลิป</button>
-          </section>
-        }
-        @case ('rest') {
-          <section class="media-layout" data-stage="rest">
-            <div class="focus-card"><p class="step">Rest / Fixation</p><h2>มองจุดกึ่งกลางและอยู่นิ่ง</h2><div class="fixation" aria-label="Fixation point">+</div><p>เป้าหมาย 10–15 วินาที · Backend: {{ seconds(runnerState()?.wall_clock_seconds) }}s</p></div>
-            <ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
-          </section>
-        }
-        @case ('stimulus') {
-          <section class="media-layout" data-stage="stimulus"><ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
-            <aside class="artifact-card"><h2>Artifact marker</h2><label for="artifact-note">หมายเหตุ (ไม่บังคับ)<input id="artifact-note" [(ngModel)]="artifactNote"></label>
-              <div class="artifact-grid">@for (item of artifacts; track item.type) { <button type="button" (click)="markArtifact(item.type)" [disabled]="busy()">{{ item.label }}</button> }</div>
-            </aside>
-          </section>
-        }
-        @case ('rating') {
-          <form class="rating-card" data-stage="rating" (ngSubmit)="submitRating()">
-            <p class="step">Self-rating</p><h2>บันทึกความรู้สึกของผู้เข้าร่วม</h2>
-            <label for="valence">Valence (1–9)<input id="valence" name="valence" type="number" min="1" max="9" required [(ngModel)]="valence"></label>
-            <label for="arousal">Arousal (1–9)<input id="arousal" name="arousal" type="number" min="1" max="9" required [(ngModel)]="arousal"></label>
-            <label for="confidence">Confidence (1–5)<input id="confidence" name="confidence" type="number" min="1" max="5" required [(ngModel)]="confidence"></label>
-            <button class="primary" type="submit" [disabled]="busy() || !ratingsValid()">บันทึกคะแนน</button>
-          </form>
-        }
-        @case ('break') {
-          <section class="focus-card" data-stage="break"><p class="step">พักกลาง Session</p><h2>ครบ Trial 6 แล้ว</h2><p>พัก 3–5 นาที ตรวจความสบายและตำแหน่ง Muse ก่อนทำ Trial 7 ต่อ</p>
-            <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy()">เริ่ม Trial 7</button>
-          </section>
-        }
-        @case ('completed') { <section class="focus-card success" data-stage="completed"><h2>เก็บข้อมูลครบ 12 Trial</h2><p>ข้อมูลที่ commit แล้วพร้อมสำหรับขั้นตอนตรวจสอบ Dataset</p><a routerLink="/admin/dataset-collection">กลับหน้าสรุป</a></section> }
-        @case ('interrupted') { <section class="focus-card warning" data-stage="interrupted"><h2>Session ถูกขัดจังหวะ</h2><p>{{ runnerState()?.interruption_reason }}</p><p>เริ่ม Trial {{ displayedTrialOrder() }} ใหม่ในลำดับเดิม โดยไม่สุ่ม Schedule ใหม่</p><button class="primary" type="button" (click)="resume()" [disabled]="busy()">Resume same order</button></section> }
-        @case ('failed') { <section class="focus-card danger" data-stage="failed"><h2>ไม่สามารถดำเนิน Session ต่อได้</h2><p>ตรวจอุปกรณ์และสถานะไฟล์ก่อนกลับมาลองใหม่</p></section> }
-      }
-
-      @if (canEmergencyStop()) { <button class="emergency" type="button" (click)="emergencyStop()" [disabled]="busy()">Emergency stop</button> }
-
-      <ng-template #mediaPanel>
-        <section class="media-card">
-          <div><p class="step">Approved stimulus</p><h2>{{ runnerState()?.current_stimulus_title }}</h2></div>
-          @if (mediaError()) { <div class="error" role="alert">โหลดคลิปไม่สำเร็จ — จะยังไม่เริ่มบันทึก stimulus</div> }
-          @if (startRetryAvailable()) { <button type="button" (click)="retryPlayback()">ลองเริ่มคลิปอีกครั้ง</button> }
-          @if (finishRetryAvailable()) { <button type="button" (click)="retryFinish()" [disabled]="busy()">ลองยืนยันจบคลิปอีกครั้ง</button> }
-          @if (mediaUrl(); as source) {
-            <div class="video-shell">
-              <video #media [controls]="canControlMedia()" preload="auto" [src]="source" (playing)="onPlaying(media)" (ended)="onEnded()" (error)="onMediaError(media)" aria-label="Approved entertainment stimulus"></video>
-              @if (!canControlMedia()) { <div class="media-lock" role="status">รอ Backend ยืนยันช่วง Rest และสัญญาณทั้ง 4 จุด</div> }
-            </div>
-          }
-          @else if (!mediaError()) { <p role="status">กำลังโหลดคลิปที่ผ่านการอนุมัติ…</p> }
-        </section>
-      </ng-template>
-    </main>
-  `,
+  imports: [CommonModule, FormsModule, RouterLink, TranslatePipe, HorseshoeSensorComponent, EegWaveformComponent],
+  templateUrl: './dataset-collection-runner.component.html',
   styleUrl: './dataset-collection-runner.component.css',
 })
 export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
@@ -169,7 +39,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   readonly mediaReady = signal(false);
   readonly mediaError = signal(false);
   readonly finishRetryAvailable = signal(false);
-  readonly startRetryAvailable = signal(false);
+  readonly autoplayBlocked = signal(false);
   readonly devicePersisted = signal(false);
   readonly contacts = signal<Record<SensorKey, boolean>>({ tp9: false, af7: false, af8: false, tp10: false });
   readonly sensorKeys: SensorKey[] = ['tp9', 'af7', 'af8', 'tp10'];
@@ -192,6 +62,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   private playbackFinished = false;
   private pendingEnded = false;
   private playbackFailureHandled = false;
+  private stimulusStarting = false;
   private destroyed = false;
   private activeVideo: HTMLVideoElement | null = null;
   private selectedMuse: MuseDevice | null = null;
@@ -200,7 +71,9 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     route: ActivatedRoute,
     private readonly api: DatasetCollectionService,
     readonly ws: DatasetCollectionWsService,
-    readonly muse: MuseDeviceService,
+    readonly museBt: MuseWebBluetoothService,
+    readonly lang: LanguageService,
+    @Optional() readonly muse?: MuseDeviceService,
   ) {
     this.sessionId = Number(route.snapshot.paramMap.get('id'));
     effect(() => {
@@ -212,11 +85,11 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       }
     });
     effect(() => {
-      const connection = this.muse.connectionStatus();
+      const connection = this.muse?.connectionStatus?.();
       const selected = this.selectedMuse;
       if (!this.destroyed && selected && !this.busy() && !this.devicePersisted()
-        && connection.owner?.kind === 'collection' && connection.owner.sessionId === this.sessionId
-        && connection.state === 'connected') {
+        && connection?.owner?.kind === 'collection' && connection?.owner?.sessionId === this.sessionId
+        && connection?.state === 'connected') {
         this.persistConnectedMuse(selected);
       }
     });
@@ -224,6 +97,11 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     if (!Number.isSafeInteger(this.sessionId) || this.sessionId <= 0) { this.error.set('Session ID ไม่ถูกต้อง'); this.stage.set('failed'); return; }
+    // If Muse 2 is already streaming via Web Bluetooth, route samples immediately to this session's WS
+    if (this.museBt.state() === 'streaming') {
+      this.museBt.setOnSample(sample => this.ws.sendEegSample(sample));
+      this.devicePersisted.set(true);
+    }
     this.initialSubscription = this.api.getRunnerState(this.sessionId).subscribe({
       next: state => { if (!this.destroyed && !this.ws.state()) this.applyState(state); },
       error: err => { if (!this.destroyed && !this.ws.state()) this.fail(err); },
@@ -234,16 +112,31 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void { this.destroyed = true; this.ws.disconnect(); this.initialSubscription?.unsubscribe(); this.actionSubscription?.unsubscribe(); this.safetyInterruptSubscription?.unsubscribe(); this.releaseMedia(); }
 
   applyState(state: CollectionRunnerState): void {
-    if (state.state !== 'preparation' || state.total_trials === 12) this.devicePersisted.set(true);
+    if (state.state !== 'preparation' || (state.total_trials ?? 0) > 0 || state.eyes_open_complete) {
+      this.devicePersisted.set(true);
+    }
+    if (state.eyes_open_complete) {
+      this.contacts.set({ tp9: true, af7: true, af8: true, tp10: true });
+    }
     this.runnerState.set(state);
-    this.stage.set(this.resolveStage(state));
+    const newStage = this.resolveStage(state);
+    this.stage.set(newStage);
     const stimulusId = state.current_stimulus_id;
-    if (stimulusId && (state.trial_state === 'rest' || state.trial_state === 'stimulus')) this.loadMedia(stimulusId);
-    else this.releaseMedia();
+    if (stimulusId && (state.trial_state === 'rest' || state.trial_state === 'stimulus')) {
+      this.loadMedia(stimulusId);
+    } else {
+      this.releaseMedia();
+    }
+    if (state.trial_state === 'rest' && state.stimulus_start_ready && !this.busy() && !this.stimulusStarting && this.activeVideo) {
+      this.triggerStimulusStart(this.activeVideo);
+    }
+    if (newStage === 'stimulus') {
+      queueMicrotask(() => this.playStimulusVideo());
+    }
   }
 
   displayedTrialOrder(): number { return this.runnerState()?.current_trial_order ?? this.runnerState()?.next_trial_order ?? 12; }
-  trialProgressLabel(): string { return (this.runnerState()?.total_trials ?? 0) === 0 ? 'Schedule not prepared' : `Trial ${this.displayedTrialOrder()} / 12`; }
+  trialProgressLabel(): string { return (this.runnerState()?.total_trials ?? 0) === 0 ? this.lang.t('runner.schedule_not_prepared') : `Trial ${this.displayedTrialOrder()} / 12`; }
   seconds(value?: number): string { return Math.max(0, value ?? 0).toFixed(1); }
   samplingRateLabel(): string {
     const rate = this.runnerState()?.sampling_rate_hz;
@@ -254,38 +147,188 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     return this.runnerState()?.sensors[key] ?? { state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 };
   }
 
-  setContact(key: SensorKey, confirmed: boolean): void { this.contacts.update(value => ({ ...value, [key]: confirmed })); }
-  canStartBaseline(): boolean {
-    return this.devicePersisted() && this.runnerState()?.total_trials === 12 && this.ws.isConnected()
-      && !!this.runnerState()?.live_sensor_ready && this.sensorKeys.every(key => this.contacts()[key]);
+  sensorQualityTone(key: SensorKey): 'good' | 'fair' | 'poor' | 'unknown' {
+    const s = this.sensorStatus(key);
+    if (!s || s.state === 'unknown' || s.timestamp === 0) return 'unknown';
+    if (s.state === 'good' && s.quality_score >= 60) return 'good';
+    if (s.quality_score >= 35) return 'fair';
+    return 'poor';
   }
 
-  scanMuse(): void { this.muse.scan(); }
+  sensorQualityScore(key: SensorKey): string {
+    const s = this.sensorStatus(key);
+    if (!s || s.state === 'unknown' || s.timestamp === 0) return 'รอสัญญาณ';
+    return `${Math.round(s.quality_score)}%`;
+  }
 
-  connectMuse(device: MuseDevice): void {
-    if (this.busy()) return;
-    this.selectedMuse = device;
-    this.contacts.set({ tp9: false, af7: false, af8: false, tp10: false });
-    this.devicePersisted.set(false);
+  sensorQualityLabel(key: SensorKey): string {
+    const tone = this.sensorQualityTone(key);
+    switch (tone) {
+      case 'good': return 'สัญญาณดี';
+      case 'fair': return 'สัญญาณปานกลาง';
+      case 'poor': return 'แตะไม่สนิท';
+      default: return 'รอสัญญาณ';
+    }
+  }
+
+  setContact(key: SensorKey, confirmed: boolean): void { this.contacts.update(value => ({ ...value, [key]: confirmed })); }
+  confirmAllContacts(): void { this.contacts.set({ tp9: true, af7: true, af8: true, tp10: true }); }
+  isDeviceReady(): boolean { return this.devicePersisted() || this.museBt.state() === 'streaming'; }
+  canStartBaseline(): boolean {
+    // Admin manually confirms all 4 sensors are touching skin via checkboxes.
+    // live_sensor_ready is NOT required here — EEG quality is checked during
+    // baseline accumulation itself, not as a gate for starting it.
+    const allContactsConfirmed = this.sensorKeys.every(key => this.contacts()[key]);
+    const hasTrials = (this.runnerState()?.total_trials ?? 0) > 0;
+    return this.isDeviceReady() && hasTrials
+      && this.ws.isConnected() && allContactsConfirmed;
+  }
+
+  scanMuse(): void {
+    if (this.muse && !this.museBt.isSupported) {
+      this.muse.scan();
+      return;
+    }
+    const sessionId = this.sessionId;
     this.busy.set(true);
     this.error.set('');
-    this.actionSubscription = this.muse.connectAdmin(this.sessionId, device).subscribe({
-      next: status => {
-        this.busy.set(false);
-        if (status.state === 'connected') this.persistConnectedMuse(device);
-        else if (status.state === 'failed') this.error.set('Muse connection could not be established');
-      },
-      error: err => { this.busy.set(false); this.fail(err); },
+    this.museBt.connect((sample) => {
+      // Stream EEG to Admin runner WS — backend routes into collection state machine
+      this.ws.sendEegSample(sample);
+    }).then((deviceName) => {
+      this.busy.set(false);
+      this.devicePersisted.set(true);
+      if (this.runnerState()?.state === 'preparation') {
+        // Persist connected device via API only in preparation stage
+        this.run(
+          this.api.selectDevice(sessionId, { device_id: deviceName, device_name: deviceName }),
+          undefined,
+          () => this.devicePersisted.set(true),
+        );
+      }
+    }).catch((err: Error) => {
+      this.busy.set(false);
+      this.error.set(err.message ?? 'ไม่สามารถเชื่อมต่อ Muse 2 ได้');
     });
   }
 
   museConnectionLabel(): string {
-    const status = this.muse.connectionStatus();
-    return this.connectionStageLabel(status);
+    if (this.muse?.connectionStatus) {
+      const status = this.muse.connectionStatus();
+      if (status && status.state !== 'idle') return this.connectionStageLabel(status);
+    }
+    const st = this.museBt.state();
+    const labels: Record<string, string> = {
+      idle: 'No Muse connected',
+      requesting: 'Opening Bluetooth picker…',
+      connecting: 'Connecting to Muse 2…',
+      streaming: `Muse connected · ${this.museBt.deviceName() ?? ''}`,
+      failed: 'Muse connection unavailable',
+    };
+    return labels[st] ?? 'No Muse connected';
+  }
+
+  private connectionStageLabel(status: MuseConnectionStatus): string {
+    switch (status.state) {
+      case 'starting_bridge': return 'Starting Muse bridge';
+      case 'connecting_bluetooth': return 'Connecting Bluetooth';
+      case 'waiting_for_lsl': return 'Waiting for LSL';
+      case 'connected': return 'Muse connected';
+      case 'failed': return 'Muse connection unavailable';
+      case 'disconnecting': return 'Disconnecting Muse';
+      default: return 'No Muse connected';
+    }
+  }
+
+  onVideoReady(video: HTMLVideoElement): void {
+    this.activeVideo = video;
+    this.mediaReady.set(true);
+    if (this.runnerState()?.trial_state === 'stimulus') {
+      this.resumeAfterBackendStart(video);
+    } else if (this.runnerState()?.trial_state === 'rest' && this.runnerState()?.stimulus_start_ready && !this.busy() && !this.stimulusStarting) {
+      this.triggerStimulusStart(video);
+    }
+  }
+
+  triggerStimulusStart(video?: HTMLVideoElement): void {
+    const target = video ?? this.activeVideo;
+    if (target) this.activeVideo = target;
+    const state = this.runnerState();
+    if (this.busy() || this.stimulusStarting) return;
+    if (state?.trial_state === 'rest' && state.current_trial_id) {
+      this.stimulusStarting = true;
+      this.stopAllMedia(target ?? undefined);
+      this.playbackStarted = true;
+      this.run(
+        this.api.startStimulus(this.sessionId, state.current_trial_id),
+        () => {
+          this.stimulusStarting = false;
+          this.playbackStarted = false;
+        },
+        () => {
+          this.stimulusStarting = false;
+          this.resumeAfterBackendStart(target ?? this.activeVideo);
+        },
+      );
+    } else {
+      const active = target ?? (typeof document !== 'undefined' ? document.querySelector<HTMLVideoElement>('.video-shell video') : null);
+      if (active) {
+        this.stopAllMedia(active);
+        void active.play().catch(() => this.handlePostStartPlaybackFailure(active));
+      }
+    }
+  }
+
+  restartRest(): void {
+    if (this.busy() || this.runnerState()?.trial_state !== 'rest') return;
+    this.run(
+      this.api.interrupt(this.sessionId, { reason: 'Pre-stimulus rest timeout restart' }),
+      undefined,
+      () => {
+        this.run(this.api.resume(this.sessionId));
+      },
+    );
+  }
+
+  connectMuse(device: unknown): void {
+    const dev = device as MuseDevice | undefined;
+    this.selectedMuse = dev ?? null;
+    this.contacts.set({ tp9: false, af7: false, af8: false, tp10: false });
+    this.devicePersisted.set(false);
+    const current = this.runnerState();
+    if (current) {
+      const unknownSensors = Object.fromEntries(
+        this.sensorKeys.map(k => [k, { state: 'unknown' as const, quality_score: 0, timestamp: 0, sequence: 0 }])
+      ) as unknown as CollectionRunnerState['sensors'];
+      this.runnerState.set({ ...current, sensors: unknownSensors });
+    }
+    if (dev && this.muse?.connectAdmin) {
+      this.busy.set(true);
+      this.error.set('');
+      this.actionSubscription = this.muse.connectAdmin(this.sessionId, dev).subscribe({
+        next: status => {
+          this.busy.set(false);
+          if (status.state === 'connected') {
+            this.persistConnectedMuse(dev);
+          } else if (status.state === 'failed') {
+            this.error.set('ไม่สามารถเชื่อมต่ออุปกรณ์ Muse ได้ (กรุณาตรวจการเปิดเครื่องและบลูทูธ)');
+          }
+        },
+        error: err => { this.busy.set(false); this.fail(err); },
+      });
+    }
+  }
+
+  private persistConnectedMuse(device: MuseDevice): void {
+    this.run(
+      this.api.selectDevice(this.sessionId, { device_id: device.address, device_name: device.name }),
+      undefined,
+      () => this.devicePersisted.set(true),
+    );
   }
 
   prepareSchedule(): void {
-    if (!this.devicePersisted() || (this.runnerState()?.total_trials ?? 0) !== 0) return;
+    if (!this.isDeviceReady() || (this.runnerState()?.total_trials ?? 0) !== 0) return;
     this.run(this.api.createSchedule(this.sessionId));
   }
 
@@ -309,19 +352,39 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     if (video) this.activeVideo = video;
     const state = this.runnerState();
     if (state?.trial_state === 'stimulus' && this.playbackStarted) return;
-    if (!this.mediaReady() || this.mediaError() || state?.trial_state !== 'rest' || !state.current_trial_id || !state.stimulus_start_ready) {
+    if (state?.trial_state === 'rest') {
       this.rewindMedia(video);
+      if (state.stimulus_start_ready && !this.playbackStarted && !this.stimulusStarting) {
+        this.triggerStimulusStart(video);
+      }
       return;
     }
-    if (this.playbackStarted) return;
-    this.rewindMedia(video);
-    this.playbackStarted = true;
-    this.startRetryAvailable.set(false);
-    this.run(this.api.startStimulus(this.sessionId, state.current_trial_id), () => {
-      this.playbackStarted = false;
-      this.startRetryAvailable.set(true);
-      this.rewindMedia(video);
-    }, () => this.resumeAfterBackendStart(video ?? this.activeVideo));
+    if (state?.trial_state === 'stimulus') {
+      this.playbackStarted = true;
+      this.autoplayBlocked.set(false);
+    }
+  }
+
+  private resumeAfterBackendStart(video: HTMLVideoElement | null): void {
+    if (video && typeof (video as unknown as Node).isConnected === 'boolean' && !(video as unknown as Node).isConnected) {
+      try {
+        video.pause();
+        video.currentTime = 0;
+      } catch {}
+    }
+    const mounted = typeof document !== 'undefined' ? document.querySelector<HTMLVideoElement>('.video-shell video') : null;
+    const target = (video && (typeof (video as unknown as Node).isConnected !== 'boolean' || (video as unknown as Node).isConnected)) ? video : (mounted ?? this.activeVideo);
+    if (!target) return;
+    this.activeVideo = target;
+    const playPromise = target.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          this.playbackStarted = true;
+          this.autoplayBlocked.set(false);
+        })
+        .catch(() => this.handlePostStartPlaybackFailure(target));
+    }
   }
 
   onEnded(): void {
@@ -339,12 +402,6 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     const url = this.mediaUrl(); if (url) URL.revokeObjectURL(url);
     this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(true);
     if (failedAfterBackendStart) this.handlePostStartPlaybackFailure(video ?? this.activeVideo);
-  }
-
-  retryPlayback(): void {
-    if (!this.startRetryAvailable() || !this.canControlMedia()) return;
-    this.startRetryAvailable.set(false);
-    void this.activeVideo?.play();
   }
 
   retryFinish(): void {
@@ -383,56 +440,111 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   canEmergencyStop(): boolean { const state = this.runnerState(); return state?.state === 'baseline' || (state?.state === 'in_progress' && !!state.current_trial_id); }
 
   private resolveStage(state: CollectionRunnerState): RunnerStage {
-    if (state.state === 'completed') return 'completed';
+    if (state.state === 'completed' || ((state.total_trials ?? 0) > 0 && (state.completed_trials ?? 0) >= (state.total_trials ?? 0))) return 'completed';
     if (state.state === 'interrupted') return 'interrupted';
     if (state.state === 'failed' || state.state === 'withdrawn' || state.file_recovery_required) return 'failed';
+
+    if (state.trial_state === 'rating') return 'rating';
+    if (state.trial_state === 'stimulus') return 'stimulus';
+    if (state.trial_state === 'rest') return 'rest';
+    if (state.break_required) return 'break';
+
     if (state.active_baseline === 'eyes_open') return 'eyes_open';
     if (state.active_baseline === 'eyes_closed') return 'eyes_closed';
-    if (state.state === 'preparation') return 'device';
-    if (state.state === 'baseline') return 'eyes_closed';
-    if (state.trial_state === 'rest') return 'rest';
-    if (state.trial_state === 'stimulus') return 'stimulus';
-    if (state.trial_state === 'rating') return 'rating';
-    if (state.break_required) return 'break';
-    return 'ready';
-  }
 
-  private persistConnectedMuse(device: MuseDevice): void {
-    this.run(
-      this.api.selectDevice(this.sessionId, { device_id: device.address, device_name: device.name }),
-      undefined,
-      () => this.devicePersisted.set(true),
-    );
-  }
+    const eyesOpenDone = !!state.eyes_open_complete;
+    const eyesClosedDone = !!state.eyes_closed_complete;
 
-  private connectionStageLabel(status: MuseConnectionStatus): string {
-    switch (status.state) {
-      case 'starting_bridge': return 'Starting Muse bridge';
-      case 'connecting_bluetooth': return 'Connecting Bluetooth';
-      case 'waiting_for_lsl': return 'Waiting for LSL';
-      case 'connected': return 'Muse connected';
-      case 'failed': return 'Muse connection unavailable';
-      case 'disconnecting': return 'Disconnecting Muse';
-      default: return 'No Muse connected';
-    }
+    if (eyesOpenDone && eyesClosedDone) return 'ready';
+    if (eyesOpenDone && !eyesClosedDone) return 'eyes_closed';
+    if (state.state === 'ready' || state.state === 'in_progress') return 'ready';
+    if (state.state === 'baseline') return eyesOpenDone ? 'eyes_closed' : 'eyes_open';
+
+    return 'device';
   }
 
   private loadMedia(stimulusId: number): void {
-    if (this.mediaStimulusId === stimulusId && (this.mediaUrl() || this.mediaError())) return;
+    if (this.mediaStimulusId === stimulusId && !this.mediaError()) return;
     this.releaseMedia();
     this.mediaStimulusId = stimulusId;
-    this.mediaReady.set(false); this.mediaError.set(false); this.finishRetryAvailable.set(false); this.startRetryAvailable.set(false); this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false; this.playbackFailureHandled = false;
+    this.mediaReady.set(false); this.mediaError.set(false); this.finishRetryAvailable.set(false); this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false; this.playbackFailureHandled = false;
     this.mediaSubscription = this.api.getStimulusMedia(stimulusId).subscribe({
-      next: blob => { if (this.mediaStimulusId !== stimulusId) return; this.mediaUrl.set(URL.createObjectURL(blob)); this.mediaReady.set(true); },
+      next: blob => {
+        if (this.mediaStimulusId !== stimulusId) return;
+        this.mediaUrl.set(URL.createObjectURL(blob));
+        this.mediaReady.set(true);
+        if (this.runnerState()?.trial_state === 'stimulus') {
+          queueMicrotask(() => this.playStimulusVideo());
+        }
+      },
       error: () => { if (this.mediaStimulusId === stimulusId) { this.mediaReady.set(false); this.mediaError.set(true); } },
     });
   }
 
+  retryMediaDownload(): void {
+    const stimulusId = this.runnerState()?.current_stimulus_id;
+    if (stimulusId) {
+      this.mediaStimulusId = null;
+      this.loadMedia(stimulusId);
+    }
+  }
+
+  private playStimulusVideo(video?: HTMLVideoElement): void {
+    const state = this.runnerState();
+    if (state && state.trial_state !== 'stimulus') return;
+    const target = video ?? this.activeVideo ?? document.querySelector<HTMLVideoElement>('.video-shell video');
+    if (!target) return;
+    this.activeVideo = target;
+    if (this.playbackStarted && !target.paused) return;
+    const playPromise = target.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          this.playbackStarted = true;
+          this.autoplayBlocked.set(false);
+        })
+        .catch(err => {
+          this.handlePostStartPlaybackFailure(target);
+        });
+    }
+  }
+
+  unblockAutoplay(video?: HTMLVideoElement): void {
+    const target = video ?? this.activeVideo ?? document.querySelector<HTMLVideoElement>('.video-shell video');
+    if (target) {
+      void target.play().then(() => {
+        this.playbackStarted = true;
+        this.autoplayBlocked.set(false);
+      }).catch(() => {});
+    }
+  }
+
+  private stopAllMedia(except?: HTMLVideoElement): void {
+    if (this.activeVideo && this.activeVideo !== except) {
+      try {
+        this.activeVideo.pause();
+        this.activeVideo.currentTime = 0;
+      } catch {}
+    }
+    if (typeof document !== 'undefined' && document.querySelectorAll) {
+      document.querySelectorAll<HTMLVideoElement>('video').forEach(v => {
+        if (v !== except) {
+          try {
+            v.pause();
+            v.currentTime = 0;
+          } catch {}
+        }
+      });
+    }
+  }
+
   private releaseMedia(): void {
+    this.stopAllMedia();
     this.mediaSubscription?.unsubscribe(); this.mediaSubscription = undefined;
     const url = this.mediaUrl(); if (url) URL.revokeObjectURL(url);
     this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(false); this.mediaStimulusId = null;
-    this.activeVideo = null; this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false; this.finishRetryAvailable.set(false); this.startRetryAvailable.set(false);
+    this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false;
+    this.finishRetryAvailable.set(false); this.autoplayBlocked.set(false);
   }
 
   private flushPendingFinish(): void {
@@ -444,11 +556,6 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       () => { this.finishRetryAvailable.set(true); },
       () => this.finishRetryAvailable.set(false),
     );
-  }
-
-  private resumeAfterBackendStart(video: HTMLVideoElement | null): void {
-    if (!video) return;
-    void video.play().catch(() => this.handlePostStartPlaybackFailure(video));
   }
 
   private handlePostStartPlaybackFailure(video: HTMLVideoElement | null): void {
@@ -466,7 +573,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       next: state => {
         this.busy.set(false);
         this.applyState(state);
-        this.error.set('Stimulus playback failed; collection was interrupted for recovery');
+        this.error.set('การเล่นวิดีโอคลิปล้มเหลว (Stimulus playback failed); collection was interrupted for recovery');
       },
       error: err => {
         this.busy.set(false);
@@ -474,6 +581,8 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       },
     });
   }
+
+  readonly toThaiError = toThaiError;
 
   private run(request: ReturnType<DatasetCollectionService['getRunnerState']>, onError?: () => void, onSuccess?: () => void): void {
     if (this.busy()) return;
@@ -491,5 +600,5 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     target.pause();
     target.currentTime = 0;
   }
-  private fail(err: unknown): void { const value = err as { error?: { detail?: string }; message?: string }; this.error.set(value.error?.detail ?? value.message ?? 'ไม่สามารถดำเนินการได้'); }
+  private fail(err: unknown): void { this.error.set(toThaiError(err)); }
 }

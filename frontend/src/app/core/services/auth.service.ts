@@ -80,7 +80,11 @@ export class AuthService {
   private _fetchMe() {
     this.http.get<UserPublic>(`${this.apiUrl}/auth/me`).subscribe({
       next: (user) => this.currentUser.set(user),
-      error: () => this.logout(),
+      error: (err) => {
+        if (err?.status === 401 || err?.status === 403) {
+          this.logout();
+        }
+      },
     });
   }
 

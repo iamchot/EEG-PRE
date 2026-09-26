@@ -1,0 +1,38 @@
+<section class="waveform-panel" aria-label="Live EEG Waveform Visualizer">
+  <header class="waveform-header">
+    <div class="waveform-title-group">
+      <p class="waveform-kicker">Real-time Stream</p>
+      <h3 class="waveform-title">
+        <span>EEG Waveform Oscilloscope</span>
+        <span class="live-badge" [class.connected]="isConnected()">
+          <span class="pulse-dot"></span>
+          {{ isConnected() ? 'Live 256 Hz' : 'Offline' }}
+        </span>
+      </h3>
+    </div>
+    <div class="waveform-legend">
+      @for (ch of channels; track ch.key) {
+        <span class="legend-item">
+          <span [class]="'legend-color ' + ch.key"></span>
+          {{ ch.label }}
+        </span>
+      }
+    </div>
+  </header>
+
+  <div class="canvas-container">
+    <canvas #waveformCanvas></canvas>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <footer class="waveform-footer">
+    <span>Sampling Rate: 256 Hz · 4 Channels (TP9, AF7, AF8, TP10)</span>
+    @if (hasArtifact()) {
+      <span class="artifact-notice" role="status">
+        <span class="artifact-icon">[!]</span> ตรวจพบสิ่งรบกวนสัญญาณ (Motion / Blink Artifact)
+      </span>
+    } @else {
+      <span>Signal quality: {{ averageQuality() }}%</span>
+    }
+  </footer>
+</section>

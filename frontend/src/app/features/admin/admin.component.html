@@ -1,0 +1,297 @@
+<div class="admin-page">
+  <!-- Header -->
+  <div class="admin-header">
+    <div class="header-title">
+      <div>
+        <h1>{{ "admin.title" | translate }}</h1>
+        <p>{{ "admin.subtitle" | translate }}</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab Bar -->
+  <div class="tab-bar" role="tablist">
+    @for (tab of tabs(); track tab.key) {
+      <button
+        class="tab-btn"
+        [class.active]="activeTab() === tab.key"
+        (click)="switchTab(tab.key)"
+        role="tab"
+        [id]="'tab-' + tab.key"
+        [attr.aria-selected]="activeTab() === tab.key"
+      >
+        <span aria-hidden="true">{{ tab.icon }}</span>
+        {{ tab.label }}
+      </button>
+    }
+  </div>
+
+  <!-- ═══ CHECK STATISTICS ═══ -->
+  @if (activeTab() === "stats") {
+    <div class="tab-content animate-fade-in" role="tabpanel">
+      <!-- Stat Cards -->
+      @if (stats()) {
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div
+              class="stat-icon-wrap"
+              style="background: rgba(124, 58, 237, 0.15); color: #a78bfa"
+            >
+              🎨
+            </div>
+            <div class="stat-body">
+              <div class="stat-label">
+                {{ "admin.total_comics" | translate }}
+              </div>
+              <div class="stat-value">{{ stats()!.total_comics }}</div>
+              <div class="stat-growth">+12% from last month</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div
+              class="stat-icon-wrap"
+              style="background: rgba(245, 158, 11, 0.15); color: #f59e0b"
+            >
+              🌟
+            </div>
+            <div class="stat-body">
+              <div class="stat-label">{{ "admin.avg_rating" | translate }}</div>
+              <div class="stat-value">
+                {{ stats()!.average_rating | number: "1.1-1" }}/5.0
+              </div>
+              <div class="stat-hint">
+                Based on {{ stats()!.total_comics }} reviews
+              </div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div
+              class="stat-icon-wrap"
+              style="background: rgba(34, 197, 94, 0.15); color: #22c55e"
+            >
+              👦🏻
+            </div>
+            <div class="stat-body">
+              <div class="stat-label">
+                {{ "admin.active_users" | translate }}
+              </div>
+              <div class="stat-value">
+                {{ stats()!.active_users ?? stats()!.total_users }}
+              </div>
+              <div class="stat-hint">
+                Total {{ stats()!.total_users }} registered
+              </div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div
+              class="stat-icon-wrap"
+              style="background: rgba(167, 139, 250, 0.15); color: #7c3aed"
+            >
+              📊
+            </div>
+            <div class="stat-body">
+              <div class="stat-label">
+                {{ "admin.eeg_samples" | translate }}
+              </div>
+              <div class="stat-value">{{ stats()!.eeg_samples ?? 0 }}</div>
+              <div class="stat-ready">
+                {{ "admin.ready_training" | translate }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="charts-row">
+          <!-- Donut Chart -->
+          <div class="chart-card">
+            <h2>{{ "admin.emotion_dist" | translate }}</h2>
+            <div class="donut-wrap">
+              <div class="donut" [style]="donutStyle()"></div>
+              <div class="donut-center">{{ totalEmotions() }}</div>
+            </div>
+            <div class="legend">
+              @for (item of emotionItems(); track item.key) {
+                <div class="legend-item">
+                  <span
+                    class="legend-dot"
+                    [style.background]="emotionColor(item.key)"
+                  ></span>
+                  <span>{{ emotionThai(item.key) }}: {{ item.count }}</span>
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- Bar Chart -->
+          <div class="chart-card">
+            <h2>{{ "admin.sys_activity" | translate }}</h2>
+            <div class="bar-chart-container">
+              <div class="bar-y-axis">
+                <span>{{ maxActivity() }}</span>
+                <span>{{ maxActivity() * 0.75 | number: "1.0-0" }}</span>
+                <span>{{ maxActivity() * 0.5 | number: "1.0-0" }}</span>
+                <span>{{ maxActivity() * 0.25 | number: "1.0-0" }}</span>
+                <span>0</span>
+              </div>
+              <div class="bar-chart">
+                @for (bar of activityBars(); track bar.day) {
+                  <div
+                    class="bar-col"
+                    [title]="bar.day + ': ' + bar.val + ' sessions'"
+                  >
+                    <span class="bar-val-badge">{{ bar.val }}</span>
+                    <div
+                      class="bar-fill"
+                      [style.height.%]="
+                        bar.val > 0 ? (bar.val / maxActivity()) * 100 : 4
+                      "
+                    ></div>
+                    <span class="bar-label">{{ bar.day }}</span>
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      } @else {
+        <div class="loading-wrap">
+          <div
+            class="spinner"
+            style="width: 40px; height: 40px; border-width: 3px"
+            aria-label="Loading"
+          ></div>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- ═══ MANAGE USERS ═══ -->
+  @if (activeTab() === "users") {
+    <div class="tab-content animate-fade-in" role="tabpanel">
+      <div class="section-header">
+        <h2>{{ "admin.manage_users" | translate }}</h2>
+        <button
+          class="btn btn-primary btn-sm"
+          (click)="showAddUser.set(true)"
+          id="btn-add-user"
+        >
+          + {{ "admin.add_user" | translate }}
+        </button>
+      </div>
+
+      <div class="table-card">
+        <table class="data-table" aria-label="User List">
+          <thead>
+            <tr>
+              <th scope="col">{{ "admin.col_user" | translate }}</th>
+              <th scope="col">{{ "admin.col_role" | translate }}</th>
+              <th scope="col">{{ "admin.col_status" | translate }}</th>
+              <th scope="col">{{ "admin.col_joined" | translate }}</th>
+              <th scope="col" class="th-actions">
+                {{ "admin.col_actions" | translate }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (user of users(); track user.id) {
+              <tr>
+                <td class="user-cell">
+                  <div
+                    class="user-avatar-sm"
+                    [style.background]="avatarColor(user.username)"
+                  >
+                    {{ user.username[0].toUpperCase() }}
+                  </div>
+                  <div>
+                    <div class="user-name-text">{{ user.username }}</div>
+                    <div class="user-email-text">{{ user.email }}</div>
+                  </div>
+                </td>
+                <td>
+                  <span
+                    class="role-badge"
+                    [class.role-admin]="user.role === 'admin'"
+                    [class.role-user]="user.role === 'user'"
+                  >
+                    {{ user.role.toUpperCase() }}
+                  </span>
+                </td>
+                <td>
+                  @if (user.is_active) {
+                    <span class="status-dot active"
+                      ><span class="dot-circle"></span
+                      >{{ "admin.col_status_val" | translate }}</span
+                    >
+                  } @else {
+                    <span class="status-dot suspended"
+                      ><span class="dot-circle"></span>suspended</span
+                    >
+                  }
+                </td>
+                <td class="date-cell">
+                  {{ user.created_at | date: "M/d/yyyy" }}
+                </td>
+                <td class="td-actions">
+                  <div class="actions-group">
+                    @if (user.is_active) {
+                      <button
+                        class="icon-btn"
+                        title="Suspend user"
+                        (click)="deactivateUser(user)"
+                        [id]="'btn-suspend-' + user.id"
+                      >
+                        ระงับ
+                      </button>
+                    } @else {
+                      <button
+                        class="icon-btn"
+                        title="Activate user"
+                        (click)="activateUser(user)"
+                        [id]="'btn-activate-' + user.id"
+                      >
+                        เปิด
+                      </button>
+                    }
+                    <button
+                      class="icon-btn danger"
+                      title="Delete user"
+                      (click)="deleteUser(user)"
+                      [id]="'btn-delete-' + user.id"
+                    >
+                      ลบ
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="5" class="empty-td">No users found</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+
+  <!-- ═══ MANAGE EEG DATASET ═══ -->
+  @if (activeTab() === "dataset") {
+    <div class="tab-content animate-fade-in" role="tabpanel">
+      <div class="section-header">
+        <h2>{{ "admin.dataset_mgmt" | translate }}</h2>
+      </div>
+      <div class="table-card" style="padding: 24px">
+        <p>{{ "admin.dataset_desc" | translate }}</p>
+        <a
+          class="btn btn-primary btn-sm"
+          routerLink="/admin/dataset-collection"
+          id="btn-open-dataset-collection"
+        >
+          {{ "admin.open_dataset" | translate }}
+        </a>
+      </div>
+    </div>
+  }
+</div>

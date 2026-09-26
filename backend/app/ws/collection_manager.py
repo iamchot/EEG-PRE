@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 import weakref
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Callable
 from typing import TypeVar
+
+import numpy as np
 
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
@@ -19,7 +22,8 @@ from app.services.collection_state_machine import CollectionStateMachine, Invali
 from app.services.collection_state_response import collection_state_response
 from app.services.muse_device_lease import DeviceLease, DeviceLeaseUnavailableError
 from app.services.muse_stream import LSLMuseStreamSource, MuseStreamError, MuseStreamSource
-from app.services.raw_eeg_writer import AtomicEEGWriter
+from app.services.raw_eeg_writer import AtomicEEGWriter, EEGSample
+from app.services.signal_processor import SensorQuality, estimate_sensor_state
 
 
 T = TypeVar("T")
@@ -48,6 +52,27 @@ class CollectionConnectionManager:
         self._sequences: dict[int, int] = defaultdict(int)
         self._lock_registry_guard = threading.Lock()
         self._locks: weakref.WeakValueDictionary[int, threading.RLock] = weakref.WeakValueDictionary()
+        # Rolling EEG sample buffer for Web Bluetooth sessions.
+        # Stores the last _WEB_BT_BUFFER_SIZE averaged samples as numpy arrays [tp9,af7,af8,tp10].
+        # muse-js delivers ~21 averaged samples/sec (12 raw samples per electrode packet at 256 Hz).
+        # 64 samples ≈ 3 seconds of history → sensor quality transitions in ~3 s, not ~12 s.
+        self._web_bt_buffers: dict[int, deque] = defaultdict(lambda: deque(maxlen=64))
+        # Debounce: per-session, per-channel asymmetric hysteresis.
+        # streak: int per channel.  +2 per 'good' packet, -1 per 'poor' packet.
+        # Crosses +GOOD_THRESH  → show green.  Crosses -POOR_THRESH → show orange.
+        # The asymmetry means brief artifacts (blinks, eye-moves) do NOT knock a
+        # green sensor back to orange, but sustained noise does.
+        _CHANS = ("tp9", "af7", "af8", "tp10")
+        self._quality_streak: dict[int, dict[str, int]] = defaultdict(
+            lambda: {ch: 0 for ch in _CHANS}
+        )
+        # Last DISPLAYED state per channel (the sticky value shown in the horseshoe).
+        # Start at 'poor' (orange !) so the user sees immediate feedback on connection
+        # rather than a grey '...' that looks like the system isn't working.
+        self._quality_display: dict[int, dict[str, str]] = defaultdict(
+            lambda: {ch: "poor" for ch in _CHANS}
+        )
+        self._last_web_bt_sample_at: dict[int, float] = {}
 
     def run(
         self,
@@ -104,7 +129,76 @@ class CollectionConnectionManager:
             self._clients[session_id].add(websocket)
         state = self.run(db, session, lambda runner: runner.state())
         await self.broadcast(session_id, state)
-        await self.ensure_source(session_id)
+        asyncio.create_task(self.ensure_source(session_id))
+
+    def clear_web_bt_buffer(self, session_id: int, *, preserve_active_flag: bool = False) -> None:
+        """Discard accumulated EEG samples and debounce state for a session.
+
+        Call this whenever a new Muse headset is selected so that stale quality
+        history from the previous connection does not pollute the quality estimate
+        for the new session.
+        """
+        self._web_bt_buffers.pop(session_id, None)
+        self._quality_streak.pop(session_id, None)
+        if not preserve_active_flag:
+            self._last_web_bt_sample_at.pop(session_id, None)
+        self._quality_display.pop(session_id, None)
+
+    # ── Quality debounce ──────────────────────────────────────────────────────
+
+    # Asymmetric debounce parameters:
+    #   good packet: streak += _GOOD_GAIN  (gain fast — confirmed contact)
+    #   poor packet: streak -= _POOR_LOSS  (lose slow — tolerate brief artifacts)
+    #   show green when streak >= _GOOD_THRESH
+    #   show orange when streak <= -_POOR_THRESH
+    _GOOD_GAIN   = 2   # +2 per good packet
+    _POOR_LOSS   = 1   # -1 per poor packet
+    _GOOD_THRESH = 6   # 3 clean packets to go green  (~140 ms) — fast enough to be usable
+    _POOR_THRESH = 6   # 6 bad packets to go orange   (~280 ms) — tolerates brief blinks
+
+    def _apply_quality_debounce(
+        self,
+        session_id: int,
+        sensors: dict[str, "SensorQuality"],
+    ) -> dict[str, "SensorQuality"]:
+        """Apply per-channel asymmetric hysteresis to raw quality estimates.
+
+        Asymmetry: gaining green (+2/packet) is faster than losing it (-1/packet).
+        This lets a properly-worn sensor become green quickly (~5 clean packets)
+        while brief artifacts — blinks, eye movements, swallowing (~2-5 packets) —
+        do NOT knock it back to orange.  Only sustained noise (>8 packets, ~380 ms)
+        transitions back to orange.
+        """
+        streaks = self._quality_streak[session_id]
+        displays = self._quality_display[session_id]
+        stable: dict[str, SensorQuality] = {}
+        for ch, sq in sensors.items():
+            s = streaks.get(ch, 0)
+            # Update streak asymmetrically
+            if sq.state == "good":
+                s = min(s + self._GOOD_GAIN, self._GOOD_THRESH)
+            elif sq.state == "poor":
+                s = max(s - self._POOR_LOSS, -self._POOR_THRESH)
+            elif sq.state in ("unknown", "stale"):
+                # Drift toward 0 without active signal
+                s = max(s - self._POOR_LOSS, 0) if s > 0 else min(s + 1, 0)
+            streaks[ch] = s
+
+            # Only update displayed state when crossing a threshold;
+            # hold previous value in the transitional zone (true hysteresis).
+            if s >= self._GOOD_THRESH:
+                displays[ch] = "good"
+            elif s <= -self._POOR_THRESH:
+                displays[ch] = "poor"
+            # else: keep displays[ch] unchanged — this is the sticky behaviour
+
+            stable[ch] = SensorQuality(
+                state=displays[ch],
+                quality_score=sq.quality_score,
+                timestamp=sq.timestamp,
+            )
+        return stable
+
 
     async def disconnect(self, session_id: int, websocket: WebSocket) -> None:
         with self._session_lock(session_id):
@@ -114,6 +208,7 @@ class CollectionConnectionManager:
             if clients:
                 return
             self._clients.pop(session_id, None)
+            self._last_web_bt_sample_at.pop(session_id, None)
         await self.stop_source(session_id)
         with self._session_lock(session_id):
             runner = self._runners.get(session_id)
@@ -142,6 +237,12 @@ class CollectionConnectionManager:
                 CollectionSessionState.failed,
                 CollectionSessionState.withdrawn,
             }:
+                return
+            now = time.monotonic()
+            if (
+                len(self._web_bt_buffers.get(session_id, ())) > 0
+                or (now - self._last_web_bt_sample_at.get(session_id, 0.0)) < 15.0
+            ):
                 return
             device_id = runner.session.device_id
             device_name = getattr(runner.session, "device_name", None) or "Muse"
@@ -212,6 +313,74 @@ class CollectionConnectionManager:
             except LookupError:
                 return
         await self.broadcast(session_id, state)
+
+    async def ingest_web_bluetooth_sample(
+        self,
+        session_id: int,
+        tp9: float,
+        af7: float,
+        af8: float,
+        tp10: float,
+        timestamp: float,
+    ) -> None:
+        """
+        Accept a single EEG sample from the browser via Web Bluetooth (muse-js)
+        and route it through the collection state machine.
+
+        Maintains a per-session rolling window of the last 64 averaged samples and
+        uses estimate_sensor_state() to compute real contact quality from EEG
+        amplitude and variance.  Quality states are debounced via
+        _apply_quality_debounce() to prevent horseshoe flickering caused by
+        natural EEG bursts (alpha waves, blinks).
+        """
+        # ── 1. Append to per-session rolling buffer ──────────────────────────
+        buf = self._web_bt_buffers[session_id]
+        buf.append([tp9, af7, af8, tp10])
+        self._last_web_bt_sample_at[session_id] = time.monotonic()
+
+        # ── 2. Build samples matrix for quality estimation ────────────────────
+        matrix = np.array(buf, dtype=float)   # shape: (N, 4)
+
+        # Channel order: 0=TP9, 1=AF7, 2=AF8, 3=TP10 (same as LSL path)
+        _CHANNELS = ("tp9", "af7", "af8", "tp10")
+        raw_sensors = {
+            ch: estimate_sensor_state(matrix, idx, timestamp, timestamp)
+            for idx, ch in enumerate(_CHANNELS)
+        }
+
+        # ── 3. Debounce: smooth out per-packet quality flickers ───────────────
+        sensors = self._apply_quality_debounce(session_id, raw_sensors)
+
+        # ── 4. Derive quality scores for EEGSample (0-100 scale) ─────────────
+        def _qscore(ch: str) -> float:
+            return raw_sensors[ch].quality_score   # use raw score for file metadata
+
+        sample = EEGSample(
+            timestamp=timestamp,
+            tp9=tp9, af7=af7, af8=af8, tp10=tp10,
+            tp9_quality=_qscore("tp9"), af7_quality=_qscore("af7"),
+            af8_quality=_qscore("af8"), tp10_quality=_qscore("tp10"),
+        )
+
+        # ── 5. Create adapter object for _accept_sample_unlocked ─────────────
+        class _WebBtSample:
+            """Minimal adapter bridging Web Bluetooth data to the collection pipeline."""
+            def __init__(self):
+                self.sample = sample
+                self.sensors = sensors
+                self.sensor_timestamps = {ch: timestamp for ch in _CHANNELS}
+                self.sampling_rate_hz = 256.0
+                self.sampling_rate_ok = True
+                self.capture_eligible = True
+                self.source_sequence = None
+
+        incoming = _WebBtSample()
+        try:
+            state, _ = self.run_active(session_id, lambda runner: self._accept_sample_unlocked(runner, incoming))
+            await self.broadcast(session_id, state)
+        except LookupError:
+            pass  # No active runner for this session yet
+
 
     async def broadcast(self, session_id: int, state, *, error: str | None = None) -> None:
         lock = self._session_lock(session_id)
@@ -415,13 +584,22 @@ class CollectionConnectionManager:
 
     def _has_live_source_unlocked(self, session_id: int) -> bool:
         task = self._tasks.get(session_id)
-        return bool(
+        has_lsl = bool(
             self._clients.get(session_id)
             and self._sources.get(session_id) is not None
             and session_id in self._connected_sources
             and task is not None
             and not task.done()
         )
+        now = time.monotonic()
+        has_web_bt = bool(
+            self._clients.get(session_id)
+            and (
+                len(self._web_bt_buffers.get(session_id, ())) > 0
+                or (now - self._last_web_bt_sample_at.get(session_id, 0.0)) < 10.0
+            )
+        )
+        return has_lsl or has_web_bt
 
 
 collection_manager = CollectionConnectionManager()

@@ -146,7 +146,13 @@ def test_lsl_adapter_enforces_configured_256_hz_tolerance_deterministically():
     assert mapped.sampling_rate_hz == pytest.approx(240.0)
     assert mapped.sampling_rate_ok is False
     assert mapped.capture_eligible is True
-    assert all(sensor.state == "poor" for sensor in mapped.sensors.values())
+    # Task 8 change: when sampling_rate_ok is False the adapter no longer
+    # forces every sensor to "poor"; it lets the signal processor report the
+    # actual EEG contact quality so the UI can still show a meaningful
+    # horseshoe reading.  All states must still be valid SensorQuality states.
+    valid_states = {"unknown", "poor", "good", "stale"}
+    assert all(sensor.state in valid_states for sensor in mapped.sensors.values())
+
 
 
 def test_lsl_adapter_emits_one_stale_quality_observation_when_samples_stop():
@@ -1213,6 +1219,32 @@ def test_ensure_source_releases_bridge_owner_when_source_construction_fails():
         with pytest.raises(RuntimeError, match="factory failed"):
             await manager.ensure_source(78)
         assert [owner.session_id for owner in bridge.released] == [78]
+
+    asyncio.run(scenario())
+
+
+def test_ensure_source_skips_ble_bridge_when_web_bluetooth_active():
+    async def scenario():
+        class Runner:
+            session = type("Session", (), {"device_id": "muse-wb", "device_name": "Muse-WB", "state": CollectionSessionState.preparation})()
+
+        class MockBridge:
+            def __init__(self):
+                self.connect_called = False
+
+            async def connect(self, owner, device):
+                self.connect_called = True
+                return type("Status", (), {"state": MuseBridgeState.connected})()
+
+        bridge = MockBridge()
+        manager = CollectionConnectionManager(bridge_manager=bridge)
+        manager._runners[99] = Runner()
+        manager._clients[99].add(object())
+        # Simulate active Web Bluetooth streaming
+        manager._last_web_bt_sample_at[99] = time.monotonic()
+        await manager.ensure_source(99)
+        # Should return early without calling bridge.connect
+        assert not bridge.connect_called
 
     asyncio.run(scenario())
 

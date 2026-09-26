@@ -449,7 +449,7 @@ def test_user_runner_maps_muse_samples_and_marks_disconnect(monkeypatch):
     machine.confirm_device("Muse", "AA")
     machine.mark_connected()
     ingested = []
-    machine.ingest_samples = lambda values, timestamps: ingested.append((values, timestamps))
+    machine.ingest_samples = lambda values, timestamps, **kwargs: ingested.append((values, timestamps))
 
     sample = MuseSample(
         sample=EEGSample(

@@ -12,6 +12,8 @@
     "src/app/core/services/dataset-collection.service.spec.ts",
     "src/app/core/services/dataset-collection-ws.service.spec.ts",
     "src/app/core/services/muse-device.service.spec.ts",
-    "src/app/features/eeg-session/eeg-session.component.spec.ts"
+    "src/app/features/eeg-session/eeg-session.component.spec.ts",
+    "src/app/shared/components/horseshoe-sensor/horseshoe-sensor.component.spec.ts",
+    "src/app/shared/components/eeg-waveform/eeg-waveform.component.spec.ts"
   ]
 }

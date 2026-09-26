@@ -83,6 +83,8 @@ class CollectionRunnerState:
     sampling_rate_ok: bool = False
     live_sensor_ready: bool = False
     stimulus_start_ready: bool = False
+    eyes_open_complete: bool = False
+    eyes_closed_complete: bool = False
     quality_source: str = "derived_eeg_window"
 
 
@@ -141,6 +143,12 @@ class CollectionStateMachine:
             if collection_session.state is CollectionSessionState.interrupted
             else None
         )
+        if self.session.eyes_open_baseline_path and not self.session.eyes_closed_baseline_path:
+            if self.session.state is CollectionSessionState.preparation:
+                self.session.state = CollectionSessionState.baseline
+        elif self.session.eyes_open_baseline_path and self.session.eyes_closed_baseline_path:
+            if self.session.state in {CollectionSessionState.preparation, CollectionSessionState.baseline}:
+                self.session.state = CollectionSessionState.ready
 
     @classmethod
     def recover(
@@ -194,6 +202,8 @@ class CollectionStateMachine:
                 and self._rest_min_seconds <= elapsed <= self._rest_max_seconds
                 and self._live_sensor_ready()
             ),
+            eyes_open_complete=bool(self.session.eyes_open_baseline_path),
+            eyes_closed_complete=bool(self.session.eyes_closed_baseline_path),
         )
 
     def observe_quality(
@@ -625,6 +635,8 @@ class CollectionStateMachine:
         self.session.recovery_at = self._now()
         if self.session.eyes_open_baseline_path and self.session.eyes_closed_baseline_path:
             self.session.state = CollectionSessionState.ready
+        elif self.session.eyes_open_baseline_path:
+            self.session.state = CollectionSessionState.baseline
         elif self.session.device_id:
             self.session.state = CollectionSessionState.preparation
         else:

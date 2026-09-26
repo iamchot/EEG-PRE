@@ -5,6 +5,7 @@ import { provideRouter } from '@angular/router';
 import { AppComponent } from './app.component';
 import { AuthService } from './core/services/auth.service';
 import { MuseDeviceService } from './core/services/muse-device.service';
+import { MuseWebBluetoothService, MuseWebBtState } from './core/services/muse-web-bluetooth.service';
 
 describe('AppComponent Muse status', () => {
   let fixture: ComponentFixture<AppComponent>;
@@ -12,11 +13,21 @@ describe('AppComponent Muse status', () => {
     connectionStatus: ReturnType<typeof signal>;
     connectedDevice: ReturnType<typeof signal>;
   };
+  let museWebBt: {
+    state: ReturnType<typeof signal<MuseWebBtState>>;
+    deviceName: ReturnType<typeof signal<string | null>>;
+    disconnect: jasmine.Spy;
+  };
 
   beforeEach(async () => {
     muse = {
       connectionStatus: signal({ owner: null, state: 'idle', detail: null }),
       connectedDevice: signal(null),
+    };
+    museWebBt = {
+      state: signal<MuseWebBtState>('idle'),
+      deviceName: signal<string | null>(null),
+      disconnect: jasmine.createSpy('disconnect').and.resolveTo(),
     };
     await TestBed.configureTestingModule({
       imports: [AppComponent],
@@ -32,6 +43,7 @@ describe('AppComponent Muse status', () => {
           },
         },
         { provide: MuseDeviceService, useValue: muse },
+        { provide: MuseWebBluetoothService, useValue: museWebBt },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(AppComponent);
@@ -67,4 +79,24 @@ describe('AppComponent Muse status', () => {
     expect(status.textContent).toContain('Waiting for LSL');
     expect(status.classList).toContain('busy');
   });
+
+  it('shows Web Bluetooth connected device and status tone', () => {
+    museWebBt.state.set('streaming');
+    museWebBt.deviceName.set('Muse-2-Live');
+    fixture.detectChanges();
+
+    const status = fixture.nativeElement.querySelector('[data-testid="muse-status"]') as HTMLElement;
+    expect(status.textContent).toContain('Muse-2-Live');
+    expect(status.classList).toContain('connected');
+  });
+
+  it('shows Web Bluetooth busy state while connecting', () => {
+    museWebBt.state.set('connecting');
+    fixture.detectChanges();
+
+    const status = fixture.nativeElement.querySelector('[data-testid="muse-status"]') as HTMLElement;
+    expect(status.textContent).toContain('Connecting Muse 2…');
+    expect(status.classList).toContain('busy');
+  });
 });
+

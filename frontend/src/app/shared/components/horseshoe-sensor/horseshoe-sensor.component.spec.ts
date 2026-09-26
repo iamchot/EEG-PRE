@@ -2,6 +2,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HorseshoeSensorComponent } from './horseshoe-sensor.component';
 import { SensorState, SensorStatus } from '../../../core/services/eeg-ws.service';
 
+import { LanguageService } from '../../../core/services/language.service';
+
 const sensor = (state: SensorState): SensorStatus => ({
   state,
   quality_score: state === 'good' ? 100 : 0,
@@ -18,6 +20,7 @@ describe('HorseshoeSensorComponent', () => {
       imports: [HorseshoeSensorComponent],
     }).compileComponents();
 
+    TestBed.inject(LanguageService).setLanguage('th');
     fixture = TestBed.createComponent(HorseshoeSensorComponent);
     component = fixture.componentInstance;
   });

@@ -1,0 +1,59 @@
+<section class="sensor-panel" aria-labelledby="sensor-title">
+  <header class="sensor-heading">
+    <p class="section-kicker">{{ 'sensor.fitting_status' | translate }}</p>
+    <h2 id="sensor-title">{{ 'sensor.your_muse' | translate }}</h2>
+    <p>{{ 'sensor.fit_instruction' | translate }}</p>
+  </header>
+
+  <div class="headset-figure" role="img" aria-label="ตำแหน่งเซนเซอร์ Muse 2 ได้แก่ TP9 AF7 AF8 และ TP10">
+    <svg viewBox="0 0 360 220" aria-hidden="true" focusable="false">
+      <path class="head-outline" d="M116 170 C118 92 145 54 180 54 C215 54 242 92 244 170" />
+      <path class="headband" d="M64 160 C80 47 280 47 296 160" />
+      @for (pt of sensorPoints; track pt.key) {
+        <g [attr.class]="'sensor-node node-' + getSensorData(pt.key).state">
+          <circle
+            [attr.cx]="pt.key === 'tp9' ? 64 : pt.key === 'af7' ? 139 : pt.key === 'af8' ? 221 : 296"
+            [attr.cy]="pt.key === 'tp9' || pt.key === 'tp10' ? 160 : 81"
+            r="18"
+          />
+          <text
+            [attr.x]="pt.key === 'tp9' ? 64 : pt.key === 'af7' ? 139 : pt.key === 'af8' ? 221 : 296"
+            [attr.y]="pt.key === 'tp9' || pt.key === 'tp10' ? 160 : 81"
+            [attr.dominant-baseline]="'central'"
+            [attr.text-anchor]="'middle'"
+          >{{ stateIcon(pt.key) }}</text>
+        </g>
+      }
+    </svg>
+  </div>
+
+
+
+  <div class="readiness" [class.ready]="allGood()" aria-live="polite">
+    <span class="readiness-icon">{{ allGood() ? '✓' : '•' }}</span>
+    <div>
+      <strong>{{ readinessLabel() }}</strong>
+      <span>{{ readinessHint() }}</span>
+    </div>
+  </div>
+
+  <div class="sensor-list">
+    @for (pt of sensorPoints; track pt.key) {
+      <div class="sensor-row" [attr.data-state]="getSensorData(pt.key).state">
+        <span class="state-mark" aria-hidden="true">{{ stateIcon(pt.key) }}</span>
+        <div class="sensor-name">
+          <strong>{{ pt.label }}</strong>
+          <span>{{ locationLabel(pt.key) }}</span>
+        </div>
+        <span class="state-label">{{ stateLabel(pt.key) }}</span>
+      </div>
+    }
+  </div>
+
+  @if (!allGood()) {
+    <div class="signal-tip" role="status">
+      <strong>{{ lang.currentLang() === 'th' ? 'ลองปรับแบบนี้' : 'Fitting Tip' }}</strong>
+      <p>{{ currentTip() }}</p>
+    </div>
+  }
+</section>

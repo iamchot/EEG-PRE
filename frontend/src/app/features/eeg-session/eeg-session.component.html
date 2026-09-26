@@ -1,0 +1,154 @@
+<main class="session-shell">
+  <header class="session-header">
+    <div>
+      <p class="section-kicker">{{ 'session.kicker' | translate }}</p>
+      <h1>{{ 'session.connect_title' | translate }}</h1>
+      <p>{{ 'session.connect_subtitle' | translate }}</p>
+    </div>
+    <div class="service-status" [class.online]="connectionStatus().state === 'connected'" [class.connected]="connectionStatus().state === 'connected'" role="status">
+      <span class="status-dot" aria-hidden="true"></span>
+      {{ connectionStatus().state === 'connected' ? 'Muse Connected' : 'Muse Setup' }}
+    </div>
+  </header>
+
+  <nav class="stepper" aria-label="Steps">
+    @for (step of steps(); track step.key; let i = $index) {
+      <div class="step" [class.active]="activeStepKey() === step.key" [class.done]="stepDone(step.key)">
+        <span class="step-index">{{ stepDone(step.key) ? '✓' : i + 1 }}</span>
+        <strong>{{ step.label }}</strong>
+      </div>
+    }
+  </nav>
+
+  <section class="setup-card">
+    <app-horseshoe-sensor
+      [tp9]="eegWs.sensors().tp9"
+      [af7]="eegWs.sensors().af7"
+      [af8]="eegWs.sensors().af8"
+      [tp10]="eegWs.sensors().tp10"
+    />
+
+    <article class="stage-panel" aria-live="polite">
+      @switch (stage()) {
+        @case ('device') {
+          <div class="device-state"
+            [class.idle]="btState() === 'idle'"
+            [class.busy]="isConnecting()"
+            [class.failed]="btState() === 'failed'"
+          >
+          <p class="section-kicker">Step 1</p>
+          <h2>เชื่อมต่อ Muse 2 ผ่าน Web Bluetooth</h2>
+          <p>กดปุ่มด้านล่าง — เบราว์เซอร์จะเปิดหน้าต่างให้เลือก Muse 2 ของคุณ</p>
+
+          @if (!museBt.isSupported) {
+            <div class="inline-message warning">
+              เบราว์เซอร์นี้ไม่รองรับ Web Bluetooth — กรุณาใช้ Chrome หรือ Edge
+            </div>
+          }
+          @if (isConnecting()) {
+            <div class="device-status busy" role="status">
+              <span class="spinner" aria-hidden="true"></span>
+              <strong>กำลังเชื่อมต่อ Muse 2…</strong>
+              <span>เปิด Muse 2 ให้ไฟกะพริบ แล้วเลือกในหน้าต่างที่ปรากฏขึ้น</span>
+            </div>
+          } @else {
+            <button id="btn-scan" class="btn primary-action" (click)="scanDevices()"
+              [disabled]="!museBt.isSupported || isConnecting()">
+              {{ 'session.scan_btn' | translate }}
+            </button>
+          }
+          @if (connectError()) {
+            <div class="device-status failed" role="alert">{{ connectError() }}</div>
+          }
+          </div>
+        }
+
+        @case ('prepare') {
+          <p class="section-kicker">Step 2</p>
+          <h2>{{ 'session.fitting_guide' | translate }}</h2>
+          <p>{{ 'session.fitting_desc' | translate }}</p>
+          <ol class="fitting-list">
+            <li><span>1</span>{{ 'session.fit_tip1' | translate }}</li>
+            <li><span>2</span>{{ 'session.fit_tip2' | translate }}</li>
+            <li><span>3</span>{{ 'session.fit_tip3' | translate }}</li>
+          </ol>
+          <app-eeg-waveform
+            [tp9]="eegWs.sensors().tp9"
+            [af7]="eegWs.sensors().af7"
+            [af8]="eegWs.sensors().af8"
+            [tp10]="eegWs.sensors().tp10"
+            [isConnected]="eegWs.isConnected()"
+          />
+          <button id="btn-baseline" class="btn primary-action" (click)="startBaseline()" [disabled]="!eegWs.allSensorsGood()">
+            {{ eegWs.allSensorsGood() ? ('session.start_baseline' | translate) : ('session.waiting_sensors' | translate) }}
+          </button>
+        }
+
+        @case ('baseline') {
+          <span class="eyebrow">Baseline Calibration</span>
+          <h2>20 Seconds Baseline Calibration</h2>
+          <p>Relax your face and keep eyes open naturally. Baseline resets if signal is lost.</p>
+          <div class="timer-block"><strong>{{ 20 - eegWs.baselineSeconds() | number:'1.0-0' }}</strong><span>seconds left</span></div>
+          <progress class="session-progress" max="20" [value]="eegWs.baselineSeconds()">{{ eegWs.baselineSeconds() }} / 20</progress>
+          @if (!eegWs.allSensorsGood()) { <div class="alert alert-warning">สัญญาณขาดหาย กำลังเริ่มนับถอยหลังใหม่ (Signal lost. Restarting baseline countdown)</div> }
+        }
+
+        @case ('ready') {
+          <span class="eyebrow">Story Prompt & Persona</span>
+          <h2>Ready to record EEG stream</h2>
+          <p>Enter your story prompt and select a persona before starting 30s EEG stream recording.</p>
+          <div class="form-group">
+            <label class="form-label" for="input-story">Story prompt</label>
+            <textarea id="input-story" class="form-textarea" [(ngModel)]="inputStory" placeholder="e.g. A young girl finds a glowing magic book and gets pulled into a dream world..."></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="persona-select">Persona</label>
+            <select id="persona-select" class="form-select" [(ngModel)]="selectedPersonaId">
+              <option [ngValue]="null">No persona selected</option>
+              @for (p of personas(); track p.id) { <option [ngValue]="p.id">{{ p.persona_name }} · {{ p.art_style }}</option> }
+            </select>
+          </div>
+          <button class="btn btn-primary btn-lg" (click)="startRecording()" [disabled]="!inputStory.trim()">Start Recording Stream</button>
+        }
+
+        @case ('record') {
+          <span class="eyebrow">EEG Recording Stream</span>
+          <h2>{{ currentPhase() === 'PAUSED_SIGNAL_QUALITY' ? 'Paused by signal quality' : 'Recording 30s Clean EEG' }}</h2>
+          <p>Only good quality seconds across all 4 channels count toward the 30s target.</p>
+          <div class="record-meter">
+            <strong>{{ eegWs.acceptedSeconds() | number:'1.0-0' }} / 30 sec</strong>
+            <progress class="session-progress" [class.paused]="currentPhase() === 'PAUSED_SIGNAL_QUALITY'" max="30" [value]="eegWs.acceptedSeconds()">{{ eegWs.acceptedSeconds() }} / 30</progress>
+            <small>Wall clock {{ eegWs.wallClockSeconds() | number:'1.0-0' }} / 120 sec</small>
+          </div>
+          @if (currentPhase() === 'PAUSED_SIGNAL_QUALITY') { <div class="alert alert-warning">หยุดชั่วคราวที่ {{ eegWs.acceptedSeconds() | number:'1.0-0' }} วินาที — สัญญาณไม่นิ่ง กรุณาปรับสายคาด Muse 2 ให้เซนเซอร์เขียวครบ 4 จุด</div> }
+          <button class="btn btn-destructive btn-sm" (click)="cancelSession()">Cancel Session</button>
+        }
+
+        @case ('emotion') {
+          <span class="eyebrow">EEG Emotion Analysis</span>
+          <h2>Confirm Emotion Classification</h2>
+          <div class="emotion-card"><span>{{ emotionLabel(detectedEmotion()) }}</span><strong>{{ detectedEmotion() || 'Analyzed emotion' }}</strong><small>Confirm emotion to generate comic panels via ComfyUI & Gemini</small></div>
+          <div class="inline-actions"><button class="btn btn-primary btn-lg" (click)="confirmEmotion()">Generate Comic with ComfyUI</button><button class="btn btn-secondary" (click)="remeasure()">Remeasure</button></div>
+        }
+
+        @case ('generate') {
+          <span class="eyebrow">ComfyUI & Gemini Pipeline</span>
+          <h2>Creating your Dream Comic</h2>
+          <div class="timeline"><span class="done">Analyze EEG Emotion</span><span class="done">Create Story with Gemini</span><span>Generate Comic Panels via ComfyUI</span><span>Save Result</span></div>
+          <div class="alert alert-info"><span class="spinner"></span> กำลังสร้างคอมิก 4 ช่องผ่าน Local ComfyUI pipeline...</div>
+        }
+
+        @default {
+          <span class="eyebrow">Session State</span>
+          <h2>{{ currentPhase() }}</h2>
+          <p>{{ eegWs.latestMessage()?.reason || 'Waiting for status update from backend' }}</p>
+          <button class="btn btn-secondary" (click)="restart()">Restart Session</button>
+        }
+      }
+    </article>
+  </section>
+
+  <p class="entertainment-note">
+    Subconscious emotion data is processed for creative comic story generation — not medical diagnosis.
+  </p>
+</main>
