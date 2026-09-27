@@ -82,9 +82,9 @@
               <div class="form-group">
                 <label class="form-label" for="pf-gender">{{ 'persona.gender' | translate }}</label>
                 <select id="pf-gender" class="form-select" [(ngModel)]="form.gender" name="gender">
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
+                  <option value="Male">{{ lang.currentLang() === 'th' ? 'ชาย' : 'Male' }}</option>
+                  <option value="Female">{{ lang.currentLang() === 'th' ? 'หญิง' : 'Female' }}</option>
+                  <option value="Other">{{ lang.currentLang() === 'th' ? 'อื่นๆ' : 'Other' }}</option>
                 </select>
               </div>
             </div>

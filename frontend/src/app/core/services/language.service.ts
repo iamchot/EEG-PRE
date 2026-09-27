@@ -62,7 +62,7 @@ export const TRANSLATIONS: Dictionary = {
 
   // Persona Page
   'persona.title': {
-    th: 'จัดการตัวละคร (Persona Manager)',
+    th: 'จัดการตัวละคร',
     en: 'Persona Manager',
   },
   'persona.add_new': { th: '+ สร้างตัวละครใหม่', en: '+ Add New Persona' },
@@ -77,7 +77,7 @@ export const TRANSLATIONS: Dictionary = {
   'persona.distinctive': { th: 'จุดเด่นเฉพาะตัว', en: 'Distinctive Features' },
   'persona.face': { th: 'ลักษณะหน้าตา', en: 'Face Features' },
   'persona.hair': { th: 'ทรงผม', en: 'Hairstyle' },
-  'persona.style': { th: 'สไตล์ภาพ (Art Style)', en: 'Art Style' },
+  'persona.style': { th: 'สไตล์ภาพ', en: 'Art Style' },
   'persona.save': { th: 'บันทึกตัวละคร', en: 'Save Persona' },
   'persona.cancel': { th: 'ยกเลิก', en: 'Cancel' },
   'persona.delete': { th: 'ลบ', en: 'Delete' },
@@ -140,7 +140,7 @@ export const TRANSLATIONS: Dictionary = {
   'admin.col_joined': { th: 'วันที่เข้าร่วม', en: 'JOINED' },
   'admin.col_actions': { th: 'การจัดการ', en: 'ACTIONS' },
   'admin.dataset_mgmt': {
-    th: 'การจัดการชุดข้อมูล EEG (EEG Dataset Management)',
+    th: 'การจัดการชุดข้อมูลคลื่นสมอง',
     en: 'EEG Dataset Management',
   },
   'admin.dataset_desc': {
@@ -148,13 +148,13 @@ export const TRANSLATIONS: Dictionary = {
     en: 'Manage pseudonymous participants, approved stimuli, and collection sessions.',
   },
   'admin.open_dataset': {
-    th: 'เปิดระบบรวบรวมชุดข้อมูล EEG (Open Dataset Collection)',
-    en: 'Open Dataset Collection',
+    th: 'เปิดระบบรวบรวมชุดข้อมูลคลื่นสมอง',
+    en: 'Open EEG Dataset Collection',
   },
 
   // Dataset Collection
   'dataset.title': {
-    th: 'ระบบรวบรวมข้อมูลคลื่นสมอง (EEG Dataset)',
+    th: 'ระบบรวบรวมข้อมูลคลื่นสมอง',
     en: 'EEG Dataset Collection',
   },
   'dataset.subtitle': {
@@ -162,29 +162,29 @@ export const TRANSLATIONS: Dictionary = {
     en: 'Prepare pseudonymous participants, stimuli, and collection sessions.',
   },
   'dataset.notice': {
-    th: 'สำหรับการวิจัยและต้นแบบเพื่อความบันเทิง (Entertainment only — Not medical)',
+    th: 'สำหรับการวิจัยและต้นแบบเพื่อความบันเทิง ไม่ใช่การวินิจฉัยทางการแพทย์',
     en: 'Entertainment and prototype research only — not medical diagnosis or treatment.',
   },
   'dataset.summary_title': {
     th: 'สรุปภาพรวมการเก็บข้อมูล',
     en: 'Collection Summary Overview',
   },
-  'dataset.tab_overview': { th: 'ภาพรวม (Overview)', en: 'Overview' },
+  'dataset.tab_overview': { th: 'ภาพรวม', en: 'Overview' },
   'dataset.tab_participants': {
-    th: 'ผู้เข้าร่วมทดลอง (Participants)',
+    th: 'ผู้เข้าร่วมการทดลอง',
     en: 'Participants',
   },
-  'dataset.tab_stimuli': { th: 'สื่อกระตุ้น (Stimuli)', en: 'Stimuli' },
-  'dataset.tab_sessions': { th: 'รอบการเก็บข้อมูล (Sessions)', en: 'Sessions' },
-  'dataset.overview': { th: 'ภาพรวม (Overview)', en: 'Overview' },
+  'dataset.tab_stimuli': { th: 'สื่อกระตุ้น', en: 'Stimuli' },
+  'dataset.tab_sessions': { th: 'รอบการเก็บข้อมูล', en: 'Sessions' },
+  'dataset.overview': { th: 'ภาพรวม', en: 'Overview' },
   'dataset.participants': {
-    th: 'ผู้เข้าร่วมทดลอง (Participants)',
+    th: 'ผู้เข้าร่วมการทดลอง',
     en: 'Participants',
   },
-  'dataset.stimuli': { th: 'สื่อกระตุ้น (Stimuli)', en: 'Stimuli' },
-  'dataset.sessions': { th: 'รอบการเก็บข้อมูล (Sessions)', en: 'Sessions' },
-  'dataset.trials': { th: 'รอบทดสอบ (Trials)', en: 'Trials' },
-  'dataset.pending': { th: 'รอการตรวจสอบ (Pending)', en: 'Pending Review' },
+  'dataset.stimuli': { th: 'สื่อกระตุ้น', en: 'Stimuli' },
+  'dataset.sessions': { th: 'รอบการเก็บข้อมูล', en: 'Sessions' },
+  'dataset.trials': { th: 'รอบทดสอบ', en: 'Trials' },
+  'dataset.pending': { th: 'รอการตรวจสอบ', en: 'Pending Review' },
   'dataset.register_participant': {
     th: 'ลงทะเบียนผู้เข้าร่วม',
     en: 'Register Participant',
@@ -210,35 +210,35 @@ export const TRANSLATIONS: Dictionary = {
     en: 'Register Stimulus',
   },
   'dataset.register_stimulus_title': {
-    th: 'ลงทะเบียนสื่อกระตุ้น (Stimulus)',
+    th: 'ลงทะเบียนสื่อกระตุ้น',
     en: 'Register Stimulus',
   },
   'dataset.stimulus_title_label': {
-    th: 'ชื่อสื่อกระตุ้น (Title)',
+    th: 'ชื่อสื่อกระตุ้น',
     en: 'Stimulus Title',
   },
   'dataset.media_path_label': {
-    th: 'ไฟล์สื่อ / URL (Media reference)',
-    en: 'Media File / URL',
+    th: 'ไฟล์สื่อ หรือ ที่อยู่อ้างอิง',
+    en: 'Media File / Reference',
   },
   'dataset.checksum_label': {
-    th: 'SHA-256 Checksum (64 ตัวอักษร)',
-    en: 'SHA-256 Checksum (64 chars)',
+    th: 'รหัสตรวจสอบ SHA-256',
+    en: 'SHA-256 Checksum',
   },
   'dataset.duration_label': {
-    th: 'ระยะเวลาคลิป (45–60 วินาที)',
-    en: 'Clip Duration (45–60s)',
+    th: 'ระยะเวลาคลิป',
+    en: 'Clip Duration',
   },
   'dataset.target_quadrant_label': {
-    th: 'เป้าหมายอารมณ์ (Quadrant)',
+    th: 'เป้าหมายอารมณ์',
     en: 'Target Emotion Quadrant',
   },
   'dataset.approval_state_label': {
-    th: 'สถานะอนุมัติ (Approval state)',
+    th: 'สถานะอนุมัติ',
     en: 'Approval State',
   },
   'dataset.version_label': {
-    th: 'เวอร์ชันชุดสื่อกระตุ้น (Version)',
+    th: 'เวอร์ชันชุดสื่อกระตุ้น',
     en: 'Stimulus Set Version',
   },
   'dataset.all_stimuli_list': {
@@ -296,7 +296,7 @@ export const TRANSLATIONS: Dictionary = {
     en: 'Remain calm and relaxed during signal check.',
   },
   'session.start_baseline': {
-    th: 'เริ่มบันทึกค่าพื้นฐาน (Baseline 20s)',
+    th: 'เริ่มบันทึกค่าพื้นฐาน 20 วินาที',
     en: 'Start Baseline Recording (20s)',
   },
   'session.waiting_sensors': {
@@ -310,26 +310,26 @@ export const TRANSLATIONS: Dictionary = {
     en: 'EEG Dataset Collection',
   },
   'runner.eyebrow': {
-    th: 'พื้นที่รวบรวมข้อมูลระดับแอดมิน (Admin Collection Workspace)',
-    en: 'Admin collection workspace',
+    th: 'พื้นที่รวบรวมข้อมูลระดับผู้ดูแลระบบ',
+    en: 'Admin Collection Workspace',
   },
   'runner.title': {
-    th: 'การตั้งค่าสายคาดคลื่นสมองสร้างสรรค์ (Creative Headset Setup)',
+    th: 'การตั้งค่าสายคาดคลื่นสมองสำหรับการทดลอง',
     en: 'Creative Headset Setup',
   },
   'runner.live_connected': {
-    th: 'เชื่อมต่อสถานะ Live เรียบร้อย',
+    th: 'เชื่อมต่อสถานะเรียบร้อย',
     en: 'Live state connected',
   },
   'runner.persisted_state': {
-    th: 'ใช้งานสถานะ Runner ปัจจุบัน',
+    th: 'ใช้งานสถานะปัจจุบัน',
     en: 'Using persisted runner state',
   },
   'runner.signal_quality': {
-    th: 'คุณภาพสัญญาณ: derived EEG window',
+    th: 'คุณภาพสัญญาณ: หน้าต่างเวลาคลื่นสมอง',
     en: 'Signal quality: derived EEG window',
   },
-  'runner.progress': { th: 'ความคืบหน้าการทดลอง (Progress)', en: 'Progress' },
+  'runner.progress': { th: 'ความคืบหน้าการทดลอง', en: 'Experiment Progress' },
   'runner.schedule_not_prepared': {
     th: 'ยังไม่ได้เตรียม Schedule',
     en: 'Schedule not prepared',
@@ -387,10 +387,10 @@ export const TRANSLATIONS: Dictionary = {
     th: 'ขยับสายคาดตามตำแหน่งด้านล่าง',
     en: 'Adjust headband placement according to diagram below',
   },
-  'sensor.tp9_label': { th: 'หลังหูซ้าย (TP9)', en: 'Left Ear (TP9)' },
-  'sensor.af7_label': { th: 'หน้าผากซ้าย (AF7)', en: 'Left Forehead (AF7)' },
-  'sensor.af8_label': { th: 'หน้าผากขวา (AF8)', en: 'Right Forehead (AF8)' },
-  'sensor.tp10_label': { th: 'หลังหูขวา (TP10)', en: 'Right Ear (TP10)' },
+  'sensor.tp9_label': { th: 'หลังหูซ้าย', en: 'Left Ear (TP9)' },
+  'sensor.af7_label': { th: 'หน้าผากซ้าย', en: 'Left Forehead (AF7)' },
+  'sensor.af8_label': { th: 'หน้าผากขวา', en: 'Right Forehead (AF8)' },
+  'sensor.tp10_label': { th: 'หลังหูขวา', en: 'Right Ear (TP10)' },
   'sensor.waiting': { th: 'รอสัญญาณ', en: 'Waiting for signal' },
   'sensor.good': { th: 'สัญญาณดี', en: 'Good signal' },
   'sensor.poor': { th: 'สัญญาณอ่อน', en: 'Poor signal' },
@@ -426,11 +426,11 @@ export class LanguageService {
   }
 
   translateError(err: unknown): string {
-    return toThaiError(err);
+    return toThaiError(err, this.currentLang());
   }
 }
 
-export function toThaiError(err: unknown): string {
+export function toThaiError(err: unknown, preferredLang?: Language): string {
   if (!err) return '';
   let msg = '';
   if (typeof err === 'string') {
@@ -455,136 +455,91 @@ export function toThaiError(err: unknown): string {
   }
 
   msg = (msg || '').trim();
-  if (!msg) return 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ';
+  const currentLang =
+    preferredLang ??
+    ((typeof localStorage !== 'undefined'
+      ? (localStorage.getItem('app_lang') as Language)
+      : 'th') || 'th');
+
+  if (!msg) {
+    return currentLang === 'en'
+      ? 'An unexpected error occurred.'
+      : 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ';
+  }
 
   const lower = msg.toLowerCase();
 
-  if (lower.includes('invalid email or password')) {
-    return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง';
+  if (currentLang === 'en') {
+    if (lower.includes('invalid email or password')) return 'Invalid email or password. Please try again.';
+    if (lower.includes('email already registered')) return 'This email is already registered. Please use another email.';
+    if (lower.includes('invalid or expired token') || lower.includes('token expired')) return 'Session expired or invalid. Please log in again.';
+    if (lower.includes('not authenticated')) return 'Please log in before continuing.';
+    if (lower.includes('admin access required')) return 'Admin privileges required.';
+    if (lower.includes('user access required')) return 'User privileges required.';
+    if (lower.includes('user not found or inactive')) return 'User not found or account is deactivated.';
+    if (lower.includes('session not found') || lower.includes('active session not found')) return 'Session not found in the system.';
+    if (lower.includes('collection session not found')) return 'EEG collection session not found.';
+    if (lower.includes('collection session is terminal')) return 'This collection session is already completed or closed.';
+    if (lower.includes('trial not found')) return 'Trial not found for this session.';
+    if (lower.includes('trial is not next in schedule')) return 'Trial does not match the next scheduled order.';
+    if (lower.includes('stimulus media not found')) return 'Stimulus video file not found on the server.';
+    if (lower.includes('stimulus media verification failed') || lower.includes('checksum mismatch')) return 'Media verification failed: SHA-256 checksum mismatch.';
+    if (lower.includes('stimulus media is not a video')) return 'Stimulus file is not a valid video.';
+    if (lower.includes('stimulus playback failed')) return 'Stimulus playback failed. Collection was interrupted for recovery.';
+    if (lower.includes('stimulus content duration')) return 'Video duration must be between 45 and 60 seconds.';
+    if (lower.includes('all four live sensors good') || lower.includes('require_live_sensor_ready')) return 'All four Muse sensors must maintain solid contact before starting.';
+    if (lower.includes('rest requires at least') || lower.includes('rest not ready')) return 'Rest fixation requires at least 10 seconds before starting.';
+    if (lower.includes('muse scan not found')) return 'Muse scan result not found.';
+    if (lower.includes('muse disconnected') || lower.includes('muse connection could not be established')) return 'Muse headset disconnected.';
+    if (lower.includes('a live muse connection is required')) return 'A live Muse connection is required before recording.';
+    if (lower.includes('baseline requires exactly 12 persisted schedule rows')) return 'Exactly 12 scheduled trials are required before starting baseline.';
+    if (lower.includes('baseline requires participant consent')) return 'Participant consent is required before starting baseline.';
+    if (lower.includes('capture requires all four live sensors good')) return 'All 4 sensors must provide a steady 256 Hz signal before recording.';
+    if (lower.includes('eyes-closed baseline requires completed eyes-open baseline')) return 'Eyes-open baseline must be completed before eyes-closed baseline.';
+    if (lower.includes('user cancelled') || lower.includes('user canceled')) return 'Bluetooth device selection was cancelled.';
+    if (lower.includes('bluetooth') && lower.includes('not available')) return 'Bluetooth receiver not found or disabled on this computer.';
+    if (lower.includes('gatt server is disconnected') || lower.includes('device is disconnected')) return 'Bluetooth connection to Muse was disconnected. Please reconnect.';
+    if (lower.includes('queuepool limit') || lower.includes('connection timed out')) return 'Database connection timed out. Please try again.';
+    if (lower.includes('networkerror') || lower.includes('failed to fetch') || lower.includes('http failure response')) return 'Cannot connect to backend server. Please verify backend is running.';
+    if (lower.includes('not in ready state') || lower.includes('not in emotion_confirmation state')) return 'Invalid session state for this action.';
+    if (lower.includes('request failed') || lower.includes('an error occurred')) return 'Operation failed. Please try again.';
+    return msg;
   }
-  if (lower.includes('email already registered')) {
-    return 'อีเมลนี้ถูกลงทะเบียนในระบบแล้ว กรุณาใช้อีเมลอื่น';
-  }
-  if (
-    lower.includes('invalid or expired token') ||
-    lower.includes('token expired')
-  ) {
-    return 'เซสชันหมดอายุหรือไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง';
-  }
-  if (lower.includes('not authenticated')) {
-    return 'ยังไม่ได้เข้าสู่ระบบ กรุณาเข้าสู่ระบบก่อนใช้งาน';
-  }
-  if (lower.includes('admin access required')) {
-    return 'ต้องใช้สิทธิ์ผู้ดูแลระบบ (Admin) ในการเข้าถึง';
-  }
-  if (lower.includes('user access required')) {
-    return 'ต้องใช้สิทธิ์ผู้ใช้งานทั่วไปในการเข้าถึง';
-  }
-  if (lower.includes('user not found or inactive')) {
-    return 'ไม่พบข้อมูลผู้ใช้ หรือบัญชีถูกระงับการใช้งาน';
-  }
-  if (
-    lower.includes('session not found') ||
-    lower.includes('active session not found')
-  ) {
-    return 'ไม่พบเซสชันการทดสอบในระบบ';
-  }
-  if (lower.includes('collection session not found')) {
-    return 'ไม่พบเซสชันการเก็บข้อมูลคลื่นสมอง';
-  }
-  if (lower.includes('collection session is terminal')) {
-    return 'เซสชันการเก็บข้อมูลนี้เสร็จสิ้นหรือปิดไปแล้ว ไม่สามารถดำเนินการต่อได้';
-  }
-  if (lower.includes('trial not found')) {
-    return 'ไม่พบข้อมูลรอบทดสอบ (Trial) สำหรับเซสชันนี้';
-  }
-  if (lower.includes('trial is not next in schedule')) {
-    return 'รอบทดสอบนี้ไม่ตรงกับลำดับถัดไปในตาราง';
-  }
-  if (lower.includes('stimulus media not found')) {
-    return 'ไม่พบไฟล์วิดีโอสื่อกระตุ้นในโฟลเดอร์ระบบ';
-  }
-  if (
-    lower.includes('stimulus media verification failed') ||
-    lower.includes('checksum mismatch')
-  ) {
-    return 'ตรวจสอบไฟล์วิดีโอล้มเหลว: ค่า Checksum ไม่ตรงกับที่บันทึกไว้ในระบบ';
-  }
-  if (lower.includes('stimulus media is not a video')) {
-    return 'ไฟล์สื่อกระตุ้นไม่ใช่วิดีโอที่ถูกต้อง';
-  }
-  if (lower.includes('stimulus playback failed')) {
-    return 'การเล่นวิดีโอคลิปล้มเหลว (Stimulus playback failed; collection was interrupted for recovery)';
-  }
-  if (lower.includes('stimulus content duration')) {
-    return 'ความยาวคลิปต้องอยู่ระหว่าง 45 ถึง 60 วินาทีตามข้อกำหนดการทดลอง';
-  }
-  if (lower.includes('all four live sensors good') || lower.includes('require_live_sensor_ready')) {
-    return 'สัญญาณ Muse ต้องแตะผิวดีทั้ง 4 จุดก่อนเริ่มคลิป';
-  }
-  if (lower.includes('rest requires at least') || lower.includes('rest not ready')) {
-    return 'ต้องพักสายตาให้นิ่งอย่างน้อย 10 วินาทีก่อนเริ่มคลิป';
-  }
-  if (lower.includes('muse scan not found')) {
-    return 'ไม่พบข้อมูลผลการค้นหาอุปกรณ์ Muse (Muse scan not found)';
-  }
-  if (
-    lower.includes('muse disconnected') ||
-    lower.includes('muse connection could not be established')
-  ) {
-    return 'อุปกรณ์ Muse หลุดการเชื่อมต่อ (Muse disconnected)';
-  }
-  if (lower.includes('a live muse connection is required')) {
-    return 'ต้องเชื่อมต่ออุปกรณ์ Muse ก่อนเริ่มบันทึกข้อมูล';
-  }
-  if (lower.includes('baseline requires exactly 12 persisted schedule rows')) {
-    return 'ต้องมีตารางรอบทดลองครบ 12 รอบก่อนเริ่ม Baseline';
-  }
-  if (lower.includes('baseline requires participant consent')) {
-    return 'ต้องได้รับการยืนยันความยินยอมจากผู้เข้าร่วมทดลองก่อนเริ่ม Baseline';
-  }
-  if (lower.includes('capture requires all four live sensors good')) {
-    return 'ต้องการสัญญาณเซนเซอร์ทั้ง 4 จุดที่ดีและคงที่ 256 Hz ก่อนเริ่มบันทึก';
-  }
-  if (
-    lower.includes('eyes-closed baseline requires completed eyes-open baseline')
-  ) {
-    return 'ต้องผ่าน Baseline ลืมตาก่อนเริ่ม Baseline หลับตา';
-  }
-  if (lower.includes('user cancelled') || lower.includes('user canceled')) {
-    return 'ยกเลิกการเลือกอุปกรณ์บลูทูธ';
-  }
-  if (lower.includes('bluetooth') && lower.includes('not available')) {
-    return 'ไม่พบตัวรับสัญญาณบลูทูธ หรือไม่ได้เปิดใช้งานบลูทูธในคอมพิวเตอร์';
-  }
-  if (
-    lower.includes('gatt server is disconnected') ||
-    lower.includes('device is disconnected')
-  ) {
-    return 'การเชื่อมต่อบลูทูธกับ Muse หลุดหาย กรุณาเชื่อมต่อใหม่';
-  }
-  if (
-    lower.includes('queuepool limit') ||
-    lower.includes('connection timed out')
-  ) {
-    return 'การเชื่อมต่อฐานข้อมูลล่าช้าหรือหมดเวลา กรุณาลองใหม่อีกครั้ง';
-  }
-  if (
-    lower.includes('networkerror') ||
-    lower.includes('failed to fetch') ||
-    lower.includes('http failure response')
-  ) {
-    return 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ Backend ได้ (กรุณาตรวจสอบว่า Backend กำลังทำงาน)';
-  }
-  if (
-    lower.includes('not in ready state') ||
-    lower.includes('not in emotion_confirmation state')
-  ) {
-    return 'สถานะของเซสชันไม่ถูกต้องสำหรับการดำเนินการนี้';
-  }
-  if (lower.includes('request failed') || lower.includes('an error occurred')) {
-    return 'เกิดข้อผิดพลาดในการดำเนินการ กรุณาลองใหม่อีกครั้ง';
-  }
+
+  // Pure Thai translations
+  if (lower.includes('invalid email or password')) return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง';
+  if (lower.includes('email already registered')) return 'อีเมลนี้ถูกลงทะเบียนในระบบแล้ว กรุณาใช้อีเมลอื่น';
+  if (lower.includes('invalid or expired token') || lower.includes('token expired')) return 'เซสชันหมดอายุหรือไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง';
+  if (lower.includes('not authenticated')) return 'ยังไม่ได้เข้าสู่ระบบ กรุณาเข้าสู่ระบบก่อนใช้งาน';
+  if (lower.includes('admin access required')) return 'ต้องใช้สิทธิ์ผู้ดูแลระบบในการเข้าถึง';
+  if (lower.includes('user access required')) return 'ต้องใช้สิทธิ์ผู้ใช้งานทั่วไปในการเข้าถึง';
+  if (lower.includes('user not found or inactive')) return 'ไม่พบข้อมูลผู้ใช้ หรือบัญชีถูกระงับการใช้งาน';
+  if (lower.includes('session not found') || lower.includes('active session not found')) return 'ไม่พบเซสชันการทดสอบในระบบ';
+  if (lower.includes('collection session not found')) return 'ไม่พบเซสชันการเก็บข้อมูลคลื่นสมอง';
+  if (lower.includes('collection session is terminal')) return 'เซสชันการเก็บข้อมูลนี้เสร็จสิ้นหรือปิดไปแล้ว ไม่สามารถดำเนินการต่อได้';
+  if (lower.includes('trial not found')) return 'ไม่พบข้อมูลรอบทดสอบสำหรับเซสชันนี้';
+  if (lower.includes('trial is not next in schedule')) return 'รอบทดสอบนี้ไม่ตรงกับลำดับถัดไปในตาราง';
+  if (lower.includes('stimulus media not found')) return 'ไม่พบไฟล์วิดีโอสื่อกระตุ้นในโฟลเดอร์ระบบ';
+  if (lower.includes('stimulus media verification failed') || lower.includes('checksum mismatch')) return 'ตรวจสอบไฟล์วิดีโอล้มเหลว: ค่ารหัสตรวจสอบไม่ตรงกับที่บันทึกไว้ในระบบ';
+  if (lower.includes('stimulus media is not a video')) return 'ไฟล์สื่อกระตุ้นไม่ใช่วิดีโอที่ถูกต้อง';
+  if (lower.includes('stimulus playback failed')) return 'การเล่นวิดีโอคลิปล้มเหลว ระบบหยุดชั่วคราวเพื่อกู้คืนการทำงาน';
+  if (lower.includes('stimulus content duration')) return 'ความยาวคลิปต้องอยู่ระหว่าง 45 ถึง 60 วินาทีตามข้อกำหนดการทดลอง';
+  if (lower.includes('all four live sensors good') || lower.includes('require_live_sensor_ready')) return 'สัญญาณ Muse ต้องแตะผิวดีทั้ง 4 จุดก่อนเริ่มคลิป';
+  if (lower.includes('rest requires at least') || lower.includes('rest not ready')) return 'ต้องพักสายตาให้นิ่งอย่างน้อย 10 วินาทีก่อนเริ่มคลิป';
+  if (lower.includes('muse scan not found')) return 'ไม่พบข้อมูลการค้นหาอุปกรณ์ Muse';
+  if (lower.includes('muse disconnected') || lower.includes('muse connection could not be established')) return 'อุปกรณ์ Muse หลุดการเชื่อมต่อ';
+  if (lower.includes('a live muse connection is required')) return 'ต้องเชื่อมต่ออุปกรณ์ Muse ก่อนเริ่มบันทึกข้อมูล';
+  if (lower.includes('baseline requires exactly 12 persisted schedule rows')) return 'ต้องมีตารางรอบทดลองครบ 12 รอบก่อนเริ่ม Baseline';
+  if (lower.includes('baseline requires participant consent')) return 'ต้องได้รับการยืนยันความยินยอมจากผู้เข้าร่วมทดลองก่อนเริ่ม Baseline';
+  if (lower.includes('capture requires all four live sensors good')) return 'ต้องการสัญญาณเซนเซอร์ทั้ง 4 จุดที่ดีและคงที่ 256 Hz ก่อนเริ่มบันทึก';
+  if (lower.includes('eyes-closed baseline requires completed eyes-open baseline')) return 'ต้องผ่าน Baseline ลืมตาก่อนเริ่ม Baseline หลับตา';
+  if (lower.includes('user cancelled') || lower.includes('user canceled')) return 'ยกเลิกการเลือกอุปกรณ์บลูทูธ';
+  if (lower.includes('bluetooth') && lower.includes('not available')) return 'ไม่พบตัวรับสัญญาณบลูทูธ หรือไม่ได้เปิดใช้งานบลูทูธในคอมพิวเตอร์';
+  if (lower.includes('gatt server is disconnected') || lower.includes('device is disconnected')) return 'การเชื่อมต่อบลูทูธกับ Muse หลุดหาย กรุณาเชื่อมต่อใหม่';
+  if (lower.includes('queuepool limit') || lower.includes('connection timed out')) return 'การเชื่อมต่อฐานข้อมูลล่าช้าหรือหมดเวลา กรุณาลองใหม่อีกครั้ง';
+  if (lower.includes('networkerror') || lower.includes('failed to fetch') || lower.includes('http failure response')) return 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์หลักได้ กรุณาตรวจสอบว่าระบบกำลังทำงาน';
+  if (lower.includes('not in ready state') || lower.includes('not in emotion_confirmation state')) return 'สถานะของเซสชันไม่ถูกต้องสำหรับการดำเนินการนี้';
+  if (lower.includes('request failed') || lower.includes('an error occurred')) return 'เกิดข้อผิดพลาดในการดำเนินการ กรุณาลองใหม่อีกครั้ง';
 
   // If already in Thai, return as is
   if (/[\u0E00-\u0E7F]/.test(msg)) return msg;

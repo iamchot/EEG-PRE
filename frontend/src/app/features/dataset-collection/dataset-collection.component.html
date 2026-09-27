@@ -1,28 +1,46 @@
 <main class="collection-shell">
   <header class="page-header">
     <div>
-      <a routerLink="/admin" class="back-link">← {{ 'nav.admin' | translate }}</a>
-      <h1>{{ 'dataset.title' | translate }}</h1>
-      <p>{{ 'dataset.subtitle' | translate }}</p>
+      <a routerLink="/admin" class="back-link"
+        >← {{ "nav.admin" | translate }}</a
+      >
+      <h1>{{ "dataset.title" | translate }}</h1>
+      <p>{{ "dataset.subtitle" | translate }}</p>
     </div>
     <aside class="notice" data-testid="non-medical-notice">
-      {{ 'dataset.notice' | translate }}
+      {{ "dataset.notice" | translate }}
     </aside>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Dataset collection sections">
     @for (tab of tabs(); track tab.key) {
-      <button type="button" role="tab" [attr.aria-selected]="activeTab() === tab.key"
-        [id]="'collection-tab-' + tab.key" [attr.aria-controls]="'collection-panel-' + tab.key"
-        [tabIndex]="activeTab() === tab.key ? 0 : -1" [class.active]="activeTab() === tab.key"
-        (click)="switchTab(tab.key)" (keydown)="onTabKeydown($event, tab.key)">{{ tab.label }}</button>
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="activeTab() === tab.key"
+        [id]="'collection-tab-' + tab.key"
+        [attr.aria-controls]="'collection-panel-' + tab.key"
+        [tabIndex]="activeTab() === tab.key ? 0 : -1"
+        [class.active]="activeTab() === tab.key"
+        (click)="switchTab(tab.key)"
+        (keydown)="onTabKeydown($event, tab.key)"
+      >
+        {{ tab.label }}
+      </button>
     }
   </nav>
 
-  @if (error()) { <div class="error" role="alert">{{ error() }}</div> }
+  @if (error()) {
+    <div class="error" role="alert">{{ error() }}</div>
+  }
 
-  @if (activeTab() === 'overview') {
-    <section id="collection-panel-overview" aria-labelledby="collection-tab-overview" class="overview-shell" role="tabpanel">
+  @if (activeTab() === "overview") {
+    <section
+      id="collection-panel-overview"
+      aria-labelledby="collection-tab-overview"
+      class="overview-shell"
+      role="tabpanel"
+    >
       @if (overviewLoading()) {
         <div class="overview-loading-box">
           <div class="overview-spinner"></div>
@@ -33,35 +51,57 @@
           <!-- Section 1: KPI Metrics Grid with accurate numbers -->
           <div class="overview-kpis">
             <article class="stat-card">
-              <span class="stat-card-title">{{ 'dataset.participants' | translate }}</span>
-              <strong class="stat-card-val text-purple">{{ stats.participants }}</strong>
+              <span class="stat-card-title">{{
+                "dataset.participants" | translate
+              }}</span>
+              <strong class="stat-card-val text-purple">{{
+                stats.participants
+              }}</strong>
               <small class="stat-card-sub">ลงทะเบียนในระบบวิจัย</small>
             </article>
 
             <article class="stat-card">
-              <span class="stat-card-title">{{ 'dataset.sessions' | translate }}</span>
-              <strong class="stat-card-val text-cyan">{{ stats.sessions }}</strong>
+              <span class="stat-card-title">{{
+                "dataset.sessions" | translate
+              }}</span>
+              <strong class="stat-card-val text-cyan">{{
+                stats.sessions
+              }}</strong>
               <small class="stat-card-sub">
-                {{ stats.sessions_by_state?.['completed'] ?? 0 }} สำเร็จ · {{ stats.sessions_by_state?.['ready'] ?? 0 }} พร้อมเริ่ม
+                {{ stats.sessions_by_state?.["completed"] ?? 0 }} สำเร็จ ·
+                {{ stats.sessions_by_state?.["ready"] ?? 0 }} พร้อมเริ่ม
               </small>
             </article>
 
             <article class="stat-card">
               <span class="stat-card-title">รอบทดสอบที่สำเร็จ</span>
-              <strong class="stat-card-val text-green">{{ stats.completed_trials ?? 0 }} <span class="stat-card-denom">/ {{ stats.trials }}</span></strong>
+              <strong class="stat-card-val text-green"
+                >{{ stats.completed_trials ?? 0 }}
+                <span class="stat-card-denom"
+                  >/ {{ stats.trials }}</span
+                ></strong
+              >
               <small class="stat-card-sub">บันทึกผล EEG & Rating แล้ว</small>
             </article>
 
             <article class="stat-card">
-              <span class="stat-card-title">{{ 'dataset.pending' | translate }}</span>
-              <strong class="stat-card-val text-amber">{{ stats.review_counts.pending }}</strong>
+              <span class="stat-card-title">{{
+                "dataset.pending" | translate
+              }}</span>
+              <strong class="stat-card-val text-amber">{{
+                stats.review_counts.pending
+              }}</strong>
               <small class="stat-card-sub">รอแอดมินตรวจสอบผล</small>
             </article>
 
             <article class="stat-card">
               <span class="stat-card-title">ข้อมูล EEG ทั้งหมด</span>
-              <strong class="stat-card-val text-pink">{{ formatBytes(stats.total_eeg_bytes) }}</strong>
-              <small class="stat-card-sub">{{ stats.completed_trials ?? 0 }} ไฟล์ Raw EEG</small>
+              <strong class="stat-card-val text-pink">{{
+                formatBytes(stats.total_eeg_bytes)
+              }}</strong>
+              <small class="stat-card-sub"
+                >{{ stats.completed_trials ?? 0 }} ไฟล์ Raw EEG</small
+              >
             </article>
           </div>
 
@@ -71,43 +111,123 @@
             <div class="analytics-card">
               <div class="analytics-card-header">
                 <div>
-                  <h3>แผนผังพล็อตอารมณ์ 2 มิติ (2D Emotion Space — Circumplex Model)</h3>
-                  <p>พล็อตตำแหน่งค่าคะแนน Valence และ Arousal จากรอบการทดสอบที่เก็บได้จริง ({{ stats.ratings_distribution?.length ?? 0 }} จุดข้อมูล)</p>
+                  <h3>
+                    {{ lang.currentLang() === 'th' ? 'แผนผังพล็อตอารมณ์ 2 มิติ' : '2D Emotion Space Map' }}
+                  </h3>
+                  <p>
+                    {{ lang.currentLang() === 'th'
+                      ? 'พล็อตตำแหน่งค่าคะแนน Valence และ Arousal จากรอบการทดสอบที่เก็บได้จริง (' + (stats.ratings_distribution?.length ?? 0) + ' จุดข้อมูล)'
+                      : 'Plotted Valence and Arousal scores from completed trials (' + (stats.ratings_distribution?.length ?? 0) + ' data points)' }}
+                  </p>
                 </div>
                 <div class="chart-legend">
-                  <span class="legend-badge badge-hvha">HVHA (Excited)</span>
-                  <span class="legend-badge badge-hvla">HVLA (Relax)</span>
-                  <span class="legend-badge badge-lvha">LVHA (Stress)</span>
-                  <span class="legend-badge badge-lvla">LVLA (Sad)</span>
+                  <span class="legend-badge badge-hvha">{{ lang.currentLang() === 'th' ? 'ตื่นเต้น / สนุกสนาน' : 'Excited / Happy' }}</span>
+                  <span class="legend-badge badge-hvla">{{ lang.currentLang() === 'th' ? 'ผ่อนคลาย / สงบ' : 'Relax / Calm' }}</span>
+                  <span class="legend-badge badge-lvha">{{ lang.currentLang() === 'th' ? 'เครียด / ตกใจกลัว' : 'Stress / Fear' }}</span>
+                  <span class="legend-badge badge-lvla">{{ lang.currentLang() === 'th' ? 'เศร้า / หดหู่' : 'Sad / Depressed' }}</span>
                 </div>
               </div>
 
               <div class="overview-svg-wrapper">
-                <svg viewBox="0 0 500 360" class="overview-emotion-svg" aria-label="2D Valence Arousal Circumplex Model">
+                <svg
+                  viewBox="0 0 500 360"
+                  class="overview-emotion-svg"
+                  aria-label="2D Valence Arousal Circumplex Model"
+                >
                   <!-- 4 Quadrants Background Areas -->
-                  <rect x="50" y="30" width="200" height="150" class="svg-quad-lvha" />
-                  <rect x="250" y="30" width="200" height="150" class="svg-quad-hvha" />
-                  <rect x="50" y="180" width="200" height="150" class="svg-quad-lvla" />
-                  <rect x="250" y="180" width="200" height="150" class="svg-quad-hvla" />
+                  <rect
+                    x="50"
+                    y="30"
+                    width="200"
+                    height="150"
+                    class="svg-quad-lvha"
+                  />
+                  <rect
+                    x="250"
+                    y="30"
+                    width="200"
+                    height="150"
+                    class="svg-quad-hvha"
+                  />
+                  <rect
+                    x="50"
+                    y="180"
+                    width="200"
+                    height="150"
+                    class="svg-quad-lvla"
+                  />
+                  <rect
+                    x="250"
+                    y="180"
+                    width="200"
+                    height="150"
+                    class="svg-quad-hvla"
+                  />
 
                   <!-- Quadrant Watermarks -->
-                  <text x="65" y="55" class="svg-watermark">LVHA (Stress / Fear)</text>
-                  <text x="435" y="55" text-anchor="end" class="svg-watermark">HVHA (Excited / Happy)</text>
-                  <text x="65" y="315" class="svg-watermark">LVLA (Sad / Depressed)</text>
-                  <text x="435" y="315" text-anchor="end" class="svg-watermark">HVLA (Relax / Calm)</text>
+                  <text x="65" y="55" class="svg-watermark">
+                    {{ lang.currentLang() === 'th' ? 'เครียด / ตกใจกลัว' : 'LVHA (Stress/Fear)' }}
+                  </text>
+                  <text x="435" y="55" text-anchor="end" class="svg-watermark">
+                    {{ lang.currentLang() === 'th' ? 'ตื่นเต้น / สนุกสนาน' : 'HVHA (Excited/Joy)' }}
+                  </text>
+                  <text x="65" y="315" class="svg-watermark">
+                    {{ lang.currentLang() === 'th' ? 'เศร้า / หดหู่' : 'LVLA (Sad/Depressed)' }}
+                  </text>
+                  <text x="435" y="315" text-anchor="end" class="svg-watermark">
+                    {{ lang.currentLang() === 'th' ? 'ผ่อนคลาย / สงบ' : 'HVLA (Relax/Peace)' }}
+                  </text>
 
                   <!-- Center Crosshair Axes -->
-                  <line x1="50" y1="180" x2="450" y2="180" class="svg-axis-line" />
-                  <line x1="250" y1="30" x2="250" y2="330" class="svg-axis-line" />
+                  <line
+                    x1="50"
+                    y1="180"
+                    x2="450"
+                    y2="180"
+                    class="svg-axis-line"
+                  />
+                  <line
+                    x1="250"
+                    y1="30"
+                    x2="250"
+                    y2="330"
+                    class="svg-axis-line"
+                  />
 
                   <!-- Axis Labels -->
-                  <text x="50" y="198" class="svg-axis-label">Valence 1 (ไม่ดี)</text>
-                  <text x="450" y="198" text-anchor="end" class="svg-axis-label">Valence 9 (ดีมาก)</text>
-                  <text x="250" y="22" text-anchor="middle" class="svg-axis-label">Arousal 9 (ตื่นตัวสูง)</text>
-                  <text x="250" y="348" text-anchor="middle" class="svg-axis-label">Arousal 1 (สงบ/ง่วง)</text>
+                  <text x="50" y="198" class="svg-axis-label">
+                    {{ lang.currentLang() === 'th' ? 'ไม่ดี (1)' : 'Valence 1 (Unpleasant)' }}
+                  </text>
+                  <text
+                    x="450"
+                    y="198"
+                    text-anchor="end"
+                    class="svg-axis-label"
+                  >
+                    {{ lang.currentLang() === 'th' ? 'ดีมาก (9)' : 'Valence 9 (Pleasant)' }}
+                  </text>
+                  <text
+                    x="250"
+                    y="22"
+                    text-anchor="middle"
+                    class="svg-axis-label"
+                  >
+                    {{ lang.currentLang() === 'th' ? 'ตื่นตัวสูง (9)' : 'Arousal 9 (High)' }}
+                  </text>
+                  <text
+                    x="250"
+                    y="348"
+                    text-anchor="middle"
+                    class="svg-axis-label"
+                  >
+                    {{ lang.currentLang() === 'th' ? 'สงบ/ง่วง (1)' : 'Arousal 1 (Low)' }}
+                  </text>
 
                   <!-- Plotted points from all rated trials -->
-                  @for (pt of stats.ratings_distribution ?? []; track pt.trial_id) {
+                  @for (
+                    pt of stats.ratings_distribution ?? [];
+                    track pt.trial_id
+                  ) {
                     <g class="svg-point-group">
                       <circle
                         [attr.cx]="calcSvgX(pt.valence)"
@@ -115,7 +235,13 @@
                         r="12"
                         class="svg-circle-point point-{{ pt.target_quadrant }}"
                       >
-                        <title>{{ pt.participant_code ?? 'P' }} Session #{{ pt.session_id }}: {{ pt.stimulus_title }} (Valence: {{ pt.valence }}, Arousal: {{ pt.arousal }}, Confidence: {{ pt.confidence }})</title>
+                        <title>
+                          {{ pt.participant_code ?? "P" }} Session #{{
+                            pt.session_id
+                          }}: {{ pt.stimulus_title }} (Valence:
+                          {{ pt.valence }}, Arousal: {{ pt.arousal }},
+                          Confidence: {{ pt.confidence }})
+                        </title>
                       </circle>
                       <text
                         [attr.x]="calcSvgX(pt.valence)"
@@ -134,25 +260,50 @@
             <!-- Quadrant Breakdown Statistics -->
             <div class="analytics-card">
               <div class="analytics-card-header">
-                <h3>สถิติการกระจายตัวตาม Quadrant (Target Distribution)</h3>
-                <p>จำนวนรอบที่เก็บสำเร็จ และค่าเฉลี่ยคะแนนการตอบสนองจริงในแต่ละกลุ่มอารมณ์</p>
+                <h3>{{ lang.currentLang() === 'th' ? 'สถิติการกระจายตัวตามกลุ่มอารมณ์' : 'Target Quadrant Distribution' }}</h3>
+                <p>
+                  {{ lang.currentLang() === 'th'
+                    ? 'จำนวนรอบที่เก็บสำเร็จ และค่าเฉลี่ยคะแนนการตอบสนองจริงในแต่ละกลุ่มอารมณ์'
+                    : 'Completed trial counts and response score averages per quadrant' }}
+                </p>
               </div>
 
               <div class="quadrant-summary-cards">
                 @for (q of quadrants; track q) {
                   <div class="quad-stat-item">
                     <div class="quad-stat-top">
-                      <span class="badge {{ quadrantBadgeClass(q) }}">{{ quadrantTitle(q) }}</span>
-                      <strong class="quad-count">{{ stats.quadrant_stats?.[q]?.target_count ?? 0 }} รอบสำเร็จ</strong>
+                      <span class="badge {{ quadrantBadgeClass(q) }}">{{
+                        quadrantTitle(q)
+                      }}</span>
+                      <strong class="quad-count"
+                        >{{
+                          stats.quadrant_stats?.[q]?.target_count ?? 0
+                        }}
+                        รอบสำเร็จ</strong
+                      >
                     </div>
                     <div class="quad-scores-row">
                       <div class="score-metric">
                         <span class="score-metric-lbl">Valence เฉลี่ย:</span>
-                        <strong class="score-metric-val">{{ stats.quadrant_stats?.[q]?.avg_valence?.toFixed(2) ?? '-' }} <small>/ 9</small></strong>
+                        <strong class="score-metric-val"
+                          >{{
+                            stats.quadrant_stats?.[q]?.avg_valence?.toFixed(
+                              2
+                            ) ?? "-"
+                          }}
+                          <small>/ 9</small></strong
+                        >
                       </div>
                       <div class="score-metric">
                         <span class="score-metric-lbl">Arousal เฉลี่ย:</span>
-                        <strong class="score-metric-val">{{ stats.quadrant_stats?.[q]?.avg_arousal?.toFixed(2) ?? '-' }} <small>/ 9</small></strong>
+                        <strong class="score-metric-val"
+                          >{{
+                            stats.quadrant_stats?.[q]?.avg_arousal?.toFixed(
+                              2
+                            ) ?? "-"
+                          }}
+                          <small>/ 9</small></strong
+                        >
                       </div>
                     </div>
                   </div>
@@ -165,11 +316,20 @@
           <div class="waveform-preview-card">
             <div class="waveform-header">
               <div>
-                <h3>ตัวอย่างคลื่นสัญญาณสมองและการตรวจสอบคุณภาพ (EEG Signal & Quality Overview)</h3>
-                <p>จำลองการตรวจจับคลื่นสมอง 4 ช่องสัญญาณมาตรฐาน Muse 2 (TP9, AF7, AF8, TP10) ความถี่ 256 Hz</p>
+                <h3>
+                  {{ lang.currentLang() === 'th' ? 'ตัวอย่างคลื่นสัญญาณสมองและการตรวจสอบคุณภาพ' : 'EEG Signal & Quality Overview' }}
+                </h3>
+                <p>
+                  {{ lang.currentLang() === 'th'
+                    ? 'จำลองการตรวจจับคลื่นสมอง 4 ช่องสัญญาณมาตรฐาน Muse 2 (TP9, AF7, AF8, TP10) ความถี่ 256 Hz'
+                    : 'Simulation of 4-channel Muse 2 EEG (TP9, AF7, AF8, TP10) at 256 Hz' }}
+                </p>
               </div>
               <div class="waveform-health-pills">
-                <span class="health-pill"><span class="pill-dot good"></span> สัญญาณสะอาด &gt; 95%</span>
+                <span class="health-pill"
+                  ><span class="pill-dot good"></span> สัญญาณสะอาด &gt;
+                  95%</span
+                >
                 <span class="health-pill">Sampling: 256 Hz</span>
                 <span class="health-pill">4 Channels (μV)</span>
               </div>
@@ -189,43 +349,72 @@
           <!-- Section 4: Recent Sessions & Quick Access -->
           <div class="recent-sessions-card">
             <div class="recent-sessions-header">
-              <h3>รอบการเก็บข้อมูลล่าสุด (Recent Collection Sessions)</h3>
-              <span class="sessions-total-badge">{{ sessions().length }} รอบในระบบ</span>
+              <h3>{{ lang.currentLang() === 'th' ? 'รอบการเก็บข้อมูลล่าสุด' : 'Recent Collection Sessions' }}</h3>
+              <span class="sessions-total-badge"
+                >{{ sessions().length }} {{ lang.currentLang() === 'th' ? 'รอบในระบบ' : 'sessions' }}</span
+              >
             </div>
             <div class="table-responsive">
               <table class="recent-sessions-table">
                 <thead>
                   <tr>
-                    <th>Session</th>
-                    <th>ผู้เข้าร่วม (Participant)</th>
-                    <th>อุปกรณ์ Muse</th>
-                    <th>ความคืบหน้า (Progress)</th>
-                    <th>สถานะ (State)</th>
-                    <th>การดำเนินการ</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'รอบทดสอบ' : 'Session' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'ผู้เข้าร่วม' : 'Participant' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'อุปกรณ์สายคาด' : 'Headset Device' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'ความคืบหน้า' : 'Progress' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'สถานะ' : 'State' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'การดำเนินการ' : 'Actions' }}</th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (sess of sessions(); track sess.id) {
                     <tr>
-                      <td><strong>Session #{{ sess.id }}</strong></td>
-                      <td><code>{{ getParticipantCode(sess.participant_id) }}</code></td>
-                      <td>{{ sess.device_name ?? sess.device_id ?? 'Muse (Default)' }}</td>
+                      <td>
+                        <strong>Session #{{ sess.id }}</strong>
+                      </td>
+                      <td>
+                        <code>{{
+                          getParticipantCode(sess.participant_id)
+                        }}</code>
+                      </td>
+                      <td>
+                        {{
+                          sess.device_name ?? sess.device_id ?? "Muse (Default)"
+                        }}
+                      </td>
                       <td>
                         <span class="progress-indicator">
-                          {{ sess.completed_trials }} / {{ sess.total_trials }} รอบ
+                          {{ sess.completed_trials }} /
+                          {{ sess.total_trials }} รอบ
                         </span>
                       </td>
                       <td>
-                        <span class="badge state-badge-{{ sess.state }}">{{ sess.state }}</span>
+                        <span class="badge state-badge-{{ sess.state }}">{{
+                          sess.state
+                        }}</span>
                       </td>
                       <td>
-                        @if (sess.state === 'completed') {
-                          <a class="btn-table-action btn-completed" [routerLink]="['/admin/dataset-collection/sessions', sess.id, 'run']">
-                            📊 ดูสรุปผล 12 Trials
+                        @if (sess.state === "completed") {
+                          <a
+                            class="btn-table-action btn-completed"
+                            [routerLink]="[
+                              '/admin/dataset-collection/sessions',
+                              sess.id,
+                              'run',
+                            ]"
+                          >
+                            📊 {{ lang.currentLang() === 'th' ? 'ดูสรุปผล 12 รอบ' : 'View 12-Trial Summary' }}
                           </a>
                         } @else {
-                          <a class="btn-table-action btn-continue" [routerLink]="['/admin/dataset-collection/sessions', sess.id, 'run']">
-                            ▶ ดำเนินการต่อ
+                          <a
+                            class="btn-table-action btn-continue"
+                            [routerLink]="[
+                              '/admin/dataset-collection/sessions',
+                              sess.id,
+                              'run',
+                            ]"
+                          >
+                            ▶ {{ lang.currentLang() === 'th' ? 'ดำเนินการต่อ' : 'Continue' }}
                           </a>
                         }
                       </td>
@@ -235,72 +424,403 @@
               </table>
             </div>
           </div>
-        } @else { <p>Overview data is unavailable</p> }
+        } @else {
+          <p>Overview data is unavailable</p>
+        }
       }
     </section>
   }
 
-  @if (activeTab() === 'participants') {
-    <section id="collection-panel-participants" aria-labelledby="collection-tab-participants" class="split" role="tabpanel">
-      <form id="participant-form" class="panel form-card" (ngSubmit)="registerParticipant()">
-        <h2>{{ 'dataset.register_new_participant' | translate }}</h2>
-        <p>{{ 'dataset.auto_code_notice' | translate }}</p>
+  @if (activeTab() === "participants") {
+    <section
+      id="collection-panel-participants"
+      aria-labelledby="collection-tab-participants"
+      class="split"
+      role="tabpanel"
+    >
+      <form
+        id="participant-form"
+        class="panel form-card"
+        (ngSubmit)="registerParticipant()"
+      >
+        <h2>{{ "dataset.register_new_participant" | translate }}</h2>
+        <p>{{ "dataset.auto_code_notice" | translate }}</p>
         <label class="check-row" for="consent-confirmed">
-          <input id="consent-confirmed" name="consent_confirmed" type="checkbox" required
-            [(ngModel)]="consentConfirmed">
-          <span>{{ 'dataset.consent_checkbox' | translate }}</span>
+          <input
+            id="consent-confirmed"
+            name="consent_confirmed"
+            type="checkbox"
+            required
+            [(ngModel)]="consentConfirmed"
+          />
+          <span>{{ "dataset.consent_checkbox" | translate }}</span>
         </label>
-        <button id="register-participant" class="primary" type="submit"
-          [disabled]="!consentConfirmed || participantSubmitting()">
-          {{ participantSubmitting() ? 'Registering…' : ('dataset.register_participant' | translate) }}
+        <button
+          id="register-participant"
+          class="primary"
+          type="submit"
+          [disabled]="!consentConfirmed || participantSubmitting()"
+        >
+          {{
+            participantSubmitting()
+              ? "Registering…"
+              : ("dataset.register_participant" | translate)
+          }}
         </button>
       </form>
-      <section class="panel"><h2>{{ 'dataset.participant_list' | translate }}</h2>
-        <div class="list">@if (participantsLoading()) { <p role="status">Loading participants…</p> } @else { @for (item of participants(); track item.id) {
-          <div class="list-row"><strong>{{ item.participant_code }}</strong><span class="badge">{{ item.state }}</span></div>
-        } @empty { <p>No participants registered</p> } }</div>
+      <section class="panel">
+        <h2>{{ "dataset.participant_list" | translate }}</h2>
+        <div class="list">
+          @if (participantsLoading()) {
+            <p role="status">Loading participants…</p>
+          } @else {
+            @for (item of participants(); track item.id) {
+              <div class="list-row participant-row">
+                <div class="participant-info-col">
+                  <div class="participant-code-row">
+                    <strong>{{ item.participant_code }}</strong>
+                    <span
+                      class="badge {{
+                        item.state === 'active'
+                          ? 'badge-active'
+                          : 'badge-withdrawn'
+                      }}"
+                      >{{ item.state }}</span
+                    >
+                  </div>
+                  <small class="participant-meta">
+                    @if (item.consent_confirmed_at) {
+                      ยินยอมเมื่อ:
+                      {{ item.consent_confirmed_at | date: "dd/MM/yyyy HH:mm" }}
+                    } @else {
+                      ยังไม่ระบุเวลา Consent
+                    }
+                    @if (item.withdrawn_at) {
+                      · ถอนตัวเมื่อ:
+                      {{ item.withdrawn_at | date: "dd/MM/yyyy HH:mm" }}
+                    }
+                  </small>
+                </div>
+                @if (item.state === "active") {
+                  <button
+                    type="button"
+                    class="btn-action-withdraw"
+                    (click)="openWithdrawModal(item)"
+                  >
+                    {{ lang.currentLang() === 'th' ? 'ถอนตัวจากการทดลอง' : 'Withdraw Participant' }}
+                  </button>
+                }
+              </div>
+            } @empty {
+              <p>No participants registered</p>
+            }
+          }
+        </div>
       </section>
     </section>
   }
 
-  @if (activeTab() === 'stimuli') {
-    <section id="collection-panel-stimuli" aria-labelledby="collection-tab-stimuli" class="split" role="tabpanel">
+  @if (activeTab() === "stimuli") {
+    <section
+      id="collection-panel-stimuli"
+      aria-labelledby="collection-tab-stimuli"
+      class="split"
+      role="tabpanel"
+    >
       <form class="panel form-card" (ngSubmit)="registerStimulus()">
-        <h2>{{ 'dataset.register_stimulus_title' | translate }}</h2>
-        <label>{{ 'dataset.stimulus_title_label' | translate }}<input name="title" required [(ngModel)]="stimulus.title" placeholder="e.g. Happy Clip 1"></label>
-        <label>{{ 'dataset.media_path_label' | translate }}<input name="file_path" required [(ngModel)]="stimulus.file_path" placeholder="e.g. assets/videos/stim_01.mp4"></label>
-        <label>{{ 'dataset.checksum_label' | translate }}<input name="checksum" required minlength="64" maxlength="64" [(ngModel)]="stimulus.checksum" placeholder="64-character hash"></label>
-        <label>{{ 'dataset.duration_label' | translate }}<input name="duration" type="number" min="45" max="60" required [(ngModel)]="stimulus.duration_seconds"></label>
-        <label>{{ 'dataset.target_quadrant_label' | translate }}<select id="target-quadrant" name="quadrant" required [(ngModel)]="stimulus.target_quadrant">
-          @for (quadrant of quadrants; track quadrant) { <option [value]="quadrant">{{ quadrant }}</option> }
-        </select></label>
-        <label>{{ 'dataset.approval_state_label' | translate }}<select name="approval" [(ngModel)]="stimulus.approval_state"><option value="draft">draft</option><option value="approved">approved</option><option value="retired">retired</option></select></label>
-        <label>{{ 'dataset.version_label' | translate }}<input name="version" required [(ngModel)]="stimulus.stimulus_set_version"></label>
-        <button class="primary" type="submit" [disabled]="stimulusSubmitting() || !isStimulusReady()">{{ stimulusSubmitting() ? 'Registering…' : ('dataset.register_stimulus' | translate) }}</button>
+        <h2>{{ "dataset.register_stimulus_title" | translate }}</h2>
+        <label
+          >{{ "dataset.stimulus_title_label" | translate
+          }}<input
+            name="title"
+            required
+            [(ngModel)]="stimulus.title"
+            placeholder="e.g. Happy Clip 1"
+        /></label>
+        <div class="media-input-wrapper">
+          <!-- วิธีที่ 1: อัปโหลดไฟล์โดยตรง (บันทึกเมื่อกดลงทะเบียน) -->
+          <div class="upload-action-card">
+            <input
+              type="file"
+              #videoFileInput
+              (change)="onFileSelected($event)"
+              accept="video/mp4,video/webm,video/mkv,video/*"
+              class="hidden-file-input"
+            />
+            @if (pendingUploadFile(); as pending) {
+              <div class="pending-file-preview">
+                <div class="pending-file-info">
+                  <span class="pending-file-icon">🎬</span>
+                  <div class="pending-file-meta">
+                    <strong>{{ pending.name }}</strong>
+                    <small>{{ formatBytes(pending.size) }} · {{ lang.currentLang() === 'th' ? 'รอลงทะเบียน: ไฟล์จะถูกบันทึกจริงเมื่อกดยืนยันด้านล่าง' : 'Pending: File will be saved upon registration' }}</small>
+                  </div>
+                </div>
+                <button type="button" class="btn-clear-pending" (click)="clearPendingFile()">
+                  ✕ {{ lang.currentLang() === 'th' ? 'ยกเลิกไฟล์นี้' : 'Clear' }}
+                </button>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="btn-upload-direct"
+                (click)="videoFileInput.click()"
+                [disabled]="uploadingMedia() || inspectingMedia()"
+              >
+                @if (uploadingMedia()) {
+                  <span class="btn-spinner"></span> {{ lang.currentLang() === 'th' ? 'กำลังอ่านและประมวลผลไฟล์...' : 'Processing video...' }}
+                } @else {
+                  📤 {{ lang.currentLang() === 'th' ? 'เลือกไฟล์วิดีโอจากเครื่อง (.mp4)' : 'Choose Video File (.mp4)' }}
+                }
+              </button>
+              <small class="upload-hint-sub">
+                {{ lang.currentLang() === 'th' ? 'อ่านค่าความยาวและ Hash ทันที โดยไฟล์จะถูกบันทึกเข้าเซิร์ฟเวอร์จริงเมื่อกดลงทะเบียน' : 'Calculates hash and duration locally; stores to server only upon registration' }}
+              </small>
+            }
+          </div>
+
+          <!-- วิธีที่ 2: เลือกจากคลังที่มีอยู่แล้ว -->
+          @if (availableMediaFiles().length > 0) {
+            <div class="library-select-card">
+              <span class="library-select-label">📁 {{ lang.currentLang() === 'th' ? 'หรือเลือกจากคลังวิดีโอบนเซิร์ฟเวอร์ (' + availableMediaFiles().length + ' ไฟล์):' : 'Or select from server library (' + availableMediaFiles().length + ' files):' }}</span>
+              <select class="library-dropdown-select" (change)="onSelectLibraryFile($event)">
+                <option value="">{{ lang.currentLang() === 'th' ? '-- คลิกเลือกไฟล์วิดีโอจากคลัง --' : '-- Select video from library --' }}</option>
+                @for (file of availableMediaFiles(); track file) {
+                  <option [value]="file" [selected]="stimulus.file_path === file">{{ file }}</option>
+                }
+              </select>
+            </div>
+          }
+
+          <!-- ที่อยู่ไฟล์ที่เลือก พร้อมปุ่มตรวจสอบซ้ำ -->
+          <label class="media-path-field-label">
+            {{ "dataset.media_path_label" | translate }}
+            <div class="media-path-input-group">
+              <input
+                name="file_path"
+                required
+                [(ngModel)]="stimulus.file_path"
+                placeholder="e.g. relax/relax1.mp4 หรือ assets/videos/stim_01.mp4"
+              />
+              <button
+                type="button"
+                class="btn-auto-detect"
+                [disabled]="!stimulus.file_path.trim() || inspectingMedia() || uploadingMedia() || !!pendingUploadFile()"
+                (click)="autoDetectStimulus()"
+              >
+                @if (inspectingMedia()) {
+                  <span class="btn-spinner"></span> {{ lang.currentLang() === 'th' ? 'กำลังตรวจสอบ...' : 'Checking...' }}
+                } @else {
+                  🔍 {{ lang.currentLang() === 'th' ? 'ตรวจสอบไฟล์ & อ่านค่าอัตโนมัติ' : 'Inspect File & Auto-detect' }}
+                }
+              </button>
+            </div>
+          </label>
+
+          @if (inspectSuccess()) {
+            <div class="inspect-alert inspect-alert-success">
+              ✓ {{ inspectSuccess() }}
+            </div>
+          }
+          @if (inspectError()) {
+            <div class="inspect-alert inspect-alert-error">
+              ⚠️ {{ inspectError() }}
+            </div>
+          }
+        </div>
+
+        <label>
+          {{ "dataset.checksum_label" | translate }}
+          <input
+            name="checksum"
+            required
+            minlength="64"
+            maxlength="64"
+            [readonly]="true"
+            class="input-readonly"
+            [(ngModel)]="stimulus.checksum"
+            placeholder="ระบบคำนวณ Checksum 64 ตัวอักษรอัตโนมัติ"
+          />
+          <small class="field-hint">{{ lang.currentLang() === 'th' ? '🔒 ล็อกการแก้ไข: คำนวณจริงจากไฟล์โดยตรงเพื่อความถูกต้องของข้อมูล' : '🔒 Locked: Calculated directly from file for data integrity' }}</small>
+        </label>
+        <label>
+          {{ "dataset.duration_label" | translate }}
+          <input
+            name="duration"
+            type="number"
+            min="45"
+            max="60"
+            step="0.01"
+            required
+            [readonly]="true"
+            class="input-readonly"
+            [(ngModel)]="stimulus.duration_seconds"
+          />
+          <small class="field-hint">{{ lang.currentLang() === 'th' ? '⏱️ ล็อกการแก้ไข: อ่านค่าจาก Metadata ของคลิปจริง (ต้องอยู่ระหว่าง 45–60 วินาที)' : '⏱️ Locked: Probed from video metadata (must be 45-60s)' }}</small>
+        </label>
+        <label
+          >{{ "dataset.target_quadrant_label" | translate
+          }}<select
+            id="target-quadrant"
+            name="quadrant"
+            required
+            [(ngModel)]="stimulus.target_quadrant"
+          >
+            <option value="positive_low">{{ lang.currentLang() === 'th' ? '🟢 ผ่อนคลาย / สงบ' : '🟢 Relax / Calm' }}</option>
+            <option value="positive_high">{{ lang.currentLang() === 'th' ? '🟣 ตื่นเต้น / สนุกสนาน' : '🟣 Excited / Joy' }}</option>
+            <option value="negative_low">{{ lang.currentLang() === 'th' ? '🔵 เศร้า / หดหู่' : '🔵 Sad / Depressed' }}</option>
+            <option value="negative_high">{{ lang.currentLang() === 'th' ? '🔴 เครียด / ตกใจกลัว' : '🔴 Stress / Fear' }}</option>
+          </select></label
+        >
+        <label
+          >{{ "dataset.approval_state_label" | translate
+          }}<select name="approval" [(ngModel)]="stimulus.approval_state">
+            <option value="draft">{{ lang.currentLang() === 'th' ? '🟡 แบบร่าง (ยังไม่นำไปสุ่ม)' : '🟡 Draft' }}</option>
+            <option value="approved">{{ lang.currentLang() === 'th' ? '🟢 อนุมัติแล้ว (พร้อมใช้งาน)' : '🟢 Approved' }}</option>
+            <option value="retired">{{ lang.currentLang() === 'th' ? '⚪ ปลดระวาง (ระงับการใช้งาน)' : '⚪ Retired' }}</option>
+          </select></label
+        >
+        <label
+          >{{ "dataset.version_label" | translate
+          }}<input
+            name="version"
+            required
+            [(ngModel)]="stimulus.stimulus_set_version"
+        /></label>
+        <button
+          class="primary"
+          type="submit"
+          [disabled]="stimulusSubmitting() || !isStimulusReady()"
+        >
+          {{
+            stimulusSubmitting()
+              ? "Registering…"
+              : ("dataset.register_stimulus" | translate)
+          }}
+        </button>
       </form>
-      <section class="panel"><h2>{{ 'dataset.all_stimuli_list' | translate }}</h2><div class="list">@if (stimuliLoading()) { <p role="status">Loading stimuli…</p> } @else { @for (item of stimuli(); track item.id) {
-        <div class="list-row"><div><strong>{{ item.title }}</strong><small>{{ item.target_quadrant }} · {{ item.duration_seconds }} sec</small></div><span class="badge">{{ item.approval_state }}</span></div>
-      } @empty { <p>No stimuli registered</p> } }</div></section>
+      <section class="panel">
+        <h2>{{ "dataset.all_stimuli_list" | translate }}</h2>
+        <div class="list">
+          @if (stimuliLoading()) {
+            <p role="status">Loading stimuli…</p>
+          } @else {
+            @for (item of stimuli(); track item.id) {
+              <div class="list-row stimulus-row">
+                <div class="stimulus-info-col">
+                  <div class="stimulus-title-row">
+                    <strong>{{ item.title }}</strong>
+                    <span
+                      class="badge {{
+                        quadrantBadgeClass(item.target_quadrant)
+                      }}"
+                      >{{ item.target_quadrant }}</span
+                    >
+                  </div>
+                  <small class="stimulus-meta">
+                    ⏱ {{ item.duration_seconds }} วินาที · เวอร์ชัน
+                    {{ item.stimulus_set_version }} ·
+                    <code>{{ item.file_path }}</code>
+                  </small>
+                </div>
+                <div class="stimulus-actions-col">
+                  <span
+                    class="badge approval-badge-{{ item.approval_state }}"
+                    >{{ item.approval_state }}</span
+                  >
+                  @if (item.approval_state === "draft") {
+                    <button
+                      type="button"
+                      class="btn-approval-action btn-approve"
+                      [disabled]="updatingStimulusId() === item.id"
+                      (click)="updateStimulusApproval(item, 'approved')"
+                    >
+                      ✓ {{ lang.currentLang() === 'th' ? 'อนุมัติ' : 'Approve' }}
+                    </button>
+                  }
+                  @if (item.approval_state === "approved") {
+                    <button
+                      type="button"
+                      class="btn-approval-action btn-retire"
+                      [disabled]="updatingStimulusId() === item.id"
+                      (click)="updateStimulusApproval(item, 'retired')"
+                    >
+                      🚫 {{ lang.currentLang() === 'th' ? 'ปลดระวาง' : 'Retire' }}
+                    </button>
+                  }
+                  @if (item.approval_state === "retired") {
+                    <button
+                      type="button"
+                      class="btn-approval-action btn-reapprove"
+                      [disabled]="updatingStimulusId() === item.id"
+                      (click)="updateStimulusApproval(item, 'approved')"
+                    >
+                      ↺ {{ lang.currentLang() === 'th' ? 'นำกลับมาใช้' : 'Re-approve' }}
+                    </button>
+                  }
+                </div>
+              </div>
+            } @empty {
+              <p>No stimuli registered</p>
+            }
+          }
+        </div>
+      </section>
     </section>
   }
 
-  @if (activeTab() === 'sessions') {
-    <section id="collection-panel-sessions" aria-labelledby="collection-tab-sessions" class="split" role="tabpanel">
+  @if (activeTab() === "sessions") {
+    <section
+      id="collection-panel-sessions"
+      aria-labelledby="collection-tab-sessions"
+      class="split"
+      role="tabpanel"
+    >
       <form class="panel form-card" (ngSubmit)="createSession()">
-        <h2>{{ 'dataset.create_session' | translate }}</h2>
-        <label>Select Participant<select name="participant" required [(ngModel)]="sessionParticipantId">
-          <option [ngValue]="null">-- Select Participant --</option>
-          @for (item of activeParticipants(); track item.id) { <option [ngValue]="item.id">{{ item.participant_code }}</option> }
-        </select></label>
-        <label>Muse Device ID (optional)<input name="device_id" [(ngModel)]="deviceId" placeholder="e.g. Muse-A9C7"></label>
-        <label>Device Label (optional)<input name="device_name" [(ngModel)]="deviceName" placeholder="e.g. Muse 2"></label>
-        <button id="create-session" class="primary" type="submit" [disabled]="!hasActiveParticipant() || sessionSubmitting()">{{ sessionSubmitting() ? 'Creating…' : ('dataset.create_session' | translate) }}</button>
+        <h2>{{ "dataset.create_session" | translate }}</h2>
+        <label
+          >Select Participant<select
+            name="participant"
+            required
+            [(ngModel)]="sessionParticipantId"
+          >
+            <option [ngValue]="null">-- Select Participant --</option>
+            @for (item of activeParticipants(); track item.id) {
+              <option [ngValue]="item.id">{{ item.participant_code }}</option>
+            }
+          </select></label
+        >
+        <label
+          >Muse Device ID (optional)<input
+            name="device_id"
+            [(ngModel)]="deviceId"
+            placeholder="e.g. Muse-A9C7"
+        /></label>
+        <label
+          >Device Label (optional)<input
+            name="device_name"
+            [(ngModel)]="deviceName"
+            placeholder="e.g. Muse 2"
+        /></label>
+        <button
+          id="create-session"
+          class="primary"
+          type="submit"
+          [disabled]="!hasActiveParticipant() || sessionSubmitting()"
+        >
+          {{
+            sessionSubmitting()
+              ? "Creating…"
+              : ("dataset.create_session" | translate)
+          }}
+        </button>
       </form>
       <section class="panel">
-        <h2>{{ 'dataset.sessions' | translate }}</h2>
+        <h2>{{ "dataset.sessions" | translate }}</h2>
         <div class="list">
-          @if (sessionsLoading()) { <p role="status">Loading sessions…</p> }
-          @else {
+          @if (sessionsLoading()) {
+            <p role="status">Loading sessions…</p>
+          } @else {
             @for (item of sessions(); track item.id) {
               <div class="list-row">
                 <div class="session-info-col">
@@ -310,16 +830,80 @@
                 <div class="session-action-col">
                   <span class="badge state-badge">{{ item.state }}</span>
                   @if (sessionActionLabel(item); as action) {
-                    <button type="button" class="btn-session-action" [routerLink]="['/admin/dataset-collection/sessions', item.id, 'run']">
+                    <button
+                      type="button"
+                      class="btn-session-action"
+                      [routerLink]="[
+                        '/admin/dataset-collection/sessions',
+                        item.id,
+                        'run',
+                      ]"
+                    >
                       ▶ {{ action }}
                     </button>
                   }
                 </div>
               </div>
-            } @empty { <p>No sessions created</p> }
+            } @empty {
+              <p>No sessions created</p>
+            }
           }
         </div>
       </section>
     </section>
+  }
+
+  <!-- Modal ยืนยันการถอนตัวผู้เข้าร่วม -->
+  @if (participantToWithdraw(); as target) {
+    <div
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="withdraw-modal-title"
+    >
+      <div class="modal-card">
+        <div class="modal-header">
+          <span class="modal-icon-alert">⚠️</span>
+          <h3 id="withdraw-modal-title">{{ lang.currentLang() === 'th' ? 'ยืนยันการถอนตัวผู้เข้าร่วม' : 'Confirm Participant Withdrawal' }}</h3>
+        </div>
+        <p class="modal-message">
+          @if (lang.currentLang() === 'th') {
+            คุณต้องการบันทึกการถอนตัวของ
+            <strong>{{ target.participant_code }}</strong> จากการทดลองใช่หรือไม่?
+          } @else {
+            Are you sure you want to withdraw participant <strong>{{ target.participant_code }}</strong> from this study?
+          }
+        </p>
+        <p class="modal-subtext">
+          @if (lang.currentLang() === 'th') {
+            ผู้เข้าร่วมที่ถอนตัวจะไม่สามารถนำมาสร้างรอบการทดสอบใหม่ได้อีก และระบบจะบันทึกประทับเวลาที่ถอนตัวลงในฐานข้อมูลจริง
+          } @else {
+            Withdrawn participants cannot be assigned to new sessions, and withdrawal timestamp will be recorded.
+          }
+        </p>
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn-modal-cancel"
+            [disabled]="participantWithdrawing()"
+            (click)="closeWithdrawModal()"
+          >
+            {{ lang.currentLang() === 'th' ? 'ยกเลิก' : 'Cancel' }}
+          </button>
+          <button
+            type="button"
+            class="btn-modal-confirm"
+            [disabled]="participantWithdrawing()"
+            (click)="confirmWithdraw()"
+          >
+            @if (participantWithdrawing()) {
+              {{ lang.currentLang() === 'th' ? 'กำลังบันทึก...' : 'Saving...' }}
+            } @else {
+              {{ lang.currentLang() === 'th' ? 'ยืนยันถอนตัว' : 'Confirm Withdrawal' }}
+            }
+          </button>
+        </div>
+      </div>
+    </div>
   }
 </main>

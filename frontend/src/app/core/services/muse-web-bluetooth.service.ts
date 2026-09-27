@@ -125,7 +125,7 @@ export class MuseWebBluetoothService {
       next: connected => {
         if (!connected && this.state() === 'streaming') {
           this.state.set('failed');
-          this.error.set('อุปกรณ์ Muse 2 ขาดการเชื่อมต่อบลูทูธ (Bluetooth disconnected)');
+          this.error.set(toThaiError('gatt server is disconnected'));
         }
       },
       error: () => {},
@@ -169,7 +169,7 @@ export class MuseWebBluetoothService {
         console.error('Muse EEG stream error:', err);
         if (this.state() === 'streaming') {
           this.state.set('failed');
-          this.error.set(toThaiError(err) || 'สัญญาณ Muse ขัดข้อง (EEG stream error)');
+          this.error.set(toThaiError(err) || (localStorage.getItem('app_lang') === 'en' ? 'Muse EEG stream error' : 'สัญญาณ Muse ขัดข้อง'));
         }
       },
     });

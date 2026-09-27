@@ -63,6 +63,27 @@ class StimulusListResponse(BaseModel):
     items: list[StimulusResponse]
 
 
+class StimulusApprovalUpdate(BaseModel):
+    approval_state: StimulusApprovalState
+
+
+class StimulusInspectRequest(BaseModel):
+    file_path: str
+
+
+class StimulusInspectResponse(BaseModel):
+    file_path: str
+    checksum: str
+    duration_seconds: float
+    file_size_bytes: int
+    suggested_quadrant: str | None = None
+    is_valid_duration: bool
+
+
+class AvailableMediaFilesResponse(BaseModel):
+    files: list[str]
+
+
 class CollectionSessionCreate(BaseModel):
     participant_id: int
     device_id: str | None = None

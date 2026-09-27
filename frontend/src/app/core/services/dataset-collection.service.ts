@@ -124,6 +124,19 @@ export interface StimulusCreate {
   stimulus_set_version: string;
 }
 
+export interface StimulusInspection {
+  file_path: string;
+  checksum: string;
+  duration_seconds: number;
+  file_size_bytes: number;
+  suggested_quadrant?: EmotionQuadrant | null;
+  is_valid_duration: boolean;
+}
+
+export interface AvailableMediaFiles {
+  files: string[];
+}
+
 export interface CollectionSessionCreate {
   participant_id: number;
   device_id?: string | null;
@@ -198,12 +211,59 @@ export class DatasetCollectionService {
     return this.http.post<DatasetParticipant>(`${this.baseUrl}/participants`, body);
   }
 
+  withdrawParticipant(participantId: number): Observable<DatasetParticipant> {
+    return this.http.post<DatasetParticipant>(`${this.baseUrl}/participants/${participantId}/withdraw`, {});
+  }
+
   listStimuli(skip = 0, limit = 50): Observable<CollectionList<EmotionStimulus>> {
     return this.http.get<CollectionList<EmotionStimulus>>(`${this.baseUrl}/stimuli`, { params: this.pagination(skip, limit) });
   }
 
   createStimulus(body: StimulusCreate): Observable<EmotionStimulus> {
     return this.http.post<EmotionStimulus>(`${this.baseUrl}/stimuli`, body);
+  }
+
+  updateStimulusApproval(stimulusId: number, approvalState: StimulusApprovalState): Observable<EmotionStimulus> {
+    return this.http.patch<EmotionStimulus>(`${this.baseUrl}/stimuli/${stimulusId}/approval`, {
+      approval_state: approvalState,
+    });
+  }
+
+  getAvailableStimuliFiles(): Observable<AvailableMediaFiles> {
+    return this.http.get<AvailableMediaFiles>(`${this.baseUrl}/stimuli/available-files`);
+  }
+
+  inspectStimulusFile(filePath: string): Observable<StimulusInspection> {
+    return this.http.post<StimulusInspection>(`${this.baseUrl}/stimuli/inspect-file`, {
+      file_path: filePath,
+    });
+  }
+
+  uploadStimulusFile(file: File, quadrant?: string): Observable<StimulusInspection> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    if (quadrant) {
+      formData.append('subfolder', quadrant);
+    }
+    return this.http.post<StimulusInspection>(`${this.baseUrl}/stimuli/upload`, formData);
+  }
+
+  uploadAndCreateStimulus(
+    file: File,
+    stimulus: {
+      title: string;
+      target_quadrant: EmotionQuadrant;
+      approval_state: StimulusApprovalState;
+      stimulus_set_version: string;
+    },
+  ): Observable<EmotionStimulus> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    formData.append('title', stimulus.title);
+    formData.append('target_quadrant', stimulus.target_quadrant);
+    formData.append('approval_state', stimulus.approval_state);
+    formData.append('stimulus_set_version', stimulus.stimulus_set_version);
+    return this.http.post<EmotionStimulus>(`${this.baseUrl}/stimuli/upload-and-create`, formData);
   }
 
   listSessions(skip = 0, limit = 50): Observable<CollectionList<CollectionSession>> {

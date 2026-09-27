@@ -217,42 +217,56 @@
     }
     @case ('rating') {
       <form class="rating-card" data-stage="rating" (ngSubmit)="submitRating()">
-        <p class="step">Self-rating</p><h2>บันทึกความรู้สึกของผู้เข้าร่วม</h2>
+        <p class="step">{{ lang.currentLang() === 'th' ? 'การประเมินตนเอง' : 'Self-rating' }}</p>
+        <h2>{{ lang.currentLang() === 'th' ? 'บันทึกความรู้สึกของผู้เข้าร่วม' : 'Record Participant Rating' }}</h2>
         <label for="valence">
-          Valence — ความรู้สึกดีหรือไม่ดี (1–9)
-          <span class="scale-hint">1 = ไม่ดีเลย / เศร้ามาก &nbsp;·&nbsp; 5 = กลาง ๆ &nbsp;·&nbsp; 9 = ดีมาก / มีความสุขมาก</span>
+          {{ lang.currentLang() === 'th' ? 'ระดับความรู้สึก (1–9)' : 'Valence — Pleasantness (1–9)' }}
+          <span class="scale-hint">
+            {{ lang.currentLang() === 'th' ? '1 = ไม่ดีเลย / เศร้ามาก · 5 = ปานกลาง · 9 = ดีมาก / มีความสุขมาก' : '1 = Highly Unpleasant · 5 = Neutral · 9 = Highly Pleasant' }}
+          </span>
           <input id="valence" name="valence" type="number" min="1" max="9" required [(ngModel)]="valence">
         </label>
         <label for="arousal">
-          Arousal — ระดับความตื่นตัว/กระตุ้น (1–9)
-          <span class="scale-hint">1 = สงบ / ง่วงซึม &nbsp;·&nbsp; 5 = กลาง ๆ &nbsp;·&nbsp; 9 = ตื่นตัวมาก / ตื่นเต้นมาก</span>
+          {{ lang.currentLang() === 'th' ? 'ระดับความตื่นตัว (1–9)' : 'Arousal — Activation Level (1–9)' }}
+          <span class="scale-hint">
+            {{ lang.currentLang() === 'th' ? '1 = สงบ / ง่วงซึม · 5 = ปานกลาง · 9 = ตื่นตัวมาก / ตื่นเต้นมาก' : '1 = Calm / Sleepy · 5 = Neutral · 9 = Highly Activated / Excited' }}
+          </span>
           <input id="arousal" name="arousal" type="number" min="1" max="9" required [(ngModel)]="arousal">
         </label>
         <label for="confidence">
-          Confidence — ความมั่นใจในคำตอบ (1–5)
-          <span class="scale-hint">1 = ไม่มั่นใจเลย &nbsp;·&nbsp; 3 = พอมั่นใจ &nbsp;·&nbsp; 5 = มั่นใจมาก</span>
+          {{ lang.currentLang() === 'th' ? 'ระดับความมั่นใจ (1–5)' : 'Confidence — Rating Certainty (1–5)' }}
+          <span class="scale-hint">
+            {{ lang.currentLang() === 'th' ? '1 = ไม่มั่นใจเลย · 3 = ค่อนข้างมั่นใจ · 5 = มั่นใจมาก' : '1 = Not Confident · 3 = Moderately Confident · 5 = Highly Confident' }}
+          </span>
           <input id="confidence" name="confidence" type="number" min="1" max="5" required [(ngModel)]="confidence">
         </label>
-        <button class="primary" type="submit" [disabled]="busy() || !ratingsValid()">บันทึกคะแนน</button>
+        <button class="primary" type="submit" [disabled]="busy() || !ratingsValid()">
+          {{ lang.currentLang() === 'th' ? 'บันทึกคะแนน' : 'Submit Rating' }}
+        </button>
 
       </form>
     }
     @case ('break') {
-      <section class="focus-card" data-stage="break"><p class="step">พักกลาง Session</p><h2>ครบ Trial 6 แล้ว</h2><p>พัก 3–5 นาที ตรวจความสบายและตำแหน่ง Muse ก่อนทำ Trial 7 ต่อ</p>
-        <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy()">เริ่ม Trial 7</button>
+      <section class="focus-card" data-stage="break">
+        <p class="step">{{ lang.currentLang() === 'th' ? 'พักระหว่างรอบ' : 'Mid-session Break' }}</p>
+        <h2>{{ lang.currentLang() === 'th' ? 'ครบ 6 รอบทดสอบแล้ว' : 'Trial 6 Completed' }}</h2>
+        <p>{{ lang.currentLang() === 'th' ? 'พัก 3–5 นาที ตรวจความสบายและตำแหน่งสายคาด Muse ก่อนเริ่มรอบถัดไป' : 'Rest 3–5 minutes. Check headband comfort and placement before resuming.' }}</p>
+        <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy()">
+          {{ lang.currentLang() === 'th' ? 'เริ่มรอบที่ 7' : 'Start Trial 7' }}
+        </button>
       </section>
     }
     @case ('completed') {
       <section class="completed-report" data-stage="completed">
         <div class="completed-hero-card">
           <div class="completed-hero-text">
-            <span class="completed-tag">✓ บันทึกครบถ้วน 100%</span>
-            <h2>สรุปผลการเก็บข้อมูลรอบที่ #{{ sessionId }} (ครบ 12 Trials)</h2>
-            <p>บันทึกสัญญาณ EEG และผลประเมินอารมณ์ตนเอง (Self-Assessment) สำเร็จเรียบร้อย พร้อมสำหรับขั้นตอนตรวจสอบ Dataset</p>
+            <span class="completed-tag">{{ lang.currentLang() === 'th' ? '✓ บันทึกครบถ้วน 100%' : '✓ 100% Completed' }}</span>
+            <h2>{{ lang.currentLang() === 'th' ? 'สรุปผลการเก็บข้อมูลรอบที่ #' + sessionId + ' (ครบ 12 รอบทดสอบ)' : 'Collection Session #' + sessionId + ' Summary (12 Trials)' }}</h2>
+            <p>{{ lang.currentLang() === 'th' ? 'บันทึกสัญญาณคลื่นสมองและผลประเมินอารมณ์ตนเองสำเร็จเรียบร้อย พร้อมสำหรับขั้นตอนตรวจสอบชุดข้อมูล' : 'Recorded EEG signals and self-assessment ratings successfully. Ready for dataset verification.' }}</p>
           </div>
           <div class="completed-hero-actions">
             <a routerLink="/admin/dataset-collection" class="btn-primary-back">
-              ← กลับสู่หน้าหลักการเก็บข้อมูล
+              ← {{ lang.currentLang() === 'th' ? 'กลับสู่หน้าหลักการเก็บข้อมูล' : 'Back to Dataset Collection' }}
             </a>
           </div>
         </div>
@@ -261,29 +275,29 @@
           <!-- KPI Metrics Row -->
           <div class="completed-kpis">
             <article class="kpi-box">
-              <span class="kpi-title">ผู้เข้าร่วมการทดลอง</span>
+              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'ผู้เข้าร่วมการทดลอง' : 'Participant' }}</span>
               <strong class="kpi-value text-purple">{{ detail.participant_code }}</strong>
-              <small class="kpi-desc">Participant Code</small>
+              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? 'รหัสประจำตัว' : 'Participant Code' }}</small>
             </article>
             <article class="kpi-box">
-              <span class="kpi-title">รอบที่บันทึกสำเร็จ</span>
+              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'รอบที่บันทึกสำเร็จ' : 'Completed Trials' }}</span>
               <strong class="kpi-value text-green">{{ detail.completed_trials }} / {{ detail.total_trials }}</strong>
-              <small class="kpi-desc">12 / 12 Trials (100%)</small>
+              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? '12 / 12 รอบ (100%)' : '12 / 12 Trials (100%)' }}</small>
             </article>
             <article class="kpi-box">
-              <span class="kpi-title">ขนาดไฟล์ EEG ดิบรวม</span>
+              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'ขนาดไฟล์คลื่นสมองรวม' : 'Total Raw EEG' }}</span>
               <strong class="kpi-value text-cyan">{{ formatBytes(detail.total_eeg_bytes) }}</strong>
-              <small class="kpi-desc">12 ไฟล์ Raw EEG (.csv)</small>
+              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? '12 ไฟล์คลื่นสมองดิบ (.csv)' : '12 Raw EEG CSV Files' }}</small>
             </article>
             <article class="kpi-box">
-              <span class="kpi-title">Valence เฉลี่ย</span>
+              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'ระดับความพึงพอใจเฉลี่ย' : 'Average Valence' }}</span>
               <strong class="kpi-value text-amber">{{ detail.avg_valence ?? '-' }} <span class="kpi-unit">/ 9</span></strong>
-              <small class="kpi-desc">ความรู้สึกพึงพอใจ</small>
+              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? 'ความรู้สึกทางอารมณ์' : 'Emotional Valence' }}</small>
             </article>
             <article class="kpi-box">
-              <span class="kpi-title">Arousal เฉลี่ย</span>
+              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'ระดับความตื่นตัวเฉลี่ย' : 'Average Arousal' }}</span>
               <strong class="kpi-value text-pink">{{ detail.avg_arousal ?? '-' }} <span class="kpi-unit">/ 9</span></strong>
-              <small class="kpi-desc">ความตื่นตัว/กระตุ้น</small>
+              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? 'การถูกกระตุ้น' : 'Physiological Arousal' }}</small>
             </article>
           </div>
 
@@ -291,14 +305,14 @@
           <div class="emotion-map-card">
             <div class="map-header">
               <div>
-                <h3>แผนผังพล็อตอารมณ์ 2 มิติ (2D Valence-Arousal Space)</h3>
-                <p>ตำแหน่งการประเมินของผู้เข้าร่วม {{ detail.participant_code }} ทั้ง 12 Trials บนโมเดล Circumplex</p>
+                <h3>{{ lang.currentLang() === 'th' ? 'แผนผังพล็อตอารมณ์ 2 มิติ' : '2D Emotion Space Map' }}</h3>
+                <p>{{ lang.currentLang() === 'th' ? 'ตำแหน่งการประเมินของผู้เข้าร่วม ' + detail.participant_code + ' ทั้ง 12 รอบ' : 'Assessment coordinates of participant ' + detail.participant_code + ' across 12 trials' }}</p>
               </div>
               <div class="map-legend">
-                <span class="legend-chip legend-hvha">HVHA · Excited</span>
-                <span class="legend-chip legend-hvla">HVLA · Relax</span>
-                <span class="legend-chip legend-lvha">LVHA · Stress</span>
-                <span class="legend-chip legend-lvla">LVLA · Sad</span>
+                <span class="legend-chip legend-hvha">{{ lang.currentLang() === 'th' ? 'ตื่นเต้น / สนุกสนาน' : 'HVHA · Excited' }}</span>
+                <span class="legend-chip legend-hvla">{{ lang.currentLang() === 'th' ? 'ผ่อนคลาย / สงบ' : 'HVLA · Relax' }}</span>
+                <span class="legend-chip legend-lvha">{{ lang.currentLang() === 'th' ? 'เครียด / ตกใจกลัว' : 'LVHA · Stress' }}</span>
+                <span class="legend-chip legend-lvla">{{ lang.currentLang() === 'th' ? 'เศร้า / หดหู่' : 'LVLA · Sad' }}</span>
               </div>
             </div>
 
@@ -311,20 +325,20 @@
                 <rect x="250" y="180" width="200" height="150" class="svg-quad-hvla" />
 
                 <!-- Quadrant Corner Watermarks -->
-                <text x="65" y="55" class="svg-watermark">LVHA (Stress/Fear)</text>
-                <text x="435" y="55" text-anchor="end" class="svg-watermark">HVHA (Excited/Joy)</text>
-                <text x="65" y="315" class="svg-watermark">LVLA (Sad/Depressed)</text>
-                <text x="435" y="315" text-anchor="end" class="svg-watermark">HVLA (Relax/Peace)</text>
+                <text x="65" y="55" class="svg-watermark">{{ lang.currentLang() === 'th' ? 'เครียด / ตกใจกลัว' : 'LVHA (Stress/Fear)' }}</text>
+                <text x="435" y="55" text-anchor="end" class="svg-watermark">{{ lang.currentLang() === 'th' ? 'ตื่นเต้น / สนุกสนาน' : 'HVHA (Excited/Joy)' }}</text>
+                <text x="65" y="315" class="svg-watermark">{{ lang.currentLang() === 'th' ? 'เศร้า / หดหู่' : 'LVLA (Sad/Depressed)' }}</text>
+                <text x="435" y="315" text-anchor="end" class="svg-watermark">{{ lang.currentLang() === 'th' ? 'ผ่อนคลาย / สงบ' : 'HVLA (Relax/Peace)' }}</text>
 
                 <!-- Center Crosshair Axes -->
                 <line x1="50" y1="180" x2="450" y2="180" class="svg-axis-line" />
                 <line x1="250" y1="30" x2="250" y2="330" class="svg-axis-line" />
 
                 <!-- Axis Labels -->
-                <text x="50" y="198" class="svg-axis-label">Valence 1 (ไม่ดี)</text>
-                <text x="450" y="198" text-anchor="end" class="svg-axis-label">Valence 9 (ดีมาก)</text>
-                <text x="250" y="22" text-anchor="middle" class="svg-axis-label">Arousal 9 (ตื่นตัวสูง)</text>
-                <text x="250" y="348" text-anchor="middle" class="svg-axis-label">Arousal 1 (สงบ/ง่วง)</text>
+                <text x="50" y="198" class="svg-axis-label">{{ lang.currentLang() === 'th' ? 'ไม่ดี (1)' : 'Valence 1 (Unpleasant)' }}</text>
+                <text x="450" y="198" text-anchor="end" class="svg-axis-label">{{ lang.currentLang() === 'th' ? 'ดีมาก (9)' : 'Valence 9 (Pleasant)' }}</text>
+                <text x="250" y="22" text-anchor="middle" class="svg-axis-label">{{ lang.currentLang() === 'th' ? 'ตื่นตัวสูง (9)' : 'Arousal 9 (High)' }}</text>
+                <text x="250" y="348" text-anchor="middle" class="svg-axis-label">{{ lang.currentLang() === 'th' ? 'สงบ/ง่วง (1)' : 'Arousal 1 (Low)' }}</text>
 
                 <!-- 12 Trial Data Points -->
                 @for (item of detail.items; track item.id) {
@@ -356,21 +370,21 @@
           <!-- Trials Breakdown Table -->
           <div class="trials-detail-card">
             <div class="detail-card-head">
-              <h3>ตารางรายละเอียดข้อมูลแต่ละรอบ (Trial Breakdown)</h3>
-              <span class="detail-count-tag">ทั้งหมด 12 รอบ</span>
+              <h3>{{ lang.currentLang() === 'th' ? 'ตารางรายละเอียดข้อมูลแต่ละรอบ' : 'Trial Breakdown Table' }}</h3>
+              <span class="detail-count-tag">{{ lang.currentLang() === 'th' ? 'ทั้งหมด 12 รอบ' : 'All 12 Trials' }}</span>
             </div>
             <div class="table-container">
               <table class="detail-table">
                 <thead>
                   <tr>
-                    <th>Trial</th>
-                    <th>สิ่งเร้า (Stimulus)</th>
-                    <th>กลุ่มเป้าหมาย (Target)</th>
-                    <th>Valence (1–9)</th>
-                    <th>Arousal (1–9)</th>
-                    <th>Confidence (1–5)</th>
-                    <th>ไฟล์คลื่นสมอง (EEG File)</th>
-                    <th>สถานะ</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'รอบที่' : 'Trial' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'สื่อกระตุ้น' : 'Stimulus' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'เป้าหมายอารมณ์' : 'Target Quadrant' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'ระดับความรู้สึก (1–9)' : 'Valence (1–9)' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'ระดับความตื่นตัว (1–9)' : 'Arousal (1–9)' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'ความมั่นใจ (1–5)' : 'Confidence (1–5)' }}</th>
+                    <th>{{ lang.currentLang() === 'th' ? 'ไฟล์คลื่นสมอง' : 'EEG File' }}</th>
+                    <th class="col-status-header">{{ lang.currentLang() === 'th' ? 'สถานะ' : 'Status' }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -405,8 +419,8 @@
                         <code class="file-code">{{ trial.eeg_file_path?.split('\\')?.pop() ?? trial.eeg_file_path ?? '-' }}</code>
                         <span class="file-size-tag">{{ formatBytes(trial.raw_size_bytes) }}</span>
                       </td>
-                      <td>
-                        <span class="status-verified-badge">✓ บันทึกสำเร็จ</span>
+                      <td class="col-status-cell">
+                        <span class="status-verified-badge">{{ lang.currentLang() === 'th' ? '✓ บันทึกสำเร็จ' : '✓ Verified' }}</span>
                       </td>
                     </tr>
                   }
@@ -417,7 +431,7 @@
         } @else if (sessionTrialsLoading()) {
           <div class="loading-state-card">
             <div class="loading-spinner"></div>
-            <p>กำลังโหลดข้อมูลสรุปการทดสอบทั้ง 12 Trials…</p>
+            <p>{{ lang.currentLang() === 'th' ? 'กำลังโหลดข้อมูลสรุปการทดสอบทั้ง 12 รอบ…' : 'Loading summary report for all 12 trials…' }}</p>
           </div>
         }
       </section>

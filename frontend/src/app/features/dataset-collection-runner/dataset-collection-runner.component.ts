@@ -170,11 +170,12 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   }
 
   quadrantLabel(quadrant?: string): string {
+    const isTh = this.lang.currentLang() === 'th';
     switch (quadrant) {
-      case 'positive_high': return 'Positive High (Excited)';
-      case 'positive_low': return 'Positive Low (Relax)';
-      case 'negative_high': return 'Negative High (Stress)';
-      case 'negative_low': return 'Negative Low (Sad)';
+      case 'positive_high': return isTh ? 'ตื่นเต้น / สนุกสนาน' : 'Excited / Joy';
+      case 'positive_low': return isTh ? 'ผ่อนคลาย / สงบ' : 'Relax / Calm';
+      case 'negative_high': return isTh ? 'เครียด / ตกใจกลัว' : 'Stress / Fear';
+      case 'negative_low': return isTh ? 'เศร้า / หดหู่' : 'Sad / Depressed';
       default: return quadrant ?? '-';
     }
   }
@@ -671,7 +672,11 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
       next: state => {
         this.busy.set(false);
         this.applyState(state);
-        this.error.set('การเล่นวิดีโอคลิปล้มเหลว (Stimulus playback failed); collection was interrupted for recovery');
+        this.error.set(
+          this.lang.currentLang() === 'th'
+            ? 'การเล่นวิดีโอคลิปล้มเหลว ระบบหยุดชั่วคราวเพื่อกู้คืนการทำงาน'
+            : 'Stimulus playback failed; collection was interrupted for recovery'
+        );
       },
       error: err => {
         this.busy.set(false);

@@ -29,10 +29,10 @@
     <span>Sampling Rate: 256 Hz · 4 Channels (TP9, AF7, AF8, TP10)</span>
     @if (hasArtifact()) {
       <span class="artifact-notice" role="status">
-        <span class="artifact-icon">[!]</span> ตรวจพบสิ่งรบกวนสัญญาณ (Motion / Blink Artifact)
+        <span class="artifact-icon">[!]</span> {{ lang.currentLang() === 'th' ? 'ตรวจพบสิ่งรบกวนสัญญาณ' : 'Motion / Blink Artifact detected' }}
       </span>
     } @else {
-      <span>Signal quality: {{ averageQuality() }}%</span>
+      <span>{{ lang.currentLang() === 'th' ? 'คุณภาพสัญญาณ: ' + averageQuality() + '%' : 'Signal quality: ' + averageQuality() + '%' }}</span>
     }
   </footer>
 </section>

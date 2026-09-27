@@ -247,3 +247,159 @@ def _seed_list_records(client, count):
         )
         db.add_all(CollectionSession(participant_id=index) for index in range(1, count + 1))
         db.commit()
+
+
+def test_withdraw_participant(client):
+    create_resp = client.post(
+        f"{BASE}/participants",
+        headers=admin_headers(client),
+        json={"consent_confirmed_at": "2026-09-27T10:00:00"},
+    )
+    assert create_resp.status_code == 201
+    p_id = create_resp.json()["id"]
+
+    withdraw_resp = client.post(
+        f"{BASE}/participants/{p_id}/withdraw",
+        headers=admin_headers(client),
+    )
+    assert withdraw_resp.status_code == 200
+    data = withdraw_resp.json()
+    assert data["state"] == "withdrawn"
+    assert data["withdrawn_at"] is not None
+
+    # Idempotent
+    second_resp = client.post(
+        f"{BASE}/participants/{p_id}/withdraw",
+        headers=admin_headers(client),
+    )
+    assert second_resp.status_code == 200
+    assert second_resp.json()["state"] == "withdrawn"
+
+    # 404 for missing
+    missing_resp = client.post(
+        f"{BASE}/participants/99999/withdraw",
+        headers=admin_headers(client),
+    )
+    assert missing_resp.status_code == 404
+
+
+def test_update_stimulus_approval(client):
+    create_resp = client.post(
+        f"{BASE}/stimuli",
+        headers=admin_headers(client),
+        json={
+            "title": "Test Video",
+            "file_path": "test/vid.mp4",
+            "checksum": "a" * 64,
+            "duration_seconds": 50.0,
+            "target_quadrant": "positive_low",
+            "approval_state": "draft",
+            "stimulus_set_version": "v1.0",
+        },
+    )
+    assert create_resp.status_code == 201
+    s_id = create_resp.json()["id"]
+
+    patch_resp = client.patch(
+        f"{BASE}/stimuli/{s_id}/approval",
+        headers=admin_headers(client),
+        json={"approval_state": "approved"},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["approval_state"] == "approved"
+
+    patch_resp2 = client.patch(
+        f"{BASE}/stimuli/{s_id}/approval",
+        headers=admin_headers(client),
+        json={"approval_state": "retired"},
+    )
+    assert patch_resp2.status_code == 200
+    assert patch_resp2.json()["approval_state"] == "retired"
+
+    patch_missing = client.patch(
+        f"{BASE}/stimuli/99999/approval",
+        headers=admin_headers(client),
+        json={"approval_state": "approved"},
+    )
+    assert patch_missing.status_code == 404
+
+
+def test_stimuli_inspect_and_available_files(client):
+    avail_resp = client.get(
+        f"{BASE}/stimuli/available-files",
+        headers=admin_headers(client),
+    )
+    assert avail_resp.status_code == 200
+    files = avail_resp.json()["files"]
+    assert isinstance(files, list)
+
+    # Test inspect file that exists
+    inspect_resp = client.post(
+        f"{BASE}/stimuli/inspect-file",
+        headers=admin_headers(client),
+        json={"file_path": "relax/relax1.mp4"},
+    )
+    assert inspect_resp.status_code == 200
+    data = inspect_resp.json()
+    assert data["checksum"] == "7bac4d899130dc77fa4f8a1d2f8f182e9fe5166b6254b981f9d43b52afaed0b6"
+    assert data["duration_seconds"] == 59.86
+    assert data["suggested_quadrant"] == "positive_low"
+    assert data["is_valid_duration"] is True
+
+    # Test inspect non-existent file
+    inspect_missing = client.post(
+        f"{BASE}/stimuli/inspect-file",
+        headers=admin_headers(client),
+        json={"file_path": "non_existent/video.mp4"},
+    )
+    assert inspect_missing.status_code == 404
+
+
+def test_stimuli_upload(client):
+    import io
+
+    content = b"fake video content for testing upload endpoint"
+    files = {"file": ("test_upload_relax.mp4", io.BytesIO(content), "video/mp4")}
+    data = {"subfolder": "relax"}
+    resp = client.post(
+        f"{BASE}/stimuli/upload",
+        headers=admin_headers(client),
+        files=files,
+        data=data,
+    )
+    assert resp.status_code == 200
+    res_data = resp.json()
+    assert "file_path" in res_data
+    assert res_data["file_path"].startswith("relax/")
+    assert len(res_data["checksum"]) == 64
+    assert res_data["file_size_bytes"] == len(content)
+
+
+def test_upload_and_create_stimulus(client):
+    from pathlib import Path
+
+    sample = Path("collection_stimuli/relax/relax1.mp4")
+    if sample.exists():
+        with open(sample, "rb") as f:
+            content = f.read()
+        files = {"file": ("new_uploaded_relax.mp4", content, "video/mp4")}
+        data = {
+            "title": "New Uploaded Relax",
+            "target_quadrant": "positive_low",
+            "approval_state": "draft",
+            "stimulus_set_version": "v1",
+        }
+        resp = client.post(
+            f"{BASE}/stimuli/upload-and-create",
+            headers=admin_headers(client),
+            files=files,
+            data=data,
+        )
+        assert resp.status_code == 201
+        res = resp.json()
+        assert res["title"] == "New Uploaded Relax"
+        assert res["duration_seconds"] == 59.86
+        assert res["target_quadrant"] == "positive_low"
+
+
+

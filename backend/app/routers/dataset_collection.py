@@ -1,10 +1,11 @@
 import asyncio
+from datetime import datetime, timezone
 import hashlib
 import logging
 import mimetypes
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -20,12 +21,15 @@ from app.models.dataset_collection import (
     CollectionTrial,
     DatasetParticipant,
     EmotionStimulus,
+    ParticipantState,
     Quadrant,
     ReviewState,
+    StimulusApprovalState,
     TrialState,
 )
 from app.schemas.dataset_collection import (
     ArtifactRequest,
+    AvailableMediaFilesResponse,
     CollectionOverviewResponse,
     CollectionRunnerStateResponse,
     CollectionSessionCreate,
@@ -42,10 +46,18 @@ from app.schemas.dataset_collection import (
     ReviewCounts,
     SessionTrialItemResponse,
     SessionTrialsDetailResponse,
+    StimulusApprovalUpdate,
     StimulusCreate,
+    StimulusInspectRequest,
+    StimulusInspectResponse,
     StimulusListResponse,
     StimulusResponse,
     TrialRatingPoint,
+)
+from app.services.stimulus_inspector import (
+    inspect_stimulus_file,
+    list_available_stimuli_files,
+    save_uploaded_stimulus,
 )
 from app.schemas.muse import MuseBridgeState, MuseConnectionStatus, MuseOwner
 from app.services.dataset_collection_service import (
@@ -194,6 +206,20 @@ def add_participant(body: ParticipantCreate, admin: AdminUser, db: Session = Dep
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+@router.post("/participants/{participant_id}/withdraw", response_model=ParticipantResponse)
+def withdraw_participant(participant_id: int, admin: AdminUser, db: Session = Depends(get_db)):
+    participant = db.get(DatasetParticipant, participant_id)
+    if participant is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
+    if participant.state == ParticipantState.withdrawn:
+        return participant
+    participant.state = ParticipantState.withdrawn
+    participant.withdrawn_at = datetime.now()
+    db.commit()
+    db.refresh(participant)
+    return participant
+
+
 @router.get("/stimuli", response_model=StimulusListResponse)
 def list_stimuli(
     admin: AdminUser,
@@ -205,12 +231,137 @@ def list_stimuli(
     return StimulusListResponse(items=list(db.scalars(query)))
 
 
+@router.get("/stimuli/available-files", response_model=AvailableMediaFilesResponse)
+def get_available_stimuli_files_endpoint(admin: AdminUser):
+    root = Path(get_settings().collection_stimulus_dir).resolve()
+    files = list_available_stimuli_files(root)
+    return AvailableMediaFilesResponse(files=files)
+
+
+@router.post("/stimuli/inspect-file", response_model=StimulusInspectResponse)
+def inspect_stimulus_file_endpoint(
+    body: StimulusInspectRequest,
+    admin: AdminUser,
+):
+    root = Path(get_settings().collection_stimulus_dir).resolve()
+    try:
+        result = inspect_stimulus_file(body.file_path, root)
+        return StimulusInspectResponse(**result)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/stimuli/upload", response_model=StimulusInspectResponse)
+def upload_stimulus_file_endpoint(
+    admin: AdminUser,
+    file: UploadFile = File(...),
+    subfolder: str | None = Form(default=None),
+):
+    root = Path(get_settings().collection_stimulus_dir).resolve()
+    try:
+        result = save_uploaded_stimulus(
+            file_obj=file.file,
+            original_filename=file.filename or "uploaded.mp4",
+            stimulus_root=root,
+            subfolder=subfolder,
+        )
+        return StimulusInspectResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        log.error("Failed to upload stimulus file: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"ไม่สามารถอัปโหลดไฟล์ได้: {str(exc)}",
+        ) from exc
+
+
 @router.post("/stimuli", response_model=StimulusResponse, status_code=status.HTTP_201_CREATED)
 def add_stimulus(body: StimulusCreate, admin: AdminUser, db: Session = Depends(get_db)):
     try:
         return create_stimulus(db, body)
     except DatasetConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/stimuli/upload-and-create", response_model=StimulusResponse, status_code=status.HTTP_201_CREATED)
+def upload_and_create_stimulus(
+    admin: AdminUser,
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    target_quadrant: Quadrant = Form(...),
+    approval_state: StimulusApprovalState = Form(default=StimulusApprovalState.draft),
+    stimulus_set_version: str = Form(default="v1"),
+    db: Session = Depends(get_db),
+):
+    root = Path(get_settings().collection_stimulus_dir).resolve()
+    try:
+        quad_map = {
+            Quadrant.positive_low: "relax",
+            Quadrant.positive_high: "excited",
+            Quadrant.negative_high: "stress",
+            Quadrant.negative_low: "sad",
+        }
+        subfolder = quad_map.get(target_quadrant, "uploads")
+
+        result = save_uploaded_stimulus(
+            file_obj=file.file,
+            original_filename=file.filename or "uploaded.mp4",
+            stimulus_root=root,
+            subfolder=subfolder,
+        )
+
+        if not result["is_valid_duration"]:
+            # Clean up the invalid file if it was just saved
+            try:
+                (root / result["file_path"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"ความยาวคลิป ({result['duration_seconds']} วินาที) ไม่อยู่ในช่วง 45–60 วินาที",
+            )
+
+        body = StimulusCreate(
+            title=title.strip(),
+            file_path=result["file_path"],
+            checksum=result["checksum"],
+            duration_seconds=result["duration_seconds"],
+            target_quadrant=target_quadrant,
+            approval_state=approval_state,
+            stimulus_set_version=stimulus_set_version.strip(),
+        )
+        return create_stimulus(db, body)
+    except DatasetConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("Failed to upload and create stimulus: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"ไม่สามารถบันทึกสื่อกระตุ้นได้: {str(exc)}",
+        ) from exc
+
+
+@router.patch("/stimuli/{stimulus_id}/approval", response_model=StimulusResponse)
+def update_stimulus_approval(
+    stimulus_id: int,
+    body: StimulusApprovalUpdate,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    stimulus = db.get(EmotionStimulus, stimulus_id)
+    if stimulus is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stimulus not found")
+    stimulus.approval_state = body.approval_state
+    db.commit()
+    db.refresh(stimulus)
+    return stimulus
 
 
 @router.get("/sessions", response_model=CollectionSessionListResponse)

@@ -90,7 +90,7 @@
           <p>Relax your face and keep eyes open naturally. Baseline resets if signal is lost.</p>
           <div class="timer-block"><strong>{{ 20 - eegWs.baselineSeconds() | number:'1.0-0' }}</strong><span>seconds left</span></div>
           <progress class="session-progress" max="20" [value]="eegWs.baselineSeconds()">{{ eegWs.baselineSeconds() }} / 20</progress>
-          @if (!eegWs.allSensorsGood()) { <div class="alert alert-warning">สัญญาณขาดหาย กำลังเริ่มนับถอยหลังใหม่ (Signal lost. Restarting baseline countdown)</div> }
+          @if (!eegWs.allSensorsGood()) { <div class="alert alert-warning">{{ lang.currentLang() === 'th' ? 'สัญญาณขาดหาย กำลังเริ่มนับถอยหลังใหม่' : 'Signal lost. Restarting baseline countdown.' }}</div> }
         }
 
         @case ('ready') {

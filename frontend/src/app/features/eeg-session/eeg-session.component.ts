@@ -186,6 +186,9 @@ export class EegSessionComponent implements OnInit, OnDestroy {
   }
 
   emotionLabel(e: string) {
-    return ({ happy: 'มีความสุข (Happy)', sad: 'เศร้า (Sad)', stressed: 'เครียด (Stressed)', excited: 'ตื่นเต้น (Excited)' } as Record<string, string>)[e] ?? (e || 'อารมณ์');
+    const isTh = this.lang.currentLang() === 'th';
+    const thMap: Record<string, string> = { happy: 'มีความสุข', sad: 'เศร้า', stressed: 'เครียด', excited: 'ตื่นเต้น' };
+    const enMap: Record<string, string> = { happy: 'Happy', sad: 'Sad', stressed: 'Stressed', excited: 'Excited' };
+    return (isTh ? thMap : enMap)[e] ?? (e || (isTh ? 'อารมณ์' : 'Emotion'));
   }
 }

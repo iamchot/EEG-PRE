@@ -6,7 +6,7 @@ import { PersonaService, Persona, ArtStyle } from '../../core/services/persona.s
 interface PersonaForm {
   persona_name: string;
   age: number | null;
-  gender: 'ชาย (Male)' | 'หญิง (Female)' | 'อื่นๆ (Other)';
+  gender: string;
   face_features: string;
   hairstyle: string;
   outfit: string;
@@ -54,7 +54,7 @@ export class PersonaComponent implements OnInit {
   }
 
   emptyForm(): PersonaForm {
-    return { persona_name: '', age: null, gender: 'ชาย (Male)', face_features: '', hairstyle: '', outfit: '', distinctive: '', art_style: 'Manga' };
+    return { persona_name: '', age: null, gender: 'Male', face_features: '', hairstyle: '', outfit: '', distinctive: '', art_style: 'Manga' };
   }
 
   openCreate() { this.form = this.emptyForm(); this.editingId.set(null); this.showModal.set(true); }
@@ -64,7 +64,7 @@ export class PersonaComponent implements OnInit {
     this.form = {
       persona_name: p.persona_name,
       age: null,
-      gender: 'ชาย (Male)',
+      gender: 'Male',
       face_features: parts[0] ?? '',
       hairstyle: parts[1] ?? '',
       outfit: parts[2] ?? '',

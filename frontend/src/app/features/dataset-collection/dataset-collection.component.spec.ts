@@ -14,6 +14,8 @@ describe('DatasetCollectionComponent', () => {
     service = jasmine.createSpyObj<DatasetCollectionService>('DatasetCollectionService', [
       'getOverview', 'listParticipants', 'createParticipant', 'listStimuli',
       'createStimulus', 'listSessions', 'createSession',
+      'withdrawParticipant', 'updateStimulusApproval', 'getAvailableStimuliFiles', 'inspectStimulusFile', 'uploadStimulusFile',
+      'uploadAndCreateStimulus',
     ]);
     service.getOverview.and.returnValue(of({
       participants: 12,
@@ -28,6 +30,12 @@ describe('DatasetCollectionComponent', () => {
     service.createParticipant.and.returnValue(of({ id: 1, participant_code: 'P001', consent_confirmed_at: '2026-01-01T00:00:00Z', state: 'active', withdrawn_at: null, created_at: '2026-01-01T00:00:00Z' }));
     service.createStimulus.and.returnValue(of({ id: 1, ...({ title: 'Clip', file_path: '/media/clip.mp4', checksum: 'a'.repeat(64), duration_seconds: 45, target_quadrant: 'positive_low', approval_state: 'draft', stimulus_set_version: 'v1' } as const), created_at: '2026-01-01T00:00:00Z' }));
     service.createSession.and.returnValue(of({ id: 1, participant_id: 1, device_id: null, device_name: null, completed_trials: 0, total_trials: 0, state: 'preparation', started_at: null, completed_at: null, created_at: '2026-01-01T00:00:00Z' }));
+    service.getAvailableStimuliFiles.and.returnValue(of({ files: ['relax/relax1.mp4', 'excited/excited1.mp4'], count: 2 }));
+    service.withdrawParticipant.and.returnValue(of({ id: 1, participant_code: 'P001', consent_confirmed_at: '2026-01-01T00:00:00Z', state: 'withdrawn', withdrawn_at: '2026-03-01T10:00:00Z', created_at: '2026-01-01T00:00:00Z' }));
+    service.updateStimulusApproval.and.returnValue(of({ id: 1, title: 'Clip', file_path: '/media/clip.mp4', checksum: 'a'.repeat(64), duration_seconds: 45, target_quadrant: 'positive_low', approval_state: 'approved', stimulus_set_version: 'v1', created_at: '2026-01-01T00:00:00Z' }));
+    service.inspectStimulusFile.and.returnValue(of({ file_path: 'relax/relax1.mp4', checksum: 'b'.repeat(64), duration_seconds: 59.86, file_size_bytes: 1024, suggested_quadrant: 'positive_low', is_valid_duration: true }));
+    service.uploadStimulusFile.and.returnValue(of({ file_path: 'relax/uploaded_relax.mp4', checksum: 'c'.repeat(64), duration_seconds: 55.0, file_size_bytes: 2048, suggested_quadrant: 'positive_low', is_valid_duration: true }));
+    service.uploadAndCreateStimulus.and.returnValue(of({ id: 2, title: 'Uploaded Relax', file_path: 'relax/uploaded_relax.mp4', checksum: 'c'.repeat(64), duration_seconds: 55.0, target_quadrant: 'positive_low', approval_state: 'draft', stimulus_set_version: 'v1', created_at: '2026-01-01T00:00:00Z' }));
 
     await TestBed.configureTestingModule({
       imports: [DatasetCollectionComponent],
@@ -193,6 +201,8 @@ describe('DatasetCollectionComponent', () => {
   });
 
   it('shows an entertainment-only non-medical notice', () => {
+    component.lang.setLanguage('en');
+    fixture.detectChanges();
     const notice = fixture.nativeElement.querySelector('[data-testid="non-medical-notice"]');
     expect(notice.textContent.toLowerCase()).toContain('entertainment');
     expect(notice.textContent.toLowerCase()).toContain('not medical');
@@ -201,5 +211,109 @@ describe('DatasetCollectionComponent', () => {
   it('loads component styles from styleUrl metadata', () => {
     const definition = (DatasetCollectionComponent as unknown as { ɵcmp: { styles: string[] } }).ɵcmp;
     expect(definition.styles.join(' ')).toMatch(/max-width:\s*1200px/);
+  });
+
+  it('opens withdraw modal and confirms participant withdrawal', () => {
+    const activeP = { id: 1, participant_code: 'P001', state: 'active' as const, consent_confirmed_at: '2026-01-01T00:00:00Z', withdrawn_at: null, created_at: '2026-01-01T00:00:00Z' };
+    component.participants.set([activeP]);
+    component.switchTab('participants');
+    fixture.detectChanges();
+
+    const withdrawBtn = fixture.nativeElement.querySelector('.btn-action-withdraw') as HTMLButtonElement;
+    expect(withdrawBtn).toBeTruthy();
+    withdrawBtn.click();
+    fixture.detectChanges();
+
+    expect(component.participantToWithdraw()).toEqual(activeP);
+    const modal = fixture.nativeElement.querySelector('.modal-card');
+    expect(modal).toBeTruthy();
+    expect(modal.textContent).toContain('P001');
+
+    component.confirmWithdraw();
+    expect(service.withdrawParticipant).toHaveBeenCalledWith(1);
+    expect(component.participantToWithdraw()).toBeNull();
+    expect(component.participants()[0].state).toBe('withdrawn');
+  });
+
+  it('auto-detects stimulus file checksum and duration', () => {
+    component.switchTab('stimuli');
+    fixture.detectChanges();
+
+    component.stimulus.file_path = 'relax/relax1.mp4';
+    component.autoDetectStimulus();
+
+    expect(service.inspectStimulusFile).toHaveBeenCalledWith('relax/relax1.mp4');
+    expect(component.stimulus.checksum).toBe('b'.repeat(64));
+    expect(component.stimulus.duration_seconds).toBe(59.86);
+    expect(component.stimulus.target_quadrant).toBe('positive_low');
+  });
+
+  it('updates stimulus approval state through action buttons', () => {
+    const draftStim = {
+      id: 10,
+      title: 'Relaxing Stream',
+      file_path: 'relax/relax1.mp4',
+      checksum: 'c'.repeat(64),
+      duration_seconds: 59.86,
+      target_quadrant: 'positive_low' as const,
+      approval_state: 'draft' as const,
+      stimulus_set_version: 'v1',
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    component.stimuli.set([draftStim]);
+    component.switchTab('stimuli');
+    fixture.detectChanges();
+
+    component.updateStimulusApproval(draftStim, 'approved');
+    expect(service.updateStimulusApproval).toHaveBeenCalledWith(10, 'approved');
+  });
+
+  it('handles direct video file selection deferred until registration', async () => {
+    component.switchTab('stimuli');
+    fixture.detectChanges();
+
+    const file = new File(['fake content'], 'uploaded_relax.mp4', { type: 'video/mp4' });
+    const event = { target: { files: [file], value: 'uploaded_relax.mp4' } } as unknown as Event;
+
+    await component.onFileSelected(event);
+
+    expect(component.pendingUploadFile()).toBe(file);
+    expect(component.stimulus.file_path).toBe('positive_low/uploaded_relax.mp4');
+    // Verify file is NOT uploaded immediately (deferred to prevent orphan files)
+    expect(service.uploadStimulusFile).not.toHaveBeenCalled();
+
+    // Now submit registration
+    component.registerStimulus();
+    expect(service.uploadAndCreateStimulus).toHaveBeenCalled();
+    const calledArgs = service.uploadAndCreateStimulus.calls.mostRecent().args;
+    expect(calledArgs[0]).toBe(file);
+    expect(calledArgs[1].title).toBe('Uploaded relax');
+    expect(calledArgs[1].target_quadrant).toBe('positive_low');
+  });
+
+  it('allows clearing pending uploaded file', async () => {
+    component.switchTab('stimuli');
+    fixture.detectChanges();
+
+    const file = new File(['fake content'], 'uploaded_relax.mp4', { type: 'video/mp4' });
+    const event = { target: { files: [file], value: 'uploaded_relax.mp4' } } as unknown as Event;
+
+    await component.onFileSelected(event);
+    expect(component.pendingUploadFile()).toBe(file);
+
+    component.clearPendingFile();
+    expect(component.pendingUploadFile()).toBeNull();
+    expect(component.stimulus.file_path).toBe('');
+  });
+
+  it('selects file from library dropdown and triggers inspection', () => {
+    component.switchTab('stimuli');
+    fixture.detectChanges();
+
+    const event = { target: { value: 'excited/excited1.mp4' } } as unknown as Event;
+    component.onSelectLibraryFile(event);
+
+    expect(component.stimulus.file_path).toBe('excited/excited1.mp4');
+    expect(service.inspectStimulusFile).toHaveBeenCalledWith('excited/excited1.mp4');
   });
 });

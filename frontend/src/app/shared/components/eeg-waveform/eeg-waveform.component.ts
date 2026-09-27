@@ -6,9 +6,11 @@ import {
   ViewChild,
   computed,
   effect,
+  inject,
   input,
 } from '@angular/core';
 import { SensorStatus } from '../../../core/services/eeg-ws.service';
+import { LanguageService } from '../../../core/services/language.service';
 
 interface ChannelConfig {
   key: 'tp9' | 'af7' | 'af8' | 'tp10';
@@ -31,6 +33,7 @@ const CHANNELS: ChannelConfig[] = [
   styleUrl: './eeg-waveform.component.css',
 })
 export class EegWaveformComponent implements AfterViewInit, OnDestroy {
+  readonly lang = inject(LanguageService);
   @ViewChild('waveformCanvas') canvasRef!: ElementRef<HTMLCanvasElement>;
 
   readonly tp9 = input<SensorStatus>({ state: 'unknown', quality_score: 0, timestamp: 0, sequence: 0 });
