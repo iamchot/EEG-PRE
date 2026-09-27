@@ -22,17 +22,218 @@
   @if (error()) { <div class="error" role="alert">{{ error() }}</div> }
 
   @if (activeTab() === 'overview') {
-    <section id="collection-panel-overview" aria-labelledby="collection-tab-overview" class="panel" role="tabpanel">
-      <h2>{{ 'dataset.summary_title' | translate }}</h2>
+    <section id="collection-panel-overview" aria-labelledby="collection-tab-overview" class="overview-shell" role="tabpanel">
       @if (overviewLoading()) {
-        <p role="status">Loading overview…</p>
+        <div class="overview-loading-box">
+          <div class="overview-spinner"></div>
+          <p role="status">กำลังโหลดข้อมูลสถิติภาพรวม…</p>
+        </div>
       } @else {
         @if (overview(); as stats) {
-          <div class="stat-grid">
-            <article class="stat-card"><span>{{ 'dataset.participants' | translate }}</span><strong>{{ stats.participants }}</strong></article>
-            <article class="stat-card"><span>{{ 'dataset.sessions' | translate }}</span><strong>{{ stats.sessions }}</strong></article>
-            <article class="stat-card"><span>{{ 'dataset.trials' | translate }}</span><strong>{{ stats.trials }}</strong></article>
-            <article class="stat-card"><span>{{ 'dataset.pending' | translate }}</span><strong>{{ stats.review_counts.pending }}</strong></article>
+          <!-- Section 1: KPI Metrics Grid with accurate numbers -->
+          <div class="overview-kpis">
+            <article class="stat-card">
+              <span class="stat-card-title">{{ 'dataset.participants' | translate }}</span>
+              <strong class="stat-card-val text-purple">{{ stats.participants }}</strong>
+              <small class="stat-card-sub">ลงทะเบียนในระบบวิจัย</small>
+            </article>
+
+            <article class="stat-card">
+              <span class="stat-card-title">{{ 'dataset.sessions' | translate }}</span>
+              <strong class="stat-card-val text-cyan">{{ stats.sessions }}</strong>
+              <small class="stat-card-sub">
+                {{ stats.sessions_by_state?.['completed'] ?? 0 }} สำเร็จ · {{ stats.sessions_by_state?.['ready'] ?? 0 }} พร้อมเริ่ม
+              </small>
+            </article>
+
+            <article class="stat-card">
+              <span class="stat-card-title">รอบทดสอบที่สำเร็จ</span>
+              <strong class="stat-card-val text-green">{{ stats.completed_trials ?? 0 }} <span class="stat-card-denom">/ {{ stats.trials }}</span></strong>
+              <small class="stat-card-sub">บันทึกผล EEG & Rating แล้ว</small>
+            </article>
+
+            <article class="stat-card">
+              <span class="stat-card-title">{{ 'dataset.pending' | translate }}</span>
+              <strong class="stat-card-val text-amber">{{ stats.review_counts.pending }}</strong>
+              <small class="stat-card-sub">รอแอดมินตรวจสอบผล</small>
+            </article>
+
+            <article class="stat-card">
+              <span class="stat-card-title">ข้อมูล EEG ทั้งหมด</span>
+              <strong class="stat-card-val text-pink">{{ formatBytes(stats.total_eeg_bytes) }}</strong>
+              <small class="stat-card-sub">{{ stats.completed_trials ?? 0 }} ไฟล์ Raw EEG</small>
+            </article>
+          </div>
+
+          <!-- Section 2: 2D Emotion Space Map & Quadrant Analytics Split -->
+          <div class="overview-analytics-grid">
+            <!-- 2D Emotion Coordinate Map -->
+            <div class="analytics-card">
+              <div class="analytics-card-header">
+                <div>
+                  <h3>แผนผังพล็อตอารมณ์ 2 มิติ (2D Emotion Space — Circumplex Model)</h3>
+                  <p>พล็อตตำแหน่งค่าคะแนน Valence และ Arousal จากรอบการทดสอบที่เก็บได้จริง ({{ stats.ratings_distribution?.length ?? 0 }} จุดข้อมูล)</p>
+                </div>
+                <div class="chart-legend">
+                  <span class="legend-badge badge-hvha">HVHA (Excited)</span>
+                  <span class="legend-badge badge-hvla">HVLA (Relax)</span>
+                  <span class="legend-badge badge-lvha">LVHA (Stress)</span>
+                  <span class="legend-badge badge-lvla">LVLA (Sad)</span>
+                </div>
+              </div>
+
+              <div class="overview-svg-wrapper">
+                <svg viewBox="0 0 500 360" class="overview-emotion-svg" aria-label="2D Valence Arousal Circumplex Model">
+                  <!-- 4 Quadrants Background Areas -->
+                  <rect x="50" y="30" width="200" height="150" class="svg-quad-lvha" />
+                  <rect x="250" y="30" width="200" height="150" class="svg-quad-hvha" />
+                  <rect x="50" y="180" width="200" height="150" class="svg-quad-lvla" />
+                  <rect x="250" y="180" width="200" height="150" class="svg-quad-hvla" />
+
+                  <!-- Quadrant Watermarks -->
+                  <text x="65" y="55" class="svg-watermark">LVHA (Stress / Fear)</text>
+                  <text x="435" y="55" text-anchor="end" class="svg-watermark">HVHA (Excited / Happy)</text>
+                  <text x="65" y="315" class="svg-watermark">LVLA (Sad / Depressed)</text>
+                  <text x="435" y="315" text-anchor="end" class="svg-watermark">HVLA (Relax / Calm)</text>
+
+                  <!-- Center Crosshair Axes -->
+                  <line x1="50" y1="180" x2="450" y2="180" class="svg-axis-line" />
+                  <line x1="250" y1="30" x2="250" y2="330" class="svg-axis-line" />
+
+                  <!-- Axis Labels -->
+                  <text x="50" y="198" class="svg-axis-label">Valence 1 (ไม่ดี)</text>
+                  <text x="450" y="198" text-anchor="end" class="svg-axis-label">Valence 9 (ดีมาก)</text>
+                  <text x="250" y="22" text-anchor="middle" class="svg-axis-label">Arousal 9 (ตื่นตัวสูง)</text>
+                  <text x="250" y="348" text-anchor="middle" class="svg-axis-label">Arousal 1 (สงบ/ง่วง)</text>
+
+                  <!-- Plotted points from all rated trials -->
+                  @for (pt of stats.ratings_distribution ?? []; track pt.trial_id) {
+                    <g class="svg-point-group">
+                      <circle
+                        [attr.cx]="calcSvgX(pt.valence)"
+                        [attr.cy]="calcSvgY(pt.arousal)"
+                        r="12"
+                        class="svg-circle-point point-{{ pt.target_quadrant }}"
+                      >
+                        <title>{{ pt.participant_code ?? 'P' }} Session #{{ pt.session_id }}: {{ pt.stimulus_title }} (Valence: {{ pt.valence }}, Arousal: {{ pt.arousal }}, Confidence: {{ pt.confidence }})</title>
+                      </circle>
+                      <text
+                        [attr.x]="calcSvgX(pt.valence)"
+                        [attr.y]="calcSvgY(pt.arousal) + 4"
+                        text-anchor="middle"
+                        class="svg-point-text"
+                      >
+                        {{ pt.session_id }}
+                      </text>
+                    </g>
+                  }
+                </svg>
+              </div>
+            </div>
+
+            <!-- Quadrant Breakdown Statistics -->
+            <div class="analytics-card">
+              <div class="analytics-card-header">
+                <h3>สถิติการกระจายตัวตาม Quadrant (Target Distribution)</h3>
+                <p>จำนวนรอบที่เก็บสำเร็จ และค่าเฉลี่ยคะแนนการตอบสนองจริงในแต่ละกลุ่มอารมณ์</p>
+              </div>
+
+              <div class="quadrant-summary-cards">
+                @for (q of quadrants; track q) {
+                  <div class="quad-stat-item">
+                    <div class="quad-stat-top">
+                      <span class="badge {{ quadrantBadgeClass(q) }}">{{ quadrantTitle(q) }}</span>
+                      <strong class="quad-count">{{ stats.quadrant_stats?.[q]?.target_count ?? 0 }} รอบสำเร็จ</strong>
+                    </div>
+                    <div class="quad-scores-row">
+                      <div class="score-metric">
+                        <span class="score-metric-lbl">Valence เฉลี่ย:</span>
+                        <strong class="score-metric-val">{{ stats.quadrant_stats?.[q]?.avg_valence?.toFixed(2) ?? '-' }} <small>/ 9</small></strong>
+                      </div>
+                      <div class="score-metric">
+                        <span class="score-metric-lbl">Arousal เฉลี่ย:</span>
+                        <strong class="score-metric-val">{{ stats.quadrant_stats?.[q]?.avg_arousal?.toFixed(2) ?? '-' }} <small>/ 9</small></strong>
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: EEG Signal Quality & Live Waveform Preview -->
+          <div class="waveform-preview-card">
+            <div class="waveform-header">
+              <div>
+                <h3>ตัวอย่างคลื่นสัญญาณสมองและการตรวจสอบคุณภาพ (EEG Signal & Quality Overview)</h3>
+                <p>จำลองการตรวจจับคลื่นสมอง 4 ช่องสัญญาณมาตรฐาน Muse 2 (TP9, AF7, AF8, TP10) ความถี่ 256 Hz</p>
+              </div>
+              <div class="waveform-health-pills">
+                <span class="health-pill"><span class="pill-dot good"></span> สัญญาณสะอาด &gt; 95%</span>
+                <span class="health-pill">Sampling: 256 Hz</span>
+                <span class="health-pill">4 Channels (μV)</span>
+              </div>
+            </div>
+
+            <div class="eeg-waveform-container">
+              <app-eeg-waveform
+                [isConnected]="true"
+                [tp9]="sampleTp9"
+                [af7]="sampleAf7"
+                [af8]="sampleAf8"
+                [tp10]="sampleTp10"
+              />
+            </div>
+          </div>
+
+          <!-- Section 4: Recent Sessions & Quick Access -->
+          <div class="recent-sessions-card">
+            <div class="recent-sessions-header">
+              <h3>รอบการเก็บข้อมูลล่าสุด (Recent Collection Sessions)</h3>
+              <span class="sessions-total-badge">{{ sessions().length }} รอบในระบบ</span>
+            </div>
+            <div class="table-responsive">
+              <table class="recent-sessions-table">
+                <thead>
+                  <tr>
+                    <th>Session</th>
+                    <th>ผู้เข้าร่วม (Participant)</th>
+                    <th>อุปกรณ์ Muse</th>
+                    <th>ความคืบหน้า (Progress)</th>
+                    <th>สถานะ (State)</th>
+                    <th>การดำเนินการ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (sess of sessions(); track sess.id) {
+                    <tr>
+                      <td><strong>Session #{{ sess.id }}</strong></td>
+                      <td><code>{{ getParticipantCode(sess.participant_id) }}</code></td>
+                      <td>{{ sess.device_name ?? sess.device_id ?? 'Muse (Default)' }}</td>
+                      <td>
+                        <span class="progress-indicator">
+                          {{ sess.completed_trials }} / {{ sess.total_trials }} รอบ
+                        </span>
+                      </td>
+                      <td>
+                        <span class="badge state-badge-{{ sess.state }}">{{ sess.state }}</span>
+                      </td>
+                      <td>
+                        @if (sess.state === 'completed') {
+                          <a class="btn-table-action btn-completed" [routerLink]="['/admin/dataset-collection/sessions', sess.id, 'run']">
+                            📊 ดูสรุปผล 12 Trials
+                          </a>
+                        } @else {
+                          <a class="btn-table-action btn-continue" [routerLink]="['/admin/dataset-collection/sessions', sess.id, 'run']">
+                            ▶ ดำเนินการต่อ
+                          </a>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
           </div>
         } @else { <p>Overview data is unavailable</p> }
       }

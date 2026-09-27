@@ -73,6 +73,8 @@ class CollectionConnectionManager:
             lambda: {ch: "poor" for ch in _CHANS}
         )
         self._last_web_bt_sample_at: dict[int, float] = {}
+        self._last_web_bt_broadcast_at: dict[int, float] = {}
+        self._last_web_bt_timestamp: dict[int, float] = {}
 
     def run(
         self,
@@ -143,6 +145,8 @@ class CollectionConnectionManager:
         if not preserve_active_flag:
             self._last_web_bt_sample_at.pop(session_id, None)
         self._quality_display.pop(session_id, None)
+        self._last_web_bt_broadcast_at.pop(session_id, None)
+        self._last_web_bt_timestamp.pop(session_id, None)
 
     # ── Quality debounce ──────────────────────────────────────────────────────
 
@@ -355,6 +359,12 @@ class CollectionConnectionManager:
         def _qscore(ch: str) -> float:
             return raw_sensors[ch].quality_score   # use raw score for file metadata
 
+        # Guarantee strictly monotonic timestamp for the raw EEG writer
+        last_ts = self._last_web_bt_timestamp.get(session_id, 0.0)
+        if timestamp <= last_ts:
+            timestamp = last_ts + 0.001
+        self._last_web_bt_timestamp[session_id] = timestamp
+
         sample = EEGSample(
             timestamp=timestamp,
             tp9=tp9, af7=af7, af8=af8, tp10=tp10,
@@ -376,8 +386,26 @@ class CollectionConnectionManager:
 
         incoming = _WebBtSample()
         try:
-            state, _ = self.run_active(session_id, lambda runner: self._accept_sample_unlocked(runner, incoming))
-            await self.broadcast(session_id, state)
+            def _step(runner: CollectionStateMachine):
+                before = runner.state()
+                after, captured = self._accept_sample_unlocked(runner, incoming)
+                return before, after, captured
+
+            before, state, _ = self.run_active(session_id, _step)
+            now_mono = time.monotonic()
+            last_bc = self._last_web_bt_broadcast_at.get(session_id, 0.0)
+            state_changed = (
+                state.state != before.state
+                or state.trial_state != before.trial_state
+                or state.active_baseline != before.active_baseline
+                or state.completed_trials != before.completed_trials
+            )
+            # Throttle WebSocket broadcast to ~4 Hz (interval >= 250ms) to prevent
+            # main-thread UI congestion and DB session contention, while still
+            # broadcasting immediately on any discrete phase change.
+            if state_changed or (now_mono - last_bc) >= 0.25:
+                self._last_web_bt_broadcast_at[session_id] = now_mono
+                await self.broadcast(session_id, state)
         except LookupError:
             pass  # No active runner for this session yet
 

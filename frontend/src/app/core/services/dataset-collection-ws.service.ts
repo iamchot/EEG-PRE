@@ -24,7 +24,7 @@ const MESSAGE_KEYS = new Set([
   'current_trial_order', 'current_stimulus_id', 'current_stimulus_title', 'trial_state',
   'completed_trials', 'total_trials', 'next_trial_order', 'next_trial_id', 'next_stimulus_id',
   'next_stimulus_title', 'break_required', 'interruption_reason', 'accepted_clean_seconds',
-  'wall_clock_seconds', 'file_recovery_required',
+  'wall_clock_seconds', 'file_recovery_required', 'eyes_open_complete', 'eyes_closed_complete',
   'sensors', 'sampling_rate_hz', 'sampling_rate_ok', 'live_sensor_ready',
   'stimulus_start_ready', 'quality_source',
 ]);
@@ -182,7 +182,8 @@ function parseMessage(raw: unknown): CollectionWsMessage | null {
     return null;
   }
   if (!isRecord(value) || Object.keys(value).some(key => !MESSAGE_KEYS.has(key))) return null;
-  const requiredKeys = [...MESSAGE_KEYS].filter(key => key !== 'stream_error');
+  const optionalKeys = new Set(['stream_error', 'eyes_open_complete', 'eyes_closed_complete']);
+  const requiredKeys = [...MESSAGE_KEYS].filter(key => !optionalKeys.has(key));
   if (requiredKeys.some(key => !(key in value))) return null;
   if (!isPositiveInteger(value['sequence']) || !isPositiveInteger(value['session_id'])) return null;
   if (!isEnum(value['state'], SESSION_STATES)) return null;
@@ -196,6 +197,8 @@ function parseMessage(raw: unknown): CollectionWsMessage | null {
   if (typeof value['break_required'] !== 'boolean' || !isNullableString(value['interruption_reason'])) return null;
   if (!isNonnegativeNumber(value['accepted_clean_seconds']) || !isNonnegativeNumber(value['wall_clock_seconds'])) return null;
   if (typeof value['file_recovery_required'] !== 'boolean') return null;
+  if ('eyes_open_complete' in value && typeof value['eyes_open_complete'] !== 'boolean') return null;
+  if ('eyes_closed_complete' in value && typeof value['eyes_closed_complete'] !== 'boolean') return null;
   if (!isSensorMap(value['sensors'])) return null;
   if (!(value['sampling_rate_hz'] === null || isNonnegativeNumber(value['sampling_rate_hz']))) return null;
   if (typeof value['sampling_rate_ok'] !== 'boolean' || typeof value['live_sensor_ready'] !== 'boolean') return null;

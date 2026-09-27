@@ -152,3 +152,83 @@ class CollectionRunnerStateResponse(BaseModel):
     eyes_open_complete: bool = False
     eyes_closed_complete: bool = False
     quality_source: str = "derived_eeg_window"
+
+
+class ReviewCounts(BaseModel):
+    pending: int = 0
+    accepted: int = 0
+    rejected: int = 0
+
+
+class QuadrantCounts(BaseModel):
+    positive_low: int = 0
+    positive_high: int = 0
+    negative_low: int = 0
+    negative_high: int = 0
+
+
+class TrialRatingPoint(BaseModel):
+    trial_id: int
+    session_id: int
+    participant_code: str | None = None
+    stimulus_title: str
+    target_quadrant: str
+    valence: int
+    arousal: int
+    confidence: int
+    eeg_file_path: str | None = None
+    raw_size_bytes: int | None = None
+
+
+class QuadrantStat(BaseModel):
+    target_count: int = 0
+    avg_valence: float | None = None
+    avg_arousal: float | None = None
+
+
+class CollectionOverviewResponse(BaseModel):
+    participants: int
+    sessions: int
+    trials: int
+    review_counts: ReviewCounts
+    quadrant_counts: QuadrantCounts
+    completed_trials: int = 0
+    scheduled_trials: int = 0
+    total_eeg_bytes: int = 0
+    sessions_by_state: dict[str, int] = Field(default_factory=dict)
+    ratings_distribution: list[TrialRatingPoint] = Field(default_factory=list)
+    quadrant_stats: dict[str, QuadrantStat] = Field(default_factory=dict)
+
+
+class SessionTrialItemResponse(BaseModel):
+    id: int
+    randomized_order: int
+    stimulus_id: int
+    stimulus_title: str
+    target_quadrant: str
+    state: str
+    review_state: str
+    valence_rating: int | None = None
+    arousal_rating: int | None = None
+    confidence: int | None = None
+    eeg_file_path: str | None = None
+    eeg_checksum: str | None = None
+    raw_size_bytes: int | None = None
+    duration_seconds: float | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class SessionTrialsDetailResponse(BaseModel):
+    session_id: int
+    participant_id: int
+    participant_code: str
+    device_id: str | None = None
+    device_name: str | None = None
+    state: str
+    completed_trials: int
+    total_trials: int
+    total_eeg_bytes: int = 0
+    avg_valence: float | None = None
+    avg_arousal: float | None = None
+    items: list[SessionTrialItemResponse]

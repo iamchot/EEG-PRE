@@ -45,9 +45,12 @@
           <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
             @for (key of sensorKeys; track key) {
               <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
-                <span class="sensor-dot"></span>
-                <span class="sensor-name">{{ key.toUpperCase() }}</span>
-                <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+                <div class="sensor-pill-top">
+                  <span class="sensor-dot"></span>
+                  <span class="sensor-name">{{ key.toUpperCase() }}</span>
+                  <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+                </div>
+                <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
               </div>
             }
           </div>
@@ -115,6 +118,18 @@
         <div class="fixation" aria-label="Fixation point">+</div>
         <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
         <p>{{ seconds(runnerState()?.wall_clock_seconds) }}s wall · {{ seconds(runnerState()?.accepted_clean_seconds) }}s clean</p>
+        <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
+          @for (key of sensorKeys; track key) {
+            <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+              <div class="sensor-pill-top">
+                <span class="sensor-dot"></span>
+                <span class="sensor-name">{{ key.toUpperCase() }}</span>
+                <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+              </div>
+              <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
+            </div>
+          }
+        </div>
       </section>
     }
     @case ('eyes_closed') {
@@ -128,6 +143,18 @@
         } @else {
           <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy() || !canStartBaseline()">{{ 'runner.start_baseline_closed' | translate }}</button>
         }
+        <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
+          @for (key of sensorKeys; track key) {
+            <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+              <div class="sensor-pill-top">
+                <span class="sensor-dot"></span>
+                <span class="sensor-name">{{ key.toUpperCase() }}</span>
+                <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+              </div>
+              <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
+            </div>
+          }
+        </div>
       </section>
     }
     @case ('ready') {
@@ -136,9 +163,12 @@
         <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
           @for (key of sensorKeys; track key) {
             <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
-              <span class="sensor-dot"></span>
-              <span class="sensor-name">{{ key.toUpperCase() }}</span>
-              <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+              <div class="sensor-pill-top">
+                <span class="sensor-dot"></span>
+                <span class="sensor-name">{{ key.toUpperCase() }}</span>
+                <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+              </div>
+              <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
             </div>
           }
         </div>
@@ -156,9 +186,12 @@
           <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
             @for (key of sensorKeys; track key) {
               <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
-                <span class="sensor-dot"></span>
-                <span class="sensor-name">{{ key.toUpperCase() }}</span>
-                <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+                <div class="sensor-pill-top">
+                  <span class="sensor-dot"></span>
+                  <span class="sensor-name">{{ key.toUpperCase() }}</span>
+                  <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+                </div>
+                <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
               </div>
             }
           </div>
@@ -209,7 +242,186 @@
         <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy()">เริ่ม Trial 7</button>
       </section>
     }
-    @case ('completed') { <section class="focus-card success" data-stage="completed"><h2>เก็บข้อมูลครบ 12 Trial</h2><p>ข้อมูลที่ commit แล้วพร้อมสำหรับขั้นตอนตรวจสอบ Dataset</p><a routerLink="/admin/dataset-collection">กลับหน้าสรุป</a></section> }
+    @case ('completed') {
+      <section class="completed-report" data-stage="completed">
+        <div class="completed-hero-card">
+          <div class="completed-hero-text">
+            <span class="completed-tag">✓ บันทึกครบถ้วน 100%</span>
+            <h2>สรุปผลการเก็บข้อมูลรอบที่ #{{ sessionId }} (ครบ 12 Trials)</h2>
+            <p>บันทึกสัญญาณ EEG และผลประเมินอารมณ์ตนเอง (Self-Assessment) สำเร็จเรียบร้อย พร้อมสำหรับขั้นตอนตรวจสอบ Dataset</p>
+          </div>
+          <div class="completed-hero-actions">
+            <a routerLink="/admin/dataset-collection" class="btn-primary-back">
+              ← กลับสู่หน้าหลักการเก็บข้อมูล
+            </a>
+          </div>
+        </div>
+
+        @if (sessionTrialsDetail(); as detail) {
+          <!-- KPI Metrics Row -->
+          <div class="completed-kpis">
+            <article class="kpi-box">
+              <span class="kpi-title">ผู้เข้าร่วมการทดลอง</span>
+              <strong class="kpi-value text-purple">{{ detail.participant_code }}</strong>
+              <small class="kpi-desc">Participant Code</small>
+            </article>
+            <article class="kpi-box">
+              <span class="kpi-title">รอบที่บันทึกสำเร็จ</span>
+              <strong class="kpi-value text-green">{{ detail.completed_trials }} / {{ detail.total_trials }}</strong>
+              <small class="kpi-desc">12 / 12 Trials (100%)</small>
+            </article>
+            <article class="kpi-box">
+              <span class="kpi-title">ขนาดไฟล์ EEG ดิบรวม</span>
+              <strong class="kpi-value text-cyan">{{ formatBytes(detail.total_eeg_bytes) }}</strong>
+              <small class="kpi-desc">12 ไฟล์ Raw EEG (.csv)</small>
+            </article>
+            <article class="kpi-box">
+              <span class="kpi-title">Valence เฉลี่ย</span>
+              <strong class="kpi-value text-amber">{{ detail.avg_valence ?? '-' }} <span class="kpi-unit">/ 9</span></strong>
+              <small class="kpi-desc">ความรู้สึกพึงพอใจ</small>
+            </article>
+            <article class="kpi-box">
+              <span class="kpi-title">Arousal เฉลี่ย</span>
+              <strong class="kpi-value text-pink">{{ detail.avg_arousal ?? '-' }} <span class="kpi-unit">/ 9</span></strong>
+              <small class="kpi-desc">ความตื่นตัว/กระตุ้น</small>
+            </article>
+          </div>
+
+          <!-- 2D Emotion Space Map (SVG Coordinates) -->
+          <div class="emotion-map-card">
+            <div class="map-header">
+              <div>
+                <h3>แผนผังพล็อตอารมณ์ 2 มิติ (2D Valence-Arousal Space)</h3>
+                <p>ตำแหน่งการประเมินของผู้เข้าร่วม {{ detail.participant_code }} ทั้ง 12 Trials บนโมเดล Circumplex</p>
+              </div>
+              <div class="map-legend">
+                <span class="legend-chip legend-hvha">HVHA · Excited</span>
+                <span class="legend-chip legend-hvla">HVLA · Relax</span>
+                <span class="legend-chip legend-lvha">LVHA · Stress</span>
+                <span class="legend-chip legend-lvla">LVLA · Sad</span>
+              </div>
+            </div>
+
+            <div class="svg-map-wrapper">
+              <svg viewBox="0 0 500 360" class="emotion-svg" aria-label="Valence Arousal Coordinate Map">
+                <!-- 4 Quadrants Background Areas -->
+                <rect x="50" y="30" width="200" height="150" class="svg-quad-lvha" />
+                <rect x="250" y="30" width="200" height="150" class="svg-quad-hvha" />
+                <rect x="50" y="180" width="200" height="150" class="svg-quad-lvla" />
+                <rect x="250" y="180" width="200" height="150" class="svg-quad-hvla" />
+
+                <!-- Quadrant Corner Watermarks -->
+                <text x="65" y="55" class="svg-watermark">LVHA (Stress/Fear)</text>
+                <text x="435" y="55" text-anchor="end" class="svg-watermark">HVHA (Excited/Joy)</text>
+                <text x="65" y="315" class="svg-watermark">LVLA (Sad/Depressed)</text>
+                <text x="435" y="315" text-anchor="end" class="svg-watermark">HVLA (Relax/Peace)</text>
+
+                <!-- Center Crosshair Axes -->
+                <line x1="50" y1="180" x2="450" y2="180" class="svg-axis-line" />
+                <line x1="250" y1="30" x2="250" y2="330" class="svg-axis-line" />
+
+                <!-- Axis Labels -->
+                <text x="50" y="198" class="svg-axis-label">Valence 1 (ไม่ดี)</text>
+                <text x="450" y="198" text-anchor="end" class="svg-axis-label">Valence 9 (ดีมาก)</text>
+                <text x="250" y="22" text-anchor="middle" class="svg-axis-label">Arousal 9 (ตื่นตัวสูง)</text>
+                <text x="250" y="348" text-anchor="middle" class="svg-axis-label">Arousal 1 (สงบ/ง่วง)</text>
+
+                <!-- 12 Trial Data Points -->
+                @for (item of detail.items; track item.id) {
+                  @if (item.valence_rating != null && item.arousal_rating != null) {
+                    <g class="svg-point-group">
+                      <circle
+                        [attr.cx]="calcSvgX(item.valence_rating)"
+                        [attr.cy]="calcSvgY(item.arousal_rating)"
+                        r="14"
+                        class="svg-point-circle point-{{ item.target_quadrant }}"
+                      >
+                        <title>Trial #{{ item.randomized_order }}: {{ item.stimulus_title }} (V: {{ item.valence_rating }}, A: {{ item.arousal_rating }}, C: {{ item.confidence }})</title>
+                      </circle>
+                      <text
+                        [attr.x]="calcSvgX(item.valence_rating)"
+                        [attr.y]="calcSvgY(item.arousal_rating) + 4"
+                        text-anchor="middle"
+                        class="svg-point-num"
+                      >
+                        {{ item.randomized_order }}
+                      </text>
+                    </g>
+                  }
+                }
+              </svg>
+            </div>
+          </div>
+
+          <!-- Trials Breakdown Table -->
+          <div class="trials-detail-card">
+            <div class="detail-card-head">
+              <h3>ตารางรายละเอียดข้อมูลแต่ละรอบ (Trial Breakdown)</h3>
+              <span class="detail-count-tag">ทั้งหมด 12 รอบ</span>
+            </div>
+            <div class="table-container">
+              <table class="detail-table">
+                <thead>
+                  <tr>
+                    <th>Trial</th>
+                    <th>สิ่งเร้า (Stimulus)</th>
+                    <th>กลุ่มเป้าหมาย (Target)</th>
+                    <th>Valence (1–9)</th>
+                    <th>Arousal (1–9)</th>
+                    <th>Confidence (1–5)</th>
+                    <th>ไฟล์คลื่นสมอง (EEG File)</th>
+                    <th>สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (trial of detail.items; track trial.id) {
+                    <tr>
+                      <td class="col-trial-num">
+                        <span class="trial-bubble">#{{ trial.randomized_order }}</span>
+                      </td>
+                      <td class="col-stimulus">
+                        <div class="stimulus-title-text">{{ trial.stimulus_title }}</div>
+                        <div class="stimulus-sub-text">{{ trial.duration_seconds?.toFixed(1) }}s · {{ trial.target_quadrant }}</div>
+                      </td>
+                      <td>
+                        <span class="badge {{ quadrantBadgeClass(trial.target_quadrant) }}">
+                          {{ quadrantLabel(trial.target_quadrant) }}
+                        </span>
+                      </td>
+                      <td>
+                        <span class="score-chip tone-{{ valenceTone(trial.valence_rating) }}">
+                          {{ trial.valence_rating ?? '-' }}
+                        </span>
+                      </td>
+                      <td>
+                        <span class="score-chip tone-{{ arousalTone(trial.arousal_rating) }}">
+                          {{ trial.arousal_rating ?? '-' }}
+                        </span>
+                      </td>
+                      <td>
+                        <span class="conf-badge">★ {{ trial.confidence ?? '-' }} / 5</span>
+                      </td>
+                      <td class="col-file">
+                        <code class="file-code">{{ trial.eeg_file_path?.split('\\')?.pop() ?? trial.eeg_file_path ?? '-' }}</code>
+                        <span class="file-size-tag">{{ formatBytes(trial.raw_size_bytes) }}</span>
+                      </td>
+                      <td>
+                        <span class="status-verified-badge">✓ บันทึกสำเร็จ</span>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        } @else if (sessionTrialsLoading()) {
+          <div class="loading-state-card">
+            <div class="loading-spinner"></div>
+            <p>กำลังโหลดข้อมูลสรุปการทดสอบทั้ง 12 Trials…</p>
+          </div>
+        }
+      </section>
+    }
     @case ('interrupted') { <section class="focus-card warning" data-stage="interrupted"><h2>Session ถูกขัดจังหวะ</h2><p>{{ runnerState()?.interruption_reason }}</p><p>เริ่ม Trial {{ displayedTrialOrder() }} ใหม่ในลำดับเดิม โดยไม่สุ่ม Schedule ใหม่</p><button class="primary" type="button" (click)="resume()" [disabled]="busy()">Resume same order</button></section> }
     @case ('failed') { <section class="focus-card danger" data-stage="failed"><h2>ไม่สามารถดำเนิน Session ต่อได้</h2><p>ตรวจอุปกรณ์และสถานะไฟล์ก่อนกลับมาลองใหม่</p></section> }
   }
@@ -225,6 +437,12 @@
           <button type="button" class="retry-btn" (click)="retryMediaDownload()">ลองโหลดคลิปใหม่อีกครั้ง</button>
         </div>
       }
+      @if (stimulusStartError()) {
+        <div class="error" role="alert">
+          {{ toThaiError(stimulusStartError()) }}
+          <button type="button" class="retry-btn" (click)="retryStimulusStart()">ลองเริ่มคลิปใหม่อีกครั้ง</button>
+        </div>
+      }
       @if (finishRetryAvailable()) { <button type="button" (click)="retryFinish()" [disabled]="busy()">ลองยืนยันจบคลิปอีกครั้ง</button> }
       @if (mediaUrl(); as source) {
         <div class="video-shell">
@@ -233,8 +451,12 @@
             <div class="media-lock" role="status">รอ Backend ยืนยันช่วง Rest และสัญญาณทั้ง 4 จุด</div>
           } @else if (runnerState()?.trial_state === 'rest' && runnerState()?.stimulus_start_ready) {
             <div class="stimulus-ready-banner">
-              <button class="stimulus-start-btn" type="button" (click)="triggerStimulusStart(media)">
-                ▶ สัญญาณพร้อมแล้ว — กดเริ่มดูคลิป
+              <button class="stimulus-start-btn" type="button" (click)="triggerStimulusStart(media, true)" [disabled]="busy() || stimulusStarting()">
+                @if (stimulusStarting()) {
+                  <span class="btn-spinner"></span> กำลังเริ่มคลิป…
+                } @else {
+                  ▶ สัญญาณพร้อมแล้ว — กดเริ่มดูคลิป
+                }
               </button>
             </div>
           } @else if (autoplayBlocked()) {

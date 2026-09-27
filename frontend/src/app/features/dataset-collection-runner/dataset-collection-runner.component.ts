@@ -9,6 +9,8 @@ import {
   BaselineKind,
   CollectionRunnerState,
   DatasetCollectionService,
+  SessionTrialsDetail,
+  SessionTrialItem,
 } from '../../core/services/dataset-collection.service';
 import { DatasetCollectionWsService } from '../../core/services/dataset-collection-ws.service';
 import { SensorStatus } from '../../core/services/eeg-ws.service';
@@ -41,6 +43,8 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   readonly finishRetryAvailable = signal(false);
   readonly autoplayBlocked = signal(false);
   readonly devicePersisted = signal(false);
+  readonly sessionTrialsDetail = signal<SessionTrialsDetail | null>(null);
+  readonly sessionTrialsLoading = signal(false);
   readonly contacts = signal<Record<SensorKey, boolean>>({ tp9: false, af7: false, af8: false, tp10: false });
   readonly sensorKeys: SensorKey[] = ['tp9', 'af7', 'af8', 'tp10'];
   readonly artifacts = [
@@ -62,7 +66,9 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   private playbackFinished = false;
   private pendingEnded = false;
   private playbackFailureHandled = false;
-  private stimulusStarting = false;
+  readonly stimulusStarting = signal(false);
+  readonly stimulusStartError = signal('');
+  private lastStimulusErrorTrialId: number | null = null;
   private destroyed = false;
   private activeVideo: HTMLVideoElement | null = null;
   private selectedMuse: MuseDevice | null = null;
@@ -127,12 +133,84 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     } else {
       this.releaseMedia();
     }
-    if (state.trial_state === 'rest' && state.stimulus_start_ready && !this.busy() && !this.stimulusStarting && this.activeVideo) {
+    if (state.trial_state === 'rest'
+      && state.stimulus_start_ready
+      && !this.busy()
+      && !this.stimulusStarting()
+      && this.lastStimulusErrorTrialId !== state.current_trial_id
+      && this.activeVideo) {
       this.triggerStimulusStart(this.activeVideo);
     }
     if (newStage === 'stimulus') {
       queueMicrotask(() => this.playStimulusVideo());
     }
+    if (newStage === 'completed' && !this.sessionTrialsDetail()) {
+      this.loadSessionTrials();
+    }
+  }
+
+  loadSessionTrials(): void {
+    if (this.sessionTrialsLoading()) return;
+    this.sessionTrialsLoading.set(true);
+    this.api.getSessionTrials(this.sessionId).subscribe({
+      next: detail => {
+        this.sessionTrialsDetail.set(detail);
+        this.sessionTrialsLoading.set(false);
+      },
+      error: () => {
+        this.sessionTrialsLoading.set(false);
+      },
+    });
+  }
+
+  formatBytes(bytes?: number | null): string {
+    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  quadrantLabel(quadrant?: string): string {
+    switch (quadrant) {
+      case 'positive_high': return 'Positive High (Excited)';
+      case 'positive_low': return 'Positive Low (Relax)';
+      case 'negative_high': return 'Negative High (Stress)';
+      case 'negative_low': return 'Negative Low (Sad)';
+      default: return quadrant ?? '-';
+    }
+  }
+
+  quadrantBadgeClass(quadrant?: string): string {
+    switch (quadrant) {
+      case 'positive_high': return 'badge-hvha';
+      case 'positive_low': return 'badge-hvla';
+      case 'negative_high': return 'badge-lvha';
+      case 'negative_low': return 'badge-lvla';
+      default: return '';
+    }
+  }
+
+  valenceTone(val?: number | null): string {
+    if (val == null) return 'neutral';
+    if (val >= 7) return 'high';
+    if (val <= 3) return 'low';
+    return 'medium';
+  }
+
+  arousalTone(val?: number | null): string {
+    if (val == null) return 'neutral';
+    if (val >= 7) return 'high';
+    if (val <= 3) return 'low';
+    return 'medium';
+  }
+
+  calcSvgX(val?: number | null): number {
+    const v = val ?? 5;
+    return 60 + ((v - 1) / 8) * 380;
+  }
+
+  calcSvgY(arousal?: number | null): number {
+    const a = arousal ?? 5;
+    return 320 - ((a - 1) / 8) * 260;
   }
 
   displayedTrialOrder(): number { return this.runnerState()?.current_trial_order ?? this.runnerState()?.next_trial_order ?? 12; }
@@ -164,7 +242,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   sensorQualityLabel(key: SensorKey): string {
     const tone = this.sensorQualityTone(key);
     switch (tone) {
-      case 'good': return 'สัญญาณดี';
+      case 'good': return 'สัมผัสผิวดี';
       case 'fair': return 'สัญญาณปานกลาง';
       case 'poor': return 'แตะไม่สนิท';
       default: return 'รอสัญญาณ';
@@ -245,28 +323,42 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     this.mediaReady.set(true);
     if (this.runnerState()?.trial_state === 'stimulus') {
       this.resumeAfterBackendStart(video);
-    } else if (this.runnerState()?.trial_state === 'rest' && this.runnerState()?.stimulus_start_ready && !this.busy() && !this.stimulusStarting) {
+    } else if (this.runnerState()?.trial_state === 'rest'
+      && this.runnerState()?.stimulus_start_ready
+      && !this.busy()
+      && !this.stimulusStarting()
+      && this.lastStimulusErrorTrialId !== this.runnerState()?.current_trial_id) {
       this.triggerStimulusStart(video);
     }
   }
 
-  triggerStimulusStart(video?: HTMLVideoElement): void {
+  triggerStimulusStart(video?: HTMLVideoElement, isUserClick = false): void {
     const target = video ?? this.activeVideo;
     if (target) this.activeVideo = target;
     const state = this.runnerState();
-    if (this.busy() || this.stimulusStarting) return;
+    if (isUserClick) {
+      this.lastStimulusErrorTrialId = null;
+      this.stimulusStartError.set('');
+    }
+    if (this.busy() || this.stimulusStarting()) return;
     if (state?.trial_state === 'rest' && state.current_trial_id) {
-      this.stimulusStarting = true;
+      const trialId = state.current_trial_id;
+      this.stimulusStarting.set(true);
+      this.stimulusStartError.set('');
       this.stopAllMedia(target ?? undefined);
       this.playbackStarted = true;
       this.run(
-        this.api.startStimulus(this.sessionId, state.current_trial_id),
+        this.api.startStimulus(this.sessionId, trialId),
         () => {
-          this.stimulusStarting = false;
+          this.stimulusStarting.set(false);
           this.playbackStarted = false;
+          this.lastStimulusErrorTrialId = trialId;
+          this.stimulusStartError.set(this.error());
         },
         () => {
-          this.stimulusStarting = false;
+          this.stimulusStarting.set(false);
+          this.stimulusStartError.set('');
+          this.lastStimulusErrorTrialId = null;
           this.resumeAfterBackendStart(target ?? this.activeVideo);
         },
       );
@@ -277,6 +369,10 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
         void active.play().catch(() => this.handlePostStartPlaybackFailure(active));
       }
     }
+  }
+
+  retryStimulusStart(): void {
+    this.triggerStimulusStart(undefined, true);
   }
 
   restartRest(): void {
@@ -354,7 +450,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     if (state?.trial_state === 'stimulus' && this.playbackStarted) return;
     if (state?.trial_state === 'rest') {
       this.rewindMedia(video);
-      if (state.stimulus_start_ready && !this.playbackStarted && !this.stimulusStarting) {
+      if (state.stimulus_start_ready && !this.playbackStarted && !this.stimulusStarting() && this.lastStimulusErrorTrialId !== state.current_trial_id) {
         this.triggerStimulusStart(video);
       }
       return;
@@ -545,6 +641,8 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(false); this.mediaStimulusId = null;
     this.playbackStarted = false; this.playbackFinished = false; this.pendingEnded = false;
     this.finishRetryAvailable.set(false); this.autoplayBlocked.set(false);
+    this.stimulusStarting.set(false);
+    this.stimulusStartError.set('');
   }
 
   private flushPendingFinish(): void {
@@ -585,11 +683,14 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   readonly toThaiError = toThaiError;
 
   private run(request: ReturnType<DatasetCollectionService['getRunnerState']>, onError?: () => void, onSuccess?: () => void): void {
-    if (this.busy()) return;
+    if (this.busy()) {
+      onError?.();
+      return;
+    }
     this.busy.set(true); this.error.set('');
     this.actionSubscription = request.subscribe({
       next: state => { this.busy.set(false); this.applyState(state); onSuccess?.(); this.flushPendingFinish(); },
-      error: err => { this.busy.set(false); onError?.(); this.fail(err); this.flushPendingFinish(); },
+      error: err => { this.busy.set(false); this.fail(err); onError?.(); this.flushPendingFinish(); },
     });
   }
 

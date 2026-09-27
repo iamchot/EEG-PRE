@@ -11,12 +11,71 @@ export type BaselineKind = 'eyes_open' | 'eyes_closed';
 export type TrialState = 'scheduled' | 'rest' | 'stimulus' | 'rating' | 'completed' | 'interrupted' | 'failed';
 export type CollectionSessionState = 'preparation' | 'baseline' | 'ready' | 'in_progress' | 'completed' | 'interrupted' | 'withdrawn' | 'failed';
 
+export interface TrialRatingPoint {
+  trial_id: number;
+  session_id: number;
+  participant_code?: string;
+  stimulus_title: string;
+  target_quadrant: string;
+  valence: number;
+  arousal: number;
+  confidence: number;
+  eeg_file_path?: string | null;
+  raw_size_bytes?: number | null;
+}
+
+export interface QuadrantStat {
+  target_count: number;
+  avg_valence: number | null;
+  avg_arousal: number | null;
+}
+
 export interface CollectionOverview {
   participants: number;
   sessions: number;
   trials: number;
+  completed_trials?: number;
+  scheduled_trials?: number;
+  total_eeg_bytes?: number;
   review_counts: Record<'pending' | 'accepted' | 'rejected', number>;
   quadrant_counts: Record<EmotionQuadrant, number>;
+  sessions_by_state?: Record<string, number>;
+  ratings_distribution?: TrialRatingPoint[];
+  quadrant_stats?: Record<string, QuadrantStat>;
+}
+
+export interface SessionTrialItem {
+  id: number;
+  randomized_order: number;
+  stimulus_id: number;
+  stimulus_title: string;
+  target_quadrant: EmotionQuadrant;
+  state: TrialState;
+  review_state: string;
+  valence_rating?: number | null;
+  arousal_rating?: number | null;
+  confidence?: number | null;
+  eeg_file_path?: string | null;
+  eeg_checksum?: string | null;
+  raw_size_bytes?: number | null;
+  duration_seconds?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface SessionTrialsDetail {
+  session_id: number;
+  participant_id: number;
+  participant_code: string;
+  device_id?: string | null;
+  device_name?: string | null;
+  state: CollectionSessionState;
+  completed_trials: number;
+  total_trials: number;
+  total_eeg_bytes: number;
+  avg_valence?: number | null;
+  avg_arousal?: number | null;
+  items: SessionTrialItem[];
 }
 
 export interface DatasetParticipant {
@@ -197,6 +256,10 @@ export class DatasetCollectionService {
 
   getRunnerState(sessionId: number): Observable<CollectionRunnerState> {
     return this.http.get<CollectionRunnerState>(`${this.baseUrl}/sessions/${sessionId}/runner-state`);
+  }
+
+  getSessionTrials(sessionId: number): Observable<SessionTrialsDetail> {
+    return this.http.get<SessionTrialsDetail>(`${this.baseUrl}/sessions/${sessionId}/trials`);
   }
 
   getStimulusMedia(stimulusId: number): Observable<Blob> {

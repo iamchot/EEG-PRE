@@ -12,6 +12,8 @@ import {
   EmotionStimulus,
   StimulusApprovalState,
 } from '../../core/services/dataset-collection.service';
+import { SensorStatus } from '../../core/services/eeg-ws.service';
+import { EegWaveformComponent } from '../../shared/components/eeg-waveform/eeg-waveform.component';
 
 type CollectionTab = 'overview' | 'participants' | 'stimuli' | 'sessions';
 
@@ -21,7 +23,7 @@ import { TranslatePipe } from '../../core/pipes/translate.pipe';
 @Component({
   selector: 'app-dataset-collection',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TranslatePipe],
+  imports: [CommonModule, FormsModule, RouterLink, TranslatePipe, EegWaveformComponent],
   templateUrl: './dataset-collection.component.html',
   styleUrl: './dataset-collection.component.css',
 })
@@ -84,6 +86,52 @@ export class DatasetCollectionComponent implements OnInit {
   sessionActionLabel(item: CollectionSession): string | null {
     if (item.state === 'completed') return 'ดูสรุปผล';
     return ['preparation', 'baseline', 'ready', 'in_progress', 'interrupted'].includes(item.state) ? 'เริ่ม / ดำเนินการต่อ' : null;
+  }
+
+  readonly sampleTp9: SensorStatus = { state: 'good', quality_score: 96, timestamp: Date.now(), sequence: 1 };
+  readonly sampleAf7: SensorStatus = { state: 'good', quality_score: 98, timestamp: Date.now(), sequence: 1 };
+  readonly sampleAf8: SensorStatus = { state: 'good', quality_score: 95, timestamp: Date.now(), sequence: 1 };
+  readonly sampleTp10: SensorStatus = { state: 'good', quality_score: 94, timestamp: Date.now(), sequence: 1 };
+
+  formatBytes(bytes?: number | null): string {
+    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  calcSvgX(val?: number | null): number {
+    const v = val ?? 5;
+    return 60 + ((v - 1) / 8) * 380;
+  }
+
+  calcSvgY(arousal?: number | null): number {
+    const a = arousal ?? 5;
+    return 320 - ((a - 1) / 8) * 260;
+  }
+
+  quadrantTitle(key: string): string {
+    switch (key) {
+      case 'positive_high': return 'Positive High (Excited/Joy)';
+      case 'positive_low': return 'Positive Low (Relax/Calm)';
+      case 'negative_high': return 'Negative High (Stress/Fear)';
+      case 'negative_low': return 'Negative Low (Sad/Depressed)';
+      default: return key;
+    }
+  }
+
+  quadrantBadgeClass(key: string): string {
+    switch (key) {
+      case 'positive_high': return 'badge-hvha';
+      case 'positive_low': return 'badge-hvla';
+      case 'negative_high': return 'badge-lvha';
+      case 'negative_low': return 'badge-lvla';
+      default: return '';
+    }
+  }
+
+  getParticipantCode(participantId: number): string {
+    const p = this.participants().find(item => item.id === participantId);
+    return p ? p.participant_code : `ID #${participantId}`;
   }
 
   registerParticipant(): void {

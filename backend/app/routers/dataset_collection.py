@@ -26,6 +26,7 @@ from app.models.dataset_collection import (
 )
 from app.schemas.dataset_collection import (
     ArtifactRequest,
+    CollectionOverviewResponse,
     CollectionRunnerStateResponse,
     CollectionSessionCreate,
     CollectionSessionListResponse,
@@ -35,10 +36,16 @@ from app.schemas.dataset_collection import (
     ParticipantCreate,
     ParticipantListResponse,
     ParticipantResponse,
+    QuadrantCounts,
+    QuadrantStat,
     RatingRequest,
+    ReviewCounts,
+    SessionTrialItemResponse,
+    SessionTrialsDetailResponse,
     StimulusCreate,
     StimulusListResponse,
     StimulusResponse,
+    TrialRatingPoint,
 )
 from app.schemas.muse import MuseBridgeState, MuseConnectionStatus, MuseOwner
 from app.services.dataset_collection_service import (
@@ -60,50 +67,111 @@ router = APIRouter(prefix="/admin/dataset-collection", tags=["Admin Dataset Coll
 log = logging.getLogger(__name__)
 
 
-class ReviewCounts(BaseModel):
-    pending: int = 0
-    accepted: int = 0
-    rejected: int = 0
-
-
-class QuadrantCounts(BaseModel):
-    positive_low: int = 0
-    positive_high: int = 0
-    negative_low: int = 0
-    negative_high: int = 0
-
-
 class MuseConnectRequest(BaseModel):
     address: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=100)
 
 
-class CollectionOverviewResponse(BaseModel):
-    participants: int
-    sessions: int
-    trials: int
-    review_counts: ReviewCounts
-    quadrant_counts: QuadrantCounts
-
-
 @router.get("/overview", response_model=CollectionOverviewResponse)
 def collection_overview(admin: AdminUser, db: Session = Depends(get_db)):
+    total_participants = db.scalar(select(func.count(DatasetParticipant.id))) or 0
+    total_sessions = db.scalar(select(func.count(CollectionSession.id))) or 0
+    total_trials = db.scalar(select(func.count(CollectionTrial.id))) or 0
+
+    completed_trials = db.scalar(
+        select(func.count(CollectionTrial.id)).where(CollectionTrial.state == TrialState.completed)
+    ) or 0
+
+    scheduled_trials = db.scalar(
+        select(func.count(CollectionTrial.id)).where(CollectionTrial.state == TrialState.scheduled)
+    ) or 0
+
+    total_eeg_bytes = db.scalar(
+        select(func.sum(CollectionTrial.raw_size_bytes)).where(CollectionTrial.state == TrialState.completed)
+    ) or 0
+
+    # Only count completed trials in review counts (cannot review trials that have not occurred)
     review_rows = db.execute(
-        select(CollectionTrial.review_state, func.count(CollectionTrial.id)).group_by(CollectionTrial.review_state)
+        select(CollectionTrial.review_state, func.count(CollectionTrial.id))
+        .where(CollectionTrial.state == TrialState.completed)
+        .group_by(CollectionTrial.review_state)
     ).all()
+    review_counts_map = {state.value: count for state, count in review_rows}
+    review_counts = {state.value: review_counts_map.get(state.value, 0) for state in ReviewState}
+
     quadrant_rows = db.execute(
         select(EmotionStimulus.target_quadrant, func.count(EmotionStimulus.id)).group_by(
             EmotionStimulus.target_quadrant
         )
     ).all()
-    review_counts = {state.value: count for state, count in review_rows}
-    quadrant_counts = {quadrant.value: count for quadrant, count in quadrant_rows}
+    quadrant_counts_map = {quadrant.value: count for quadrant, count in quadrant_rows}
+    quadrant_counts = {quadrant.value: quadrant_counts_map.get(quadrant.value, 0) for quadrant in Quadrant}
+
+    sess_rows = db.execute(
+        select(CollectionSession.state, func.count(CollectionSession.id)).group_by(CollectionSession.state)
+    ).all()
+    sessions_by_state = {s.value: c for s, c in sess_rows}
+
+    rated_trials = db.execute(
+        select(
+            CollectionTrial.id,
+            CollectionTrial.session_id,
+            DatasetParticipant.participant_code,
+            EmotionStimulus.title,
+            EmotionStimulus.target_quadrant,
+            CollectionTrial.valence_rating,
+            CollectionTrial.arousal_rating,
+            CollectionTrial.confidence,
+            CollectionTrial.eeg_file_path,
+            CollectionTrial.raw_size_bytes,
+        )
+        .join(CollectionSession, CollectionTrial.session_id == CollectionSession.id)
+        .join(DatasetParticipant, CollectionSession.participant_id == DatasetParticipant.id)
+        .join(EmotionStimulus, CollectionTrial.stimulus_id == EmotionStimulus.id)
+        .where(
+            CollectionTrial.state == TrialState.completed,
+            CollectionTrial.valence_rating.isnot(None),
+            CollectionTrial.arousal_rating.isnot(None),
+        )
+        .order_by(CollectionTrial.session_id, CollectionTrial.randomized_order)
+    ).all()
+
+    ratings_distribution = [
+        TrialRatingPoint(
+            trial_id=row.id,
+            session_id=row.session_id,
+            participant_code=row.participant_code,
+            stimulus_title=row.title,
+            target_quadrant=row.target_quadrant.value,
+            valence=row.valence_rating,
+            arousal=row.arousal_rating,
+            confidence=row.confidence or 3,
+            eeg_file_path=row.eeg_file_path,
+            raw_size_bytes=row.raw_size_bytes,
+        )
+        for row in rated_trials
+    ]
+
+    quadrant_stats = {}
+    for q in Quadrant:
+        trials_in_q = [t for t in ratings_distribution if t.target_quadrant == q.value]
+        count = len(trials_in_q)
+        avg_v = round(sum(t.valence for t in trials_in_q) / count, 2) if count > 0 else None
+        avg_a = round(sum(t.arousal for t in trials_in_q) / count, 2) if count > 0 else None
+        quadrant_stats[q.value] = QuadrantStat(target_count=count, avg_valence=avg_v, avg_arousal=avg_a)
+
     return CollectionOverviewResponse(
-        participants=db.scalar(select(func.count(DatasetParticipant.id))) or 0,
-        sessions=db.scalar(select(func.count(CollectionSession.id))) or 0,
-        trials=db.scalar(select(func.count(CollectionTrial.id))) or 0,
-        review_counts={state.value: review_counts.get(state.value, 0) for state in ReviewState},
-        quadrant_counts={quadrant.value: quadrant_counts.get(quadrant.value, 0) for quadrant in Quadrant},
+        participants=total_participants,
+        sessions=total_sessions,
+        trials=total_trials,
+        completed_trials=completed_trials,
+        scheduled_trials=scheduled_trials,
+        total_eeg_bytes=total_eeg_bytes,
+        review_counts=ReviewCounts(**review_counts),
+        quadrant_counts=QuadrantCounts(**quadrant_counts),
+        sessions_by_state=sessions_by_state,
+        ratings_distribution=ratings_distribution,
+        quadrant_stats=quadrant_stats,
     )
 
 
@@ -164,6 +232,81 @@ def add_session(body: CollectionSessionCreate, admin: AdminUser, db: Session = D
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DatasetConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/sessions/{session_id}/trials", response_model=SessionTrialsDetailResponse)
+def session_trials_detail(session_id: int, admin: AdminUser, db: Session = Depends(get_db)):
+    session = db.get(CollectionSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection session not found")
+
+    participant = db.get(DatasetParticipant, session.participant_id)
+    participant_code = participant.participant_code if participant else "Unknown"
+
+    trials = db.execute(
+        select(
+            CollectionTrial,
+            EmotionStimulus.title,
+            EmotionStimulus.target_quadrant,
+            EmotionStimulus.duration_seconds,
+        )
+        .join(EmotionStimulus, CollectionTrial.stimulus_id == EmotionStimulus.id)
+        .where(CollectionTrial.session_id == session_id)
+        .order_by(CollectionTrial.randomized_order)
+    ).all()
+
+    items = []
+    total_bytes = 0
+    valences = []
+    arousals = []
+
+    for trial, stim_title, stim_quadrant, stim_duration in trials:
+        if trial.raw_size_bytes:
+            total_bytes += trial.raw_size_bytes
+        if trial.valence_rating is not None:
+            valences.append(trial.valence_rating)
+        if trial.arousal_rating is not None:
+            arousals.append(trial.arousal_rating)
+
+        items.append(
+            SessionTrialItemResponse(
+                id=trial.id,
+                randomized_order=trial.randomized_order,
+                stimulus_id=trial.stimulus_id,
+                stimulus_title=stim_title,
+                target_quadrant=stim_quadrant.value,
+                state=trial.state.value if trial.state else "scheduled",
+                review_state=trial.review_state.value if trial.review_state else "pending",
+                valence_rating=trial.valence_rating,
+                arousal_rating=trial.arousal_rating,
+                confidence=trial.confidence,
+                eeg_file_path=trial.eeg_file_path,
+                eeg_checksum=trial.eeg_checksum,
+                raw_size_bytes=trial.raw_size_bytes,
+                duration_seconds=stim_duration,
+                started_at=trial.started_at,
+                completed_at=trial.completed_at,
+            )
+        )
+
+    completed_count = sum(1 for item in items if item.state == "completed")
+    avg_v = round(sum(valences) / len(valences), 2) if valences else None
+    avg_a = round(sum(arousals) / len(arousals), 2) if arousals else None
+
+    return SessionTrialsDetailResponse(
+        session_id=session.id,
+        participant_id=session.participant_id,
+        participant_code=participant_code,
+        device_id=session.device_id,
+        device_name=session.device_name,
+        state=session.state.value if session.state else "ready",
+        completed_trials=completed_count,
+        total_trials=len(items),
+        total_eeg_bytes=total_bytes,
+        avg_valence=avg_v,
+        avg_arousal=avg_a,
+        items=items,
+    )
 
 
 def _collection_session(db: Session, session_id: int) -> CollectionSession:

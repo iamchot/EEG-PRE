@@ -11,6 +11,7 @@ import {
   DatasetParticipant,
   EmotionStimulus,
   CollectionRunnerState,
+  SessionTrialsDetail,
 } from './dataset-collection.service';
 
 describe('DatasetCollectionService', () => {
@@ -196,6 +197,23 @@ describe('DatasetCollectionService', () => {
       expect(request.request.method).toBe('GET');
       request.flush(runnerState);
       expect(received).toEqual(runnerState);
+    });
+
+    it('gets session trials detail list and summary', () => {
+      const detail: SessionTrialsDetail = {
+        session_id: 13, participant_id: 7, participant_code: 'P007', state: 'completed',
+        completed_trials: 1, total_trials: 1, total_eeg_bytes: 2048, avg_valence: 7, avg_arousal: 6,
+        items: [{
+          id: 1, randomized_order: 1, stimulus_id: 11, stimulus_title: 'Calm lake', target_quadrant: 'positive_low',
+          state: 'completed', review_state: 'pending', valence_rating: 7, arousal_rating: 6, confidence: 5,
+        }]
+      };
+      let received: SessionTrialsDetail | undefined;
+      service.getSessionTrials(13).subscribe(value => received = value);
+      const request = http.expectOne(`${baseUrl}/sessions/13/trials`);
+      expect(request.request.method).toBe('GET');
+      request.flush(detail);
+      expect(received).toEqual(detail);
     });
 
     it('fetches authenticated stimulus media as a Blob without using its local path', () => {

@@ -19,6 +19,8 @@
   "accepted_clean_seconds": 0.0,
   "wall_clock_seconds": 0.0,
   "file_recovery_required": false,
+  "eyes_open_complete": false,
+  "eyes_closed_complete": false,
   "sensors": {
     "tp9": {
       "state": "unknown",

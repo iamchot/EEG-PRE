@@ -162,7 +162,7 @@ export const TRANSLATIONS: Dictionary = {
     en: 'Prepare pseudonymous participants, stimuli, and collection sessions.',
   },
   'dataset.notice': {
-    th: 'สำหรับการวิจัยและต้นแบบเพื่อความบันเทิง — ไม่ใช่ทางการแพทย์',
+    th: 'สำหรับการวิจัยและต้นแบบเพื่อความบันเทิง (Entertainment only — Not medical)',
     en: 'Entertainment and prototype research only — not medical diagnosis or treatment.',
   },
   'dataset.summary_title': {
@@ -515,6 +515,15 @@ export function toThaiError(err: unknown): string {
   }
   if (lower.includes('stimulus playback failed')) {
     return 'การเล่นวิดีโอคลิปล้มเหลว (Stimulus playback failed; collection was interrupted for recovery)';
+  }
+  if (lower.includes('stimulus content duration')) {
+    return 'ความยาวคลิปต้องอยู่ระหว่าง 45 ถึง 60 วินาทีตามข้อกำหนดการทดลอง';
+  }
+  if (lower.includes('all four live sensors good') || lower.includes('require_live_sensor_ready')) {
+    return 'สัญญาณ Muse ต้องแตะผิวดีทั้ง 4 จุดก่อนเริ่มคลิป';
+  }
+  if (lower.includes('rest requires at least') || lower.includes('rest not ready')) {
+    return 'ต้องพักสายตาให้นิ่งอย่างน้อย 10 วินาทีก่อนเริ่มคลิป';
   }
   if (lower.includes('muse scan not found')) {
     return 'ไม่พบข้อมูลผลการค้นหาอุปกรณ์ Muse (Muse scan not found)';

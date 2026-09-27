@@ -1309,3 +1309,56 @@ def test_device_lease_rolls_back_process_registry_when_os_lock_errors(tmp_path, 
     recovered = module.DeviceLease(tmp_path, "error-device")
     recovered.acquire()
     recovered.release()
+
+
+def test_web_bluetooth_ingest_throttles_broadcast_and_enforces_monotonic_timestamps():
+    async def scenario():
+        broadcast_calls = []
+
+        class StubManager(CollectionConnectionManager):
+            async def broadcast(self, session_id, state, *, error=None):
+                broadcast_calls.append((session_id, state))
+
+        mgr = StubManager()
+
+        class StubRunner:
+            def __init__(self):
+                self._state = type("State", (), {
+                    "state": CollectionSessionState.ready,
+                    "trial_state": None,
+                    "active_baseline": None,
+                    "completed_trials": 0,
+                    "sampling_rate_hz": 256.0,
+                    "sampling_rate_ok": True,
+                })()
+
+            def observe_quality(self, sensors, sampling_rate_hz=None, sampling_rate_ok=None):
+                return type("QS", (), {"sampling_rate_ok": True})()
+
+            def state(self):
+                return self._state
+
+        runner = StubRunner()
+        session_id = 999
+        mgr._runners[session_id] = runner
+
+        # Rapidly ingest 10 samples with identical timestamp
+        for i in range(10):
+            await mgr.ingest_web_bluetooth_sample(
+                session_id=session_id,
+                tp9=10.0 + i,
+                af7=12.0 + i,
+                af8=11.0 + i,
+                tp10=13.0 + i,
+                timestamp=100.0,
+            )
+
+        # Broadcast should have been throttled (first sample broadcasts, subsequent within 250ms are throttled)
+        assert len(broadcast_calls) == 1
+        # The rolling buffer should contain all 10 samples
+        assert len(mgr._web_bt_buffers[session_id]) == 10
+        # The timestamp should have been strictly monotonically increased
+        assert mgr._last_web_bt_timestamp[session_id] > 100.0
+
+    asyncio.run(scenario())
+

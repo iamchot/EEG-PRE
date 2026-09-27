@@ -147,8 +147,12 @@ describe('DatasetCollectionRunnerComponent', () => {
       'finishStimulus', 'markArtifact', 'submitRating', 'interrupt', 'resume',
       'getStimulusMedia', 'createSchedule',
       'getOverview', 'listParticipants', 'listStimuli', 'listSessions', 'createParticipant',
-      'createStimulus', 'createSession',
+      'createStimulus', 'createSession', 'getSessionTrials',
     ]);
+    api.getSessionTrials.and.returnValue(of({
+      session_id: 13, participant_id: 7, participant_code: 'P007', state: 'completed',
+      completed_trials: 12, total_trials: 12, total_eeg_bytes: 100000, avg_valence: 5, avg_arousal: 5, items: []
+    }));
     api.getRunnerState.and.returnValue(of(runnerState({ total_trials: 0, next_trial_order: null, next_trial_id: null, next_stimulus_id: null, next_stimulus_title: null })));
     for (const method of ['selectDevice', 'startBaseline', 'startTrialRest', 'startStimulus', 'finishStimulus', 'markArtifact', 'submitRating', 'interrupt', 'resume'] as const) {
       api[method].and.returnValue(of(runnerState()));
@@ -684,6 +688,56 @@ describe('DatasetCollectionRunnerComponent', () => {
     fixture.detectChanges();
 
     expect(component.stage()).toBe('ready');
+  });
+
+  it('displays comprehensive 12-trial breakdown and summary when session is completed', () => {
+    const trialsDetail = {
+      session_id: 13,
+      participant_id: 7,
+      participant_code: 'P007',
+      state: 'completed' as const,
+      completed_trials: 12,
+      total_trials: 12,
+      total_eeg_bytes: 3200000,
+      avg_valence: 6.5,
+      avg_arousal: 4.8,
+      items: [
+        {
+          id: 101,
+          randomized_order: 1,
+          stimulus_id: 1,
+          stimulus_title: 'Excited 1',
+          target_quadrant: 'positive_high' as const,
+          state: 'completed' as const,
+          review_state: 'pending',
+          valence_rating: 8,
+          arousal_rating: 7,
+          confidence: 5,
+          eeg_file_path: 'P007/13/trial-101.csv',
+          raw_size_bytes: 250000,
+          duration_seconds: 59.0,
+        },
+      ],
+    };
+    api.getSessionTrials.and.returnValue(of(trialsDetail));
+
+    component.applyState(runnerState({
+      state: 'completed',
+      completed_trials: 12,
+      total_trials: 12,
+    }));
+    fixture.detectChanges();
+
+    expect(component.stage()).toBe('completed');
+    expect(api.getSessionTrials).toHaveBeenCalledWith(13);
+    expect(component.sessionTrialsDetail()).toEqual(trialsDetail);
+
+    const heading = fixture.nativeElement.querySelector('.completed-hero-text h2');
+    expect(heading?.textContent).toContain('ครบ 12 Trials');
+    const tableRows = fixture.nativeElement.querySelectorAll('.detail-table tbody tr');
+    expect(tableRows.length).toBe(1);
+    expect(tableRows[0].textContent).toContain('Excited 1');
+    expect(tableRows[0].textContent).toContain('8');
   });
 });
 

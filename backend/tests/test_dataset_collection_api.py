@@ -153,7 +153,23 @@ def test_overview_has_zero_defaults_for_all_collection_counts(client):
             "negative_low": 0,
             "negative_high": 0,
         },
+        "completed_trials": 0,
+        "scheduled_trials": 0,
+        "total_eeg_bytes": 0,
+        "sessions_by_state": {},
+        "ratings_distribution": [],
+        "quadrant_stats": {
+            "positive_low": {"target_count": 0, "avg_valence": None, "avg_arousal": None},
+            "positive_high": {"target_count": 0, "avg_valence": None, "avg_arousal": None},
+            "negative_low": {"target_count": 0, "avg_valence": None, "avg_arousal": None},
+            "negative_high": {"target_count": 0, "avg_valence": None, "avg_arousal": None},
+        },
     }
+
+
+def test_session_trials_detail_returns_not_found_for_missing_session(client):
+    response = client.get(f"{BASE}/sessions/999/trials", headers=admin_headers(client))
+    assert response.status_code == 404
 
 
 def test_admin_creates_preparation_session_for_active_participant(client):
