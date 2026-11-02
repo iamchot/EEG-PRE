@@ -112,19 +112,45 @@
               <div class="analytics-card-header">
                 <div>
                   <h3>
-                    {{ lang.currentLang() === 'th' ? 'แผนผังพล็อตอารมณ์ 2 มิติ' : '2D Emotion Space Map' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "แผนผังพล็อตอารมณ์ 2 มิติ"
+                        : "2D Emotion Space Map"
+                    }}
                   </h3>
                   <p>
-                    {{ lang.currentLang() === 'th'
-                      ? 'พล็อตตำแหน่งค่าคะแนน Valence และ Arousal จากรอบการทดสอบที่เก็บได้จริง (' + (stats.ratings_distribution?.length ?? 0) + ' จุดข้อมูล)'
-                      : 'Plotted Valence and Arousal scores from completed trials (' + (stats.ratings_distribution?.length ?? 0) + ' data points)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "พล็อตตำแหน่งค่าคะแนน Valence และ Arousal จากรอบการทดสอบที่เก็บได้จริง (" +
+                          (stats.ratings_distribution?.length ?? 0) +
+                          " จุดข้อมูล)"
+                        : "Plotted Valence and Arousal scores from completed trials (" +
+                          (stats.ratings_distribution?.length ?? 0) +
+                          " data points)"
+                    }}
                   </p>
                 </div>
                 <div class="chart-legend">
-                  <span class="legend-badge badge-hvha">{{ lang.currentLang() === 'th' ? 'ตื่นเต้น / สนุกสนาน' : 'Excited / Happy' }}</span>
-                  <span class="legend-badge badge-hvla">{{ lang.currentLang() === 'th' ? 'ผ่อนคลาย / สงบ' : 'Relax / Calm' }}</span>
-                  <span class="legend-badge badge-lvha">{{ lang.currentLang() === 'th' ? 'เครียด / ตกใจกลัว' : 'Stress / Fear' }}</span>
-                  <span class="legend-badge badge-lvla">{{ lang.currentLang() === 'th' ? 'เศร้า / หดหู่' : 'Sad / Depressed' }}</span>
+                  <span class="legend-badge badge-hvha">{{
+                    lang.currentLang() === "th"
+                      ? "ตื่นเต้น / สนุกสนาน"
+                      : "Excited / Happy"
+                  }}</span>
+                  <span class="legend-badge badge-hvla">{{
+                    lang.currentLang() === "th"
+                      ? "ผ่อนคลาย / สงบ"
+                      : "Relax / Calm"
+                  }}</span>
+                  <span class="legend-badge badge-lvha">{{
+                    lang.currentLang() === "th"
+                      ? "เครียด / ตกใจกลัว"
+                      : "Stress / Fear"
+                  }}</span>
+                  <span class="legend-badge badge-lvla">{{
+                    lang.currentLang() === "th"
+                      ? "เศร้า / หดหู่"
+                      : "Sad / Depressed"
+                  }}</span>
                 </div>
               </div>
 
@@ -166,16 +192,32 @@
 
                   <!-- Quadrant Watermarks -->
                   <text x="65" y="55" class="svg-watermark">
-                    {{ lang.currentLang() === 'th' ? 'เครียด / ตกใจกลัว' : 'LVHA (Stress/Fear)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "เครียด / ตกใจกลัว"
+                        : "LVHA (Stress/Fear)"
+                    }}
                   </text>
                   <text x="435" y="55" text-anchor="end" class="svg-watermark">
-                    {{ lang.currentLang() === 'th' ? 'ตื่นเต้น / สนุกสนาน' : 'HVHA (Excited/Joy)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "ตื่นเต้น / สนุกสนาน"
+                        : "HVHA (Excited/Joy)"
+                    }}
                   </text>
                   <text x="65" y="315" class="svg-watermark">
-                    {{ lang.currentLang() === 'th' ? 'เศร้า / หดหู่' : 'LVLA (Sad/Depressed)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "เศร้า / หดหู่"
+                        : "LVLA (Sad/Depressed)"
+                    }}
                   </text>
                   <text x="435" y="315" text-anchor="end" class="svg-watermark">
-                    {{ lang.currentLang() === 'th' ? 'ผ่อนคลาย / สงบ' : 'HVLA (Relax/Peace)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "ผ่อนคลาย / สงบ"
+                        : "HVLA (Relax/Peace)"
+                    }}
                   </text>
 
                   <!-- Center Crosshair Axes -->
@@ -196,7 +238,11 @@
 
                   <!-- Axis Labels -->
                   <text x="50" y="198" class="svg-axis-label">
-                    {{ lang.currentLang() === 'th' ? 'ไม่ดี (1)' : 'Valence 1 (Unpleasant)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "ไม่ดี (1)"
+                        : "Valence 1 (Unpleasant)"
+                    }}
                   </text>
                   <text
                     x="450"
@@ -204,7 +250,11 @@
                     text-anchor="end"
                     class="svg-axis-label"
                   >
-                    {{ lang.currentLang() === 'th' ? 'ดีมาก (9)' : 'Valence 9 (Pleasant)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "ดีมาก (9)"
+                        : "Valence 9 (Pleasant)"
+                    }}
                   </text>
                   <text
                     x="250"
@@ -212,7 +262,11 @@
                     text-anchor="middle"
                     class="svg-axis-label"
                   >
-                    {{ lang.currentLang() === 'th' ? 'ตื่นตัวสูง (9)' : 'Arousal 9 (High)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "ตื่นตัวสูง (9)"
+                        : "Arousal 9 (High)"
+                    }}
                   </text>
                   <text
                     x="250"
@@ -220,7 +274,11 @@
                     text-anchor="middle"
                     class="svg-axis-label"
                   >
-                    {{ lang.currentLang() === 'th' ? 'สงบ/ง่วง (1)' : 'Arousal 1 (Low)' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "สงบ/ง่วง (1)"
+                        : "Arousal 1 (Low)"
+                    }}
                   </text>
 
                   <!-- Plotted points from all rated trials -->
@@ -260,11 +318,19 @@
             <!-- Quadrant Breakdown Statistics -->
             <div class="analytics-card">
               <div class="analytics-card-header">
-                <h3>{{ lang.currentLang() === 'th' ? 'สถิติการกระจายตัวตามกลุ่มอารมณ์' : 'Target Quadrant Distribution' }}</h3>
+                <h3>
+                  {{
+                    lang.currentLang() === "th"
+                      ? "สถิติการกระจายตัวตามกลุ่มอารมณ์"
+                      : "Target Quadrant Distribution"
+                  }}
+                </h3>
                 <p>
-                  {{ lang.currentLang() === 'th'
-                    ? 'จำนวนรอบที่เก็บสำเร็จ และค่าเฉลี่ยคะแนนการตอบสนองจริงในแต่ละกลุ่มอารมณ์'
-                    : 'Completed trial counts and response score averages per quadrant' }}
+                  {{
+                    lang.currentLang() === "th"
+                      ? "จำนวนรอบที่เก็บสำเร็จ และค่าเฉลี่ยคะแนนการตอบสนองจริงในแต่ละกลุ่มอารมณ์"
+                      : "Completed trial counts and response score averages per quadrant"
+                  }}
                 </p>
               </div>
 
@@ -313,7 +379,7 @@
           </div>
 
           <!-- Section 3: EEG Signal Quality & Live Waveform Preview -->
-          <div class="waveform-preview-card">
+          <!-- <div class="waveform-preview-card">
             <div class="waveform-header">
               <div>
                 <h3>
@@ -344,26 +410,59 @@
                 [tp10]="sampleTp10"
               />
             </div>
-          </div>
+          </div> -->
 
           <!-- Section 4: Recent Sessions & Quick Access -->
           <div class="recent-sessions-card">
             <div class="recent-sessions-header">
-              <h3>{{ lang.currentLang() === 'th' ? 'รอบการเก็บข้อมูลล่าสุด' : 'Recent Collection Sessions' }}</h3>
+              <h3>
+                {{
+                  lang.currentLang() === "th"
+                    ? "รอบการเก็บข้อมูลล่าสุด"
+                    : "Recent Collection Sessions"
+                }}
+              </h3>
               <span class="sessions-total-badge"
-                >{{ sessions().length }} {{ lang.currentLang() === 'th' ? 'รอบในระบบ' : 'sessions' }}</span
+                >{{ sessions().length }}
+                {{
+                  lang.currentLang() === "th" ? "รอบในระบบ" : "sessions"
+                }}</span
               >
             </div>
             <div class="table-responsive">
               <table class="recent-sessions-table">
                 <thead>
                   <tr>
-                    <th>{{ lang.currentLang() === 'th' ? 'รอบทดสอบ' : 'Session' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'ผู้เข้าร่วม' : 'Participant' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'อุปกรณ์สายคาด' : 'Headset Device' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'ความคืบหน้า' : 'Progress' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'สถานะ' : 'State' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'การดำเนินการ' : 'Actions' }}</th>
+                    <th>
+                      {{ lang.currentLang() === "th" ? "รอบทดสอบ" : "Session" }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th"
+                          ? "ผู้เข้าร่วม"
+                          : "Participant"
+                      }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th"
+                          ? "อุปกรณ์สายคาด"
+                          : "Headset Device"
+                      }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th" ? "ความคืบหน้า" : "Progress"
+                      }}
+                    </th>
+                    <th>
+                      {{ lang.currentLang() === "th" ? "สถานะ" : "State" }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th" ? "การดำเนินการ" : "Actions"
+                      }}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -403,7 +502,12 @@
                               'run',
                             ]"
                           >
-                            📊 {{ lang.currentLang() === 'th' ? 'ดูสรุปผล 12 รอบ' : 'View 12-Trial Summary' }}
+                            📊
+                            {{
+                              lang.currentLang() === "th"
+                                ? "ดูสรุปผล 12 รอบ"
+                                : "View 12-Trial Summary"
+                            }}
                           </a>
                         } @else {
                           <a
@@ -414,7 +518,12 @@
                               'run',
                             ]"
                           >
-                            ▶ {{ lang.currentLang() === 'th' ? 'ดำเนินการต่อ' : 'Continue' }}
+                            ▶
+                            {{
+                              lang.currentLang() === "th"
+                                ? "ดำเนินการต่อ"
+                                : "Continue"
+                            }}
                           </a>
                         }
                       </td>
@@ -507,7 +616,11 @@
                     class="btn-action-withdraw"
                     (click)="openWithdrawModal(item)"
                   >
-                    {{ lang.currentLang() === 'th' ? 'ถอนตัวจากการทดลอง' : 'Withdraw Participant' }}
+                    {{
+                      lang.currentLang() === "th"
+                        ? "ถอนตัวจากการทดลอง"
+                        : "Withdraw Participant"
+                    }}
                   </button>
                 }
               </div>
@@ -553,11 +666,23 @@
                   <span class="pending-file-icon">🎬</span>
                   <div class="pending-file-meta">
                     <strong>{{ pending.name }}</strong>
-                    <small>{{ formatBytes(pending.size) }} · {{ lang.currentLang() === 'th' ? 'รอลงทะเบียน: ไฟล์จะถูกบันทึกจริงเมื่อกดยืนยันด้านล่าง' : 'Pending: File will be saved upon registration' }}</small>
+                    <small
+                      >{{ formatBytes(pending.size) }} ·
+                      {{
+                        lang.currentLang() === "th"
+                          ? "รอลงทะเบียน: ไฟล์จะถูกบันทึกจริงเมื่อกดยืนยันด้านล่าง"
+                          : "Pending: File will be saved upon registration"
+                      }}</small
+                    >
                   </div>
                 </div>
-                <button type="button" class="btn-clear-pending" (click)="clearPendingFile()">
-                  ✕ {{ lang.currentLang() === 'th' ? 'ยกเลิกไฟล์นี้' : 'Clear' }}
+                <button
+                  type="button"
+                  class="btn-clear-pending"
+                  (click)="clearPendingFile()"
+                >
+                  ✕
+                  {{ lang.currentLang() === "th" ? "ยกเลิกไฟล์นี้" : "Clear" }}
                 </button>
               </div>
             } @else {
@@ -568,13 +693,27 @@
                 [disabled]="uploadingMedia() || inspectingMedia()"
               >
                 @if (uploadingMedia()) {
-                  <span class="btn-spinner"></span> {{ lang.currentLang() === 'th' ? 'กำลังอ่านและประมวลผลไฟล์...' : 'Processing video...' }}
+                  <span class="btn-spinner"></span>
+                  {{
+                    lang.currentLang() === "th"
+                      ? "กำลังอ่านและประมวลผลไฟล์..."
+                      : "Processing video..."
+                  }}
                 } @else {
-                  📤 {{ lang.currentLang() === 'th' ? 'เลือกไฟล์วิดีโอจากเครื่อง (.mp4)' : 'Choose Video File (.mp4)' }}
+                  📤
+                  {{
+                    lang.currentLang() === "th"
+                      ? "เลือกไฟล์วิดีโอจากเครื่อง (.mp4)"
+                      : "Choose Video File (.mp4)"
+                  }}
                 }
               </button>
               <small class="upload-hint-sub">
-                {{ lang.currentLang() === 'th' ? 'อ่านค่าความยาวและ Hash ทันที โดยไฟล์จะถูกบันทึกเข้าเซิร์ฟเวอร์จริงเมื่อกดลงทะเบียน' : 'Calculates hash and duration locally; stores to server only upon registration' }}
+                {{
+                  lang.currentLang() === "th"
+                    ? "อ่านค่าความยาวและ Hash ทันที โดยไฟล์จะถูกบันทึกเข้าเซิร์ฟเวอร์จริงเมื่อกดลงทะเบียน"
+                    : "Calculates hash and duration locally; stores to server only upon registration"
+                }}
               </small>
             }
           </div>
@@ -582,11 +721,36 @@
           <!-- วิธีที่ 2: เลือกจากคลังที่มีอยู่แล้ว -->
           @if (availableMediaFiles().length > 0) {
             <div class="library-select-card">
-              <span class="library-select-label">📁 {{ lang.currentLang() === 'th' ? 'หรือเลือกจากคลังวิดีโอบนเซิร์ฟเวอร์ (' + availableMediaFiles().length + ' ไฟล์):' : 'Or select from server library (' + availableMediaFiles().length + ' files):' }}</span>
-              <select class="library-dropdown-select" (change)="onSelectLibraryFile($event)">
-                <option value="">{{ lang.currentLang() === 'th' ? '-- คลิกเลือกไฟล์วิดีโอจากคลัง --' : '-- Select video from library --' }}</option>
+              <span class="library-select-label"
+                >📁
+                {{
+                  lang.currentLang() === "th"
+                    ? "หรือเลือกจากคลังวิดีโอบนเซิร์ฟเวอร์ (" +
+                      availableMediaFiles().length +
+                      " ไฟล์):"
+                    : "Or select from server library (" +
+                      availableMediaFiles().length +
+                      " files):"
+                }}</span
+              >
+              <select
+                class="library-dropdown-select"
+                (change)="onSelectLibraryFile($event)"
+              >
+                <option value="">
+                  {{
+                    lang.currentLang() === "th"
+                      ? "-- คลิกเลือกไฟล์วิดีโอจากคลัง --"
+                      : "-- Select video from library --"
+                  }}
+                </option>
                 @for (file of availableMediaFiles(); track file) {
-                  <option [value]="file" [selected]="stimulus.file_path === file">{{ file }}</option>
+                  <option
+                    [value]="file"
+                    [selected]="stimulus.file_path === file"
+                  >
+                    {{ file }}
+                  </option>
                 }
               </select>
             </div>
@@ -605,13 +769,28 @@
               <button
                 type="button"
                 class="btn-auto-detect"
-                [disabled]="!stimulus.file_path.trim() || inspectingMedia() || uploadingMedia() || !!pendingUploadFile()"
+                [disabled]="
+                  !stimulus.file_path.trim() ||
+                  inspectingMedia() ||
+                  uploadingMedia() ||
+                  !!pendingUploadFile()
+                "
                 (click)="autoDetectStimulus()"
               >
                 @if (inspectingMedia()) {
-                  <span class="btn-spinner"></span> {{ lang.currentLang() === 'th' ? 'กำลังตรวจสอบ...' : 'Checking...' }}
+                  <span class="btn-spinner"></span>
+                  {{
+                    lang.currentLang() === "th"
+                      ? "กำลังตรวจสอบ..."
+                      : "Checking..."
+                  }}
                 } @else {
-                  🔍 {{ lang.currentLang() === 'th' ? 'ตรวจสอบไฟล์ & อ่านค่าอัตโนมัติ' : 'Inspect File & Auto-detect' }}
+                  🔍
+                  {{
+                    lang.currentLang() === "th"
+                      ? "ตรวจสอบไฟล์ & อ่านค่าอัตโนมัติ"
+                      : "Inspect File & Auto-detect"
+                  }}
                 }
               </button>
             </div>
@@ -641,7 +820,11 @@
             [(ngModel)]="stimulus.checksum"
             placeholder="ระบบคำนวณ Checksum 64 ตัวอักษรอัตโนมัติ"
           />
-          <small class="field-hint">{{ lang.currentLang() === 'th' ? '🔒 ล็อกการแก้ไข: คำนวณจริงจากไฟล์โดยตรงเพื่อความถูกต้องของข้อมูล' : '🔒 Locked: Calculated directly from file for data integrity' }}</small>
+          <small class="field-hint">{{
+            lang.currentLang() === "th"
+              ? "🔒 ล็อกการแก้ไข: คำนวณจริงจากไฟล์โดยตรงเพื่อความถูกต้องของข้อมูล"
+              : "🔒 Locked: Calculated directly from file for data integrity"
+          }}</small>
         </label>
         <label>
           {{ "dataset.duration_label" | translate }}
@@ -656,7 +839,11 @@
             class="input-readonly"
             [(ngModel)]="stimulus.duration_seconds"
           />
-          <small class="field-hint">{{ lang.currentLang() === 'th' ? '⏱️ ล็อกการแก้ไข: อ่านค่าจาก Metadata ของคลิปจริง (ต้องอยู่ระหว่าง 45–60 วินาที)' : '⏱️ Locked: Probed from video metadata (must be 45-60s)' }}</small>
+          <small class="field-hint">{{
+            lang.currentLang() === "th"
+              ? "⏱️ ล็อกการแก้ไข: อ่านค่าจาก Metadata ของคลิปจริง (ต้องอยู่ระหว่าง 45–60 วินาที)"
+              : "⏱️ Locked: Probed from video metadata (must be 45-60s)"
+          }}</small>
         </label>
         <label
           >{{ "dataset.target_quadrant_label" | translate
@@ -666,18 +853,60 @@
             required
             [(ngModel)]="stimulus.target_quadrant"
           >
-            <option value="positive_low">{{ lang.currentLang() === 'th' ? '🟢 ผ่อนคลาย / สงบ' : '🟢 Relax / Calm' }}</option>
-            <option value="positive_high">{{ lang.currentLang() === 'th' ? '🟣 ตื่นเต้น / สนุกสนาน' : '🟣 Excited / Joy' }}</option>
-            <option value="negative_low">{{ lang.currentLang() === 'th' ? '🔵 เศร้า / หดหู่' : '🔵 Sad / Depressed' }}</option>
-            <option value="negative_high">{{ lang.currentLang() === 'th' ? '🔴 เครียด / ตกใจกลัว' : '🔴 Stress / Fear' }}</option>
+            <option value="positive_low">
+              {{
+                lang.currentLang() === "th"
+                  ? "🟢 ผ่อนคลาย / สงบ"
+                  : "🟢 Relax / Calm"
+              }}
+            </option>
+            <option value="positive_high">
+              {{
+                lang.currentLang() === "th"
+                  ? "🟣 ตื่นเต้น / สนุกสนาน"
+                  : "🟣 Excited / Joy"
+              }}
+            </option>
+            <option value="negative_low">
+              {{
+                lang.currentLang() === "th"
+                  ? "🔵 เศร้า / หดหู่"
+                  : "🔵 Sad / Depressed"
+              }}
+            </option>
+            <option value="negative_high">
+              {{
+                lang.currentLang() === "th"
+                  ? "🔴 เครียด / ตกใจกลัว"
+                  : "🔴 Stress / Fear"
+              }}
+            </option>
           </select></label
         >
         <label
           >{{ "dataset.approval_state_label" | translate
           }}<select name="approval" [(ngModel)]="stimulus.approval_state">
-            <option value="draft">{{ lang.currentLang() === 'th' ? '🟡 แบบร่าง (ยังไม่นำไปสุ่ม)' : '🟡 Draft' }}</option>
-            <option value="approved">{{ lang.currentLang() === 'th' ? '🟢 อนุมัติแล้ว (พร้อมใช้งาน)' : '🟢 Approved' }}</option>
-            <option value="retired">{{ lang.currentLang() === 'th' ? '⚪ ปลดระวาง (ระงับการใช้งาน)' : '⚪ Retired' }}</option>
+            <option value="draft">
+              {{
+                lang.currentLang() === "th"
+                  ? "🟡 แบบร่าง (ยังไม่นำไปสุ่ม)"
+                  : "🟡 Draft"
+              }}
+            </option>
+            <option value="approved">
+              {{
+                lang.currentLang() === "th"
+                  ? "🟢 อนุมัติแล้ว (พร้อมใช้งาน)"
+                  : "🟢 Approved"
+              }}
+            </option>
+            <option value="retired">
+              {{
+                lang.currentLang() === "th"
+                  ? "⚪ ปลดระวาง (ระงับการใช้งาน)"
+                  : "⚪ Retired"
+              }}
+            </option>
           </select></label
         >
         <label
@@ -735,7 +964,8 @@
                       [disabled]="updatingStimulusId() === item.id"
                       (click)="updateStimulusApproval(item, 'approved')"
                     >
-                      ✓ {{ lang.currentLang() === 'th' ? 'อนุมัติ' : 'Approve' }}
+                      ✓
+                      {{ lang.currentLang() === "th" ? "อนุมัติ" : "Approve" }}
                     </button>
                   }
                   @if (item.approval_state === "approved") {
@@ -745,7 +975,8 @@
                       [disabled]="updatingStimulusId() === item.id"
                       (click)="updateStimulusApproval(item, 'retired')"
                     >
-                      🚫 {{ lang.currentLang() === 'th' ? 'ปลดระวาง' : 'Retire' }}
+                      🚫
+                      {{ lang.currentLang() === "th" ? "ปลดระวาง" : "Retire" }}
                     </button>
                   }
                   @if (item.approval_state === "retired") {
@@ -755,7 +986,12 @@
                       [disabled]="updatingStimulusId() === item.id"
                       (click)="updateStimulusApproval(item, 'approved')"
                     >
-                      ↺ {{ lang.currentLang() === 'th' ? 'นำกลับมาใช้' : 'Re-approve' }}
+                      ↺
+                      {{
+                        lang.currentLang() === "th"
+                          ? "นำกลับมาใช้"
+                          : "Re-approve"
+                      }}
                     </button>
                   }
                 </div>
@@ -864,21 +1100,31 @@
       <div class="modal-card">
         <div class="modal-header">
           <span class="modal-icon-alert">⚠️</span>
-          <h3 id="withdraw-modal-title">{{ lang.currentLang() === 'th' ? 'ยืนยันการถอนตัวผู้เข้าร่วม' : 'Confirm Participant Withdrawal' }}</h3>
+          <h3 id="withdraw-modal-title">
+            {{
+              lang.currentLang() === "th"
+                ? "ยืนยันการถอนตัวผู้เข้าร่วม"
+                : "Confirm Participant Withdrawal"
+            }}
+          </h3>
         </div>
         <p class="modal-message">
-          @if (lang.currentLang() === 'th') {
+          @if (lang.currentLang() === "th") {
             คุณต้องการบันทึกการถอนตัวของ
-            <strong>{{ target.participant_code }}</strong> จากการทดลองใช่หรือไม่?
+            <strong>{{ target.participant_code }}</strong>
+            จากการทดลองใช่หรือไม่?
           } @else {
-            Are you sure you want to withdraw participant <strong>{{ target.participant_code }}</strong> from this study?
+            Are you sure you want to withdraw participant
+            <strong>{{ target.participant_code }}</strong> from this study?
           }
         </p>
         <p class="modal-subtext">
-          @if (lang.currentLang() === 'th') {
-            ผู้เข้าร่วมที่ถอนตัวจะไม่สามารถนำมาสร้างรอบการทดสอบใหม่ได้อีก และระบบจะบันทึกประทับเวลาที่ถอนตัวลงในฐานข้อมูลจริง
+          @if (lang.currentLang() === "th") {
+            ผู้เข้าร่วมที่ถอนตัวจะไม่สามารถนำมาสร้างรอบการทดสอบใหม่ได้อีก
+            และระบบจะบันทึกประทับเวลาที่ถอนตัวลงในฐานข้อมูลจริง
           } @else {
-            Withdrawn participants cannot be assigned to new sessions, and withdrawal timestamp will be recorded.
+            Withdrawn participants cannot be assigned to new sessions, and
+            withdrawal timestamp will be recorded.
           }
         </p>
         <div class="modal-actions">
@@ -888,7 +1134,7 @@
             [disabled]="participantWithdrawing()"
             (click)="closeWithdrawModal()"
           >
-            {{ lang.currentLang() === 'th' ? 'ยกเลิก' : 'Cancel' }}
+            {{ lang.currentLang() === "th" ? "ยกเลิก" : "Cancel" }}
           </button>
           <button
             type="button"
@@ -897,9 +1143,13 @@
             (click)="confirmWithdraw()"
           >
             @if (participantWithdrawing()) {
-              {{ lang.currentLang() === 'th' ? 'กำลังบันทึก...' : 'Saving...' }}
+              {{ lang.currentLang() === "th" ? "กำลังบันทึก..." : "Saving..." }}
             } @else {
-              {{ lang.currentLang() === 'th' ? 'ยืนยันถอนตัว' : 'Confirm Withdrawal' }}
+              {{
+                lang.currentLang() === "th"
+                  ? "ยืนยันถอนตัว"
+                  : "Confirm Withdrawal"
+              }}
             }
           </button>
         </div>

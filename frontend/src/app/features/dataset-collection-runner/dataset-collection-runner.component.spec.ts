@@ -76,7 +76,9 @@ describe('DatasetCollectionRunnerComponent Admin Muse HTTP contract', () => {
     api = jasmine.createSpyObj<DatasetCollectionService>('DatasetCollectionService', [
       'getRunnerState', 'selectDevice', 'startBaseline', 'startTrialRest', 'startStimulus',
       'finishStimulus', 'markArtifact', 'submitRating', 'interrupt', 'resume', 'getStimulusMedia', 'createSchedule',
+      'getAvailableStimuliFiles', 'listSessions', 'getSessionTrials',
     ]);
+    api.getAvailableStimuliFiles.and.returnValue(of({ files: [] }));
     api.getRunnerState.and.returnValue(of(runnerState({ total_trials: 0, next_trial_order: null, next_trial_id: null, next_stimulus_id: null, next_stimulus_title: null })));
     api.selectDevice.and.returnValue(of(runnerState({ total_trials: 0, next_trial_order: null, next_trial_id: null, next_stimulus_id: null, next_stimulus_title: null })));
     ws = {
@@ -147,7 +149,7 @@ describe('DatasetCollectionRunnerComponent', () => {
       'finishStimulus', 'markArtifact', 'submitRating', 'interrupt', 'resume',
       'getStimulusMedia', 'createSchedule',
       'getOverview', 'listParticipants', 'listStimuli', 'listSessions', 'createParticipant',
-      'createStimulus', 'createSession', 'getSessionTrials',
+      'createStimulus', 'createSession', 'getSessionTrials', 'getAvailableStimuliFiles',
     ]);
     api.getSessionTrials.and.returnValue(of({
       session_id: 13, participant_id: 7, participant_code: 'P007', state: 'completed',
@@ -158,6 +160,7 @@ describe('DatasetCollectionRunnerComponent', () => {
       api[method].and.returnValue(of(runnerState()));
     }
     api.getStimulusMedia.and.returnValue(of(new Blob(['video'], { type: 'video/mp4' })));
+    api.getAvailableStimuliFiles.and.returnValue(of({ files: [] }));
     api.getOverview.and.returnValue(of({ participants: 0, sessions: 0, trials: 0, review_counts: { pending: 0, accepted: 0, rejected: 0 }, quadrant_counts: { positive_low: 0, positive_high: 0, negative_low: 0, negative_high: 0 } }));
     api.listParticipants.and.returnValue(of({ items: [] })); api.listStimuli.and.returnValue(of({ items: [] })); api.listSessions.and.returnValue(of({ items: [] }));
     ws = {
@@ -452,7 +455,7 @@ describe('DatasetCollectionRunnerComponent', () => {
 
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('Muse disconnected');
+    expect(fixture.nativeElement.textContent).toContain('disconnected');
   });
 
   it('starts only after playing, finishes once on ended, and sends no browser marker payload', () => {
@@ -733,7 +736,7 @@ describe('DatasetCollectionRunnerComponent', () => {
     expect(component.sessionTrialsDetail()).toEqual(trialsDetail);
 
     const heading = fixture.nativeElement.querySelector('.completed-hero-text h2');
-    expect(heading?.textContent).toContain('ครบ 12 Trials');
+    expect(heading?.textContent).toMatch(/12 (Trials|รอบทดสอบ)/);
     const tableRows = fixture.nativeElement.querySelectorAll('.detail-table tbody tr');
     expect(tableRows.length).toBe(1);
     expect(tableRows[0].textContent).toContain('Excited 1');

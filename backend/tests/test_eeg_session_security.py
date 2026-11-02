@@ -144,3 +144,80 @@ def test_start_recording_http_other_user_forbidden(security_client):
         headers={"Authorization": f"Bearer {u2_token}"},
     )
     assert res.status_code in (403, 404)
+
+
+def test_two_stage_baseline_lifecycle():
+    """Verify eyes_open -> eyes_closed -> READY lifecycle and to_ws_dict snapshot."""
+    import numpy as np
+    from app.services.eeg_service import EEGStateMachine, SessionState, Phase
+    from app.services.signal_processor import SensorQuality
+
+    state = SessionState(session_id="test_sess", user_id=1)
+    machine = EEGStateMachine(state)
+    machine.BASELINE_WALL_TARGET = 1.0
+    machine.BASELINE_CLEAN_TARGET = 0.5
+
+    machine.start_baseline(subphase="eyes_open")
+    assert state.phase == Phase.BASELINE
+    assert state.baseline_subphase == "eyes_open"
+
+    good_sensors = {
+        ch: SensorQuality(state="good", quality_score=90.0, timestamp=1.0, sequence=1)
+        for ch in ("tp9", "af7", "af8", "tp10")
+    }
+
+    # Simulate samples for eyes_open
+    for i in range(15):
+        sample = np.array([[10.0, 15.0, 12.0, 11.0]], dtype=float)
+        ts = np.array([float(i)])
+        machine.ingest_samples(sample, ts, sensor_qualities=good_sensors)
+        if machine._last_baseline_time:
+            machine._last_baseline_time -= 0.1
+
+    assert state.baseline_subphase == "eyes_closed"
+
+    # Simulate samples for eyes_closed
+    for i in range(15):
+        sample = np.array([[10.0, 15.0, 12.0, 11.0]], dtype=float)
+        ts = np.array([float(i)])
+        machine.ingest_samples(sample, ts, sensor_qualities=good_sensors)
+        if machine._last_baseline_time:
+            machine._last_baseline_time -= 0.1
+
+    assert state.phase == Phase.READY
+    ws_dict = machine.to_ws_dict()
+    assert ws_dict["eyes_open_complete"] is True
+    assert ws_dict["eyes_closed_complete"] is True
+    assert ws_dict["ready"] is True
+
+
+def test_baseline_clean_seconds_accumulate_with_poor_sensors():
+    """Baseline clean-seconds must accumulate on artifact-free samples even when all
+    sensor debounce states are poor -- previously, all_sensors_good gated the counter
+    and caused the 30-second window to appear frozen on the Web Bluetooth path.
+    """
+    import numpy as np
+    from app.services.eeg_service import EEGStateMachine, SessionState, Phase
+    from app.services.signal_processor import SensorQuality
+
+    state = SessionState(session_id="test_poor_sensors", user_id=1)
+    machine = EEGStateMachine(state)
+    machine.BASELINE_WALL_TARGET = 1.0
+    machine.BASELINE_CLEAN_TARGET = 0.5
+    machine.start_baseline(subphase="eyes_open")
+
+    poor_sensors = {
+        ch: SensorQuality(state="poor", quality_score=40.0, timestamp=1.0, sequence=1)
+        for ch in ("tp9", "af7", "af8", "tp10")
+    }
+
+    for i in range(15):
+        sample = np.array([[10.0, 15.0, 12.0, 11.0]], dtype=float)
+        machine.ingest_samples(sample, np.array([float(i)]), sensor_qualities=poor_sensors)
+        if machine._last_baseline_time:
+            machine._last_baseline_time -= 0.1
+
+    assert state.baseline_eyes_open_clean_seconds > 0.0, (
+        "Baseline clean-seconds must accumulate on artifact-free samples "
+        "regardless of sensor debounce state"
+    )

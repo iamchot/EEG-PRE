@@ -36,7 +36,7 @@ class EEGSession(Base):
     device_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="รหัสอุปกรณ์ Muse Headset")
     device_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="ชื่ออุปกรณ์ Muse ที่ตรวจพบ")
 
-    baseline_duration: Mapped[int] = mapped_column(Integer, default=20, comment="เวลาเป้าหมายบันทึก Baseline (วินาที เช่น 20s)")
+    baseline_duration: Mapped[int] = mapped_column(Integer, default=60, comment="เวลาเป้าหมายบันทึก Baseline ต่อระยะ (วินาที เช่น 60s)")
     accepted_recording_duration: Mapped[int] = mapped_column(Integer, default=30, comment="เวลาเป้าหมายของคลื่นสะอาดขณะบันทึก (วินาที เช่น 30s)")
     wall_clock_duration: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="เวลาจริงทั้งหมดที่ใช้บันทึกคลื่น (วินาที)")
     rejected_epoch_count: Mapped[int] = mapped_column(Integer, default=0, comment="จำนวน Epoch ที่ถูกปฏิเสธเนื่องจากมีสิ่งรบกวน")

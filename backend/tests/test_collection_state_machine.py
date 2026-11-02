@@ -1157,10 +1157,10 @@ def test_post_rating_rest_blocks_early_start_and_records_late_protocol_deviation
     clock.advance(45)
     runner.finish_stimulus(first.current_trial_id)
     runner.submit_rating(first.current_trial_id, valence=7, arousal=7, confidence=5)
-    clock.advance(19.9)
-    with pytest.raises(InvalidTransitionError, match="20"):
+    clock.advance(9.9)
+    with pytest.raises(InvalidTransitionError, match="10"):
         runner.start_trial_rest()
-    clock.advance(10.2)
+    clock.advance(20.2)
     second = runner.start_trial_rest()
     trial = runner.db.get(CollectionTrial, second.current_trial_id)
     assert "exceeded 30" in trial.failure_reason

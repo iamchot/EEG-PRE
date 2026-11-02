@@ -47,21 +47,19 @@ describe('HorseshoeSensorComponent', () => {
     expect(text).toContain('หลังหูขวา');
   });
 
-  it('uses Thai text and an icon for each sensor state', () => {
+  it('uses Thai status text and icons for each sensor state matching admin view', () => {
     setStates(['unknown', 'poor', 'good', 'stale']);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
     expect(text).toContain('รอสัญญาณ');
-    expect(text).toContain('ปรับตำแหน่ง');
-    expect(text).toContain('พร้อม');
-    expect(text).toContain('ขาดการเชื่อมต่อ');
+    expect(text).toContain('แตะไม่สนิท');
+    expect(text).toContain('สัมผัสผิวดี');
     expect(text).toContain('…');
     expect(text).toContain('!');
-    expect(text).toContain('✓');
-    expect(text).toContain('×');
+    expect(fixture.nativeElement.querySelector('svg.mark-svg.check')).not.toBeNull();
   });
 
-  it('summarizes unknown, attention, and ready states without a quality percentage', () => {
+  it('summarizes unknown, attention, and ready states with per-sensor quality status', () => {
     setStates(['unknown', 'unknown', 'unknown', 'unknown']);
     expect(component.readinessLabel()).toBe('กำลังรอสัญญาณ');
 
@@ -70,7 +68,7 @@ describe('HorseshoeSensorComponent', () => {
 
     setStates(['good', 'good', 'good', 'good']);
     expect(component.readinessLabel()).toBe('พร้อมเริ่ม');
-    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('%');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('100%');
   });
 
   it('uses an accessible headset figure label', () => {

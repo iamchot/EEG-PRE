@@ -35,7 +35,7 @@ GOOD_QUALITY_MINIMUM = 60.0
 STALE_AFTER_SECONDS = 2.0
 STIMULUS_MIN_SECONDS = 45.0
 STIMULUS_MAX_SECONDS = 60.0
-POST_RATING_REST_MIN_SECONDS = 20.0
+POST_RATING_REST_MIN_SECONDS = 10.0
 POST_RATING_REST_MAX_SECONDS = 30.0
 
 
@@ -801,7 +801,7 @@ class CollectionStateMachine:
         if previous is None or previous.completed_at is None:
             return None
         elapsed = (self._now() - previous.completed_at).total_seconds()
-        self._require(elapsed >= POST_RATING_REST_MIN_SECONDS, "post-rating rest requires at least 20 seconds")
+        self._require(elapsed >= POST_RATING_REST_MIN_SECONDS, "post-rating rest requires at least 10 seconds")
         if elapsed > POST_RATING_REST_MAX_SECONDS:
             return "Post-rating rest exceeded 30 seconds"
         return None

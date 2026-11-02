@@ -145,8 +145,9 @@
   width: 34px;
   height: 34px;
   border-radius: 8px;
+  padding: 18px;
   border: none;
-  background: rgba(30, 41, 59, 0.8);
+  background: rgba(178, 178, 234, 0.8);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -155,10 +156,10 @@
   transition: background 150ms;
 }
 .icon-btn:hover {
-  background: #1e293b;
+  background: #7898ca;
 }
 .icon-btn.danger:hover {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgb(243, 83, 83);
 }
 
 /* Empty */

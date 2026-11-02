@@ -14,13 +14,9 @@ import {
   EegWsService,
   SensorStatus,
 } from '../../core/services/eeg-ws.service';
+import { LanguageService } from '../../core/services/language.service';
+import { MuseWebBluetoothService, MuseWebBtState } from '../../core/services/muse-web-bluetooth.service';
 import { PersonaService } from '../../core/services/persona.service';
-import {
-  MuseConnectionStatus,
-  MuseDevice,
-  MuseDeviceService,
-  MuseScanStatus,
-} from '../../core/services/muse-device.service';
 import { EegSessionComponent } from './eeg-session.component';
 
 const sensor = (state: SensorStatus['state']): SensorStatus => ({
@@ -44,26 +40,27 @@ class EegWsStub {
   );
   acceptedSeconds = computed(() => 0);
   baselineSeconds = computed(() => 0);
+  baselineSubphase = computed(() => 'eyes_open' as const);
+  baselineCleanSeconds = computed(() => 0);
+  baselineWallSeconds = computed(() => 0);
+  eyesOpenComplete = computed(() => false);
+  eyesClosedComplete = computed(() => false);
   wallClockSeconds = computed(() => 0);
   isConnected = signal(true);
   connect = jasmine.createSpy('connect');
   disconnect = jasmine.createSpy('disconnect');
   sendCommand = jasmine.createSpy('sendCommand');
+  sendEegSample = jasmine.createSpy('sendEegSample');
 }
 
-class MuseDeviceStub {
-  scanStatus = signal<MuseScanStatus>({ scanId: null, state: 'idle', devices: [], detail: null });
-  connectionStatus = signal<MuseConnectionStatus>({ owner: null, state: 'idle', detail: null });
-  connectedDevice = signal<MuseDevice | null>(null);
-  scan = jasmine.createSpy('scan').and.callFake(() => this.scanStatus.set({
-    scanId: 'scan-1', state: 'scanning', devices: [], detail: null,
-  }));
-  cancelScan = jasmine.createSpy('cancelScan');
-  connectUser = jasmine.createSpy('connectUser').and.callFake((_sessionId: number, device: MuseDevice) => {
-    this.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'starting_bridge', detail: null });
-    return of({ owner: { kind: 'user', sessionId: 7 }, state: 'starting_bridge', detail: null });
-  });
-  disconnectUser = jasmine.createSpy('disconnectUser');
+class MuseWebBtStub {
+  state = signal<MuseWebBtState>('idle');
+  error = signal('');
+  deviceName = signal<string | null>(null);
+  deviceId = signal<string | null>(null);
+  isSupported = true;
+  connect = jasmine.createSpy('connect').and.resolveTo('Muse-TEST');
+  disconnect = jasmine.createSpy('disconnect');
 }
 
 describe('EegSessionComponent', () => {
@@ -71,7 +68,7 @@ describe('EegSessionComponent', () => {
   let component: EegSessionComponent;
   let http: HttpTestingController;
   let eegWs: EegWsStub;
-  let muse: MuseDeviceStub;
+  let museBt: MuseWebBtStub;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -80,7 +77,7 @@ describe('EegSessionComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: EegWsService, useClass: EegWsStub },
-        { provide: MuseDeviceService, useClass: MuseDeviceStub },
+        { provide: MuseWebBluetoothService, useClass: MuseWebBtStub },
         { provide: PersonaService, useValue: { getAll: () => of([]) } },
         { provide: ComicService, useValue: { generate: () => of({ id: 1 }) } },
         {
@@ -90,10 +87,11 @@ describe('EegSessionComponent', () => {
       ],
     }).compileComponents();
 
+    TestBed.inject(LanguageService).setLanguage('en');
     fixture = TestBed.createComponent(EegSessionComponent);
     component = fixture.componentInstance;
     eegWs = TestBed.inject(EegWsService) as unknown as EegWsStub;
-    muse = TestBed.inject(MuseDeviceService) as unknown as MuseDeviceStub;
+    museBt = TestBed.inject(MuseWebBluetoothService) as unknown as MuseWebBtStub;
     http = TestBed.inject(HttpTestingController);
     fixture.detectChanges();
     http.expectOne(`${environment.apiUrl}/sessions`).flush({ id: 7 });
@@ -109,7 +107,7 @@ describe('EegSessionComponent', () => {
     > = {}
   ) {
     if (!['DISCOVERING', 'DEVICE_CONFIRMATION', 'CONNECTING'].includes(phase)) {
-      muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connected', detail: null });
+      museBt.state.set('streaming');
     }
     eegWs.latestMessage.set({
       phase,
@@ -162,10 +160,10 @@ describe('EegSessionComponent', () => {
 
   it('keeps content for baseline, ready, record, emotion, and generate stages', () => {
     const expectations: Array<[EEGMessage['phase'], string]> = [
-      ['BASELINE', '20 seconds neutral state'],
-      ['READY', 'Ready to record emotion'],
-      ['RECORDING', 'Recording clean EEG'],
-      ['EMOTION_CONFIRMATION', 'Confirm emotion'],
+      ['BASELINE', 'Baseline 1 of 2 : Eyes Open'],
+      ['READY', 'Ready to record EEG stream'],
+      ['RECORDING', 'Recording 30s Clean EEG'],
+      ['EMOTION_CONFIRMATION', 'Confirm Emotion Classification'],
     ];
 
     expectations.forEach(([phase, content]) => {
@@ -182,153 +180,76 @@ describe('EegSessionComponent', () => {
     );
   });
 
-  it('keeps connect disabled until selection and updates radio semantics', () => {
-    const devices = [
-      { name: 'Muse-A9C7', address: 'AA:BB' },
-      { name: 'Muse-B123', address: 'CC:DD' },
-    ];
-    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices, detail: null });
+  it('connects headset via Web Bluetooth and sends confirm_device command', async () => {
+    await component.scanDevices();
+    expect(museBt.connect).toHaveBeenCalledOnceWith(jasmine.any(Function));
+    expect(eegWs.sendCommand).toHaveBeenCalledWith('confirm_device', {
+      device_name: 'Muse-TEST',
+      device_id: 'Muse-TEST',
+    });
+  });
+
+  it('shows connection spinner and guidance while Web Bluetooth is connecting', () => {
+    museBt.state.set('connecting');
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;
-    const button = element.querySelector<HTMLButtonElement>('#btn-connect');
-    expect(element.querySelector('[role="radiogroup"]')).not.toBeNull();
-    let radios = Array.from(element.querySelectorAll('[role="radio"]'));
-    expect(radios.length).toBe(2);
-    expect(radios.map((radio) => radio.getAttribute('aria-checked'))).toEqual([
-      'false',
-      'false',
-    ]);
-    // TODO(web-bt): selectDevice was removed when LSL path was replaced by Web Bluetooth.
-    // expect(button?.disabled).toBeTrue();
-    // component.selectDevice(devices[1]);
-    // fixture.detectChanges();
-    // expect(button?.disabled).toBeFalse();
+    expect(element.querySelector('.spinner')).not.toBeNull();
+    expect(element.querySelector('.device-status.busy')).not.toBeNull();
+    expect(element.querySelector<HTMLButtonElement>('#btn-scan')).toBeNull();
   });
 
-  it('uses roving tabindex and arrow keys to move device selection', () => {
-    const devices = [
-      { name: 'Muse-A9C7', address: 'AA:BB' },
-      { name: 'Muse-B123', address: 'CC:DD' },
-    ];
-    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices, detail: null });
+  it('explains unsupported browser warning when Web Bluetooth is not supported', () => {
+    museBt.isSupported = false;
     fixture.detectChanges();
 
-    let radios = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
-        '[role="radio"]'
-      )
-    );
-    expect(radios.map((radio) => radio.tabIndex)).toEqual([0, -1]);
-
-    radios[0].focus();
-    radios[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    fixture.detectChanges();
-
-    radios = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
-        '[role="radio"]'
-      )
-    );
-    // TODO(web-bt): selectedDevice was removed when LSL path was replaced by Web Bluetooth.
-    // expect(component.selectedDevice()).toEqual(devices[1]);
-    expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, 0]);
-    expect(document.activeElement).toBe(radios[1]);
-
-    radios[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-    fixture.detectChanges();
-    // TODO(web-bt): expect(component.selectedDevice()).toEqual(devices[0]);
+    const warning = (fixture.nativeElement as HTMLElement).querySelector('.inline-message.warning');
+    expect(warning?.textContent).toContain('Web Bluetooth');
   });
 
-  it('shows the scan spinner and 10–30 second guidance immediately without a not-found message', () => {
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('#btn-scan')?.click();
-    fixture.detectChanges();
-
-    const element = fixture.nativeElement as HTMLElement;
-    expect(muse.scan).toHaveBeenCalledOnceWith();
-    expect(element.querySelector('.scan-spinner')).not.toBeNull();
-    expect(element.textContent).toContain('10–30 seconds');
-    expect(element.textContent).not.toContain('No Muse headset found');
-  });
-
-  it('renders a found headset as a selectable accessible radio option', () => {
-    const device = { name: 'Creative Muse', address: 'AA:BB' };
-    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices: [device], detail: null });
-    fixture.detectChanges();
-
-    const option = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[role="radio"]');
-    expect(option?.textContent).toContain(device.name);
-    option?.click();
-    // TODO(web-bt): selectedDevice was removed when LSL path was replaced by Web Bluetooth.
-    // expect(component.selectedDevice()).toEqual(device);
-  });
-
-  it('explains a terminal not-found scan and offers a retry without showing it while scanning', () => {
-    muse.scanStatus.set({ scanId: 'scan-1', state: 'not_found', devices: [], detail: null });
-    fixture.detectChanges();
-
-    const element = fixture.nativeElement as HTMLElement;
-    expect(element.querySelector('[role="alert"]')?.textContent).toContain('No Muse headset found');
-    expect(element.querySelector<HTMLButtonElement>('#btn-scan')?.textContent).toContain('Try scanning again');
-  });
-
-  it('maps typed device states to semantic external-style classes', () => {
+  it('maps typed device states to semantic classes', () => {
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('.device-state.idle')).not.toBeNull();
 
-    muse.scanStatus.set({ scanId: 'scan-1', state: 'scanning', devices: [], detail: null });
+    museBt.state.set('connecting');
     fixture.detectChanges();
     expect(element.querySelector('.device-state.busy')).not.toBeNull();
 
-    muse.scanStatus.set({ scanId: 'scan-1', state: 'found', devices: [{ name: 'Creative Muse', address: 'AA:BB' }], detail: null });
-    fixture.detectChanges();
-    expect(element.querySelector('.device-state.available')).not.toBeNull();
-
-    muse.scanStatus.set({ scanId: 'scan-1', state: 'failed', devices: [], detail: 'scan_failed' });
+    museBt.state.set('failed');
     fixture.detectChanges();
     expect(element.querySelector('.device-state.failed')).not.toBeNull();
 
-    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connected', detail: null });
+    museBt.state.set('streaming');
     fixture.detectChanges();
     expect(element.querySelector('.service-status.connected')).not.toBeNull();
   });
 
-  it('shows Bluetooth then LSL connection guidance from typed transport stages', () => {
-    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connecting_bluetooth', detail: null });
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Connecting through Bluetooth');
-
-    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'waiting_for_lsl', detail: null });
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Waiting for the EEG signal (LSL)');
-  });
-
-  it('advances to sensor fitting only after a verified connected status', () => {
+  it('advances to sensor fitting only after a verified streaming status', () => {
     setPhase('FITTING');
-    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'waiting_for_lsl', detail: null });
+    museBt.state.set('connecting');
     fixture.detectChanges();
     expect(component.stage()).toBe('device');
     expect((fixture.nativeElement as HTMLElement).querySelector('#btn-baseline')).toBeNull();
 
-    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connected', detail: null });
+    museBt.state.set('streaming');
     fixture.detectChanges();
     expect(component.stage()).toBe('prepare');
     expect((fixture.nativeElement as HTMLElement).querySelector('#btn-baseline')).not.toBeNull();
   });
 
-  it('clears a typed scan failure when retrying', () => {
-    muse.scanStatus.set({ scanId: 'scan-1', state: 'failed', devices: [], detail: 'scan_failed' });
+  it('clears a typed connection failure when retrying', async () => {
+    component.connectError.set('Connection error');
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent)
-      .toContain('Unable to scan');
+      .toContain('Connection error');
 
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('#btn-scan')?.click();
+    await component.scanDevices();
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
   });
 
   it('does not treat a green transport connection as green sensor contacts', () => {
-    muse.connectionStatus.set({ owner: { kind: 'user', sessionId: 7 }, state: 'connected', detail: null });
+    museBt.state.set('streaming');
     setPhase('FITTING', { tp9: 'poor' });
 
     const element = fixture.nativeElement as HTMLElement;
@@ -336,22 +257,14 @@ describe('EegSessionComponent', () => {
     expect(element.querySelector<HTMLButtonElement>('#btn-baseline')?.disabled).toBeTrue();
   });
 
-  xit('connects the selected headset through the typed user client (TODO: rewrite for Web Bluetooth)', () => {
-    // TODO(web-bt): selectDevice/confirmDevice were replaced by museBt.connect().
-    // const device = { name: 'Creative Muse', address: 'AA:BB' };
-    // component.selectDevice(device);
-    // component.confirmDevice();
-    // expect(muse.connectUser).toHaveBeenCalledOnceWith(7, device);
-  });
-
   it('uses the exact start-baseline POST contract and command', () => {
-    component.startBaseline();
+    component.startBaseline('eyes_open');
 
-    const request = http.expectOne(`${environment.apiUrl}/sessions/7/start-baseline`);
+    const request = http.expectOne(`${environment.apiUrl}/sessions/7/start-baseline?subphase=eyes_open`);
     expect(request.request.method).toBe('POST');
     expect(request.request.body).toEqual({});
     request.flush({});
-    expect(eegWs.sendCommand).toHaveBeenCalledOnceWith('start_baseline');
+    expect(eegWs.sendCommand).toHaveBeenCalledOnceWith('start_baseline', { subphase: 'eyes_open' });
   });
 
   ['tp9', 'af7', 'af8', 'tp10'].forEach((sensorName) => {
@@ -377,6 +290,43 @@ describe('EegSessionComponent', () => {
     expect(button?.disabled).toBeFalse();
   });
 
+  it('renders all four sensor pills with percentage scores and quality labels in step 2', () => {
+    setPhase('FITTING', { tp9: 'good', af7: 'poor' });
+    museBt.state.set('streaming');
+    fixture.detectChanges();
+
+    const pills = (fixture.nativeElement as HTMLElement).querySelectorAll('.sensor-pill');
+    expect(pills.length).toBe(4);
+    expect(component.sensorQualityScore('tp9')).toBe('100%');
+    expect(component.sensorQualityLabel('tp9')).toBe('Good Contact');
+    expect(component.sensorQualityLabel('af7')).toBe('Poor Contact');
+  });
+
+  it('renders centered SVG checkmarks for completed steps', () => {
+    setPhase('BASELINE');
+    museBt.state.set('streaming');
+    fixture.detectChanges();
+
+    const stepChecks = (fixture.nativeElement as HTMLElement).querySelectorAll('.step.done svg.step-check');
+    expect(stepChecks.length).toBeGreaterThan(0);
+    stepChecks.forEach(svg => {
+      expect(svg.getAttribute('viewBox')).toBe('0 0 14 14');
+    });
+  });
+
+  it('displays two-step baseline duration and clean signal progress', () => {
+    setPhase('BASELINE');
+    museBt.state.set('streaming');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const progress = element.querySelector<HTMLProgressElement>('.session-progress');
+    expect(progress?.getAttribute('max')).toBe('30');
+    expect(element.textContent).toContain('Baseline 1 of 2 : Eyes Open');
+    expect(element.textContent).toContain('60');
+    expect(element.textContent).toContain('/ 30');
+  });
+
   it('shows exactly three fitting instructions', () => {
     setPhase('FITTING');
     expect(
@@ -385,23 +335,11 @@ describe('EegSessionComponent', () => {
     ).toBe(3);
   });
 
-  it('shows the complete disconnected warning copy', () => {
-    eegWs.isConnected.set(false);
-    fixture.detectChanges();
-
-    const warning = (fixture.nativeElement as HTMLElement).querySelector(
-      '.inline-message.warning'
-    );
-    expect(warning?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'เปิดบริการเชื่อมต่อในเครื่องให้พร้อมก่อนค้นหา Muse 2'
-    );
-  });
-
   it('keeps the entertainment and non-medical note visible', () => {
     const note = (fixture.nativeElement as HTMLElement).querySelector(
       '.entertainment-note'
     );
-    expect(note?.textContent).toContain('ความบันเทิง');
-    expect(note?.textContent).toContain('ไม่ใช่การวินิจฉัยทางการแพทย์');
+    expect(note?.textContent).toContain('comic story generation');
+    expect(note?.textContent).toContain('not medical diagnosis');
   });
 });

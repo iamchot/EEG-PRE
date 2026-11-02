@@ -31,6 +31,11 @@ export interface EEGMessage {
   accepted_seconds: number;
   wall_clock_seconds: number;
   baseline_seconds?: number;
+  baseline_subphase?: 'eyes_open' | 'eyes_closed' | 'complete';
+  baseline_clean_seconds?: number;
+  baseline_wall_seconds?: number;
+  eyes_open_complete?: boolean;
+  eyes_closed_complete?: boolean;
   ready: boolean;
   reason?: string;
   error_code?: string;
@@ -56,6 +61,11 @@ export class EegWsService {
   });
   readonly acceptedSeconds = computed(() => this.latestMessage()?.accepted_seconds ?? 0);
   readonly baselineSeconds = computed(() => this.latestMessage()?.baseline_seconds ?? 0);
+  readonly baselineSubphase = computed(() => this.latestMessage()?.baseline_subphase ?? 'eyes_open');
+  readonly baselineCleanSeconds = computed(() => this.latestMessage()?.baseline_clean_seconds ?? this.latestMessage()?.baseline_seconds ?? 0);
+  readonly baselineWallSeconds = computed(() => this.latestMessage()?.baseline_wall_seconds ?? 0);
+  readonly eyesOpenComplete = computed(() => this.latestMessage()?.eyes_open_complete ?? false);
+  readonly eyesClosedComplete = computed(() => this.latestMessage()?.eyes_closed_complete ?? false);
   readonly wallClockSeconds = computed(() => this.latestMessage()?.wall_clock_seconds ?? 0);
   readonly ready = computed(() => this.latestMessage()?.ready ?? false);
   readonly isConnected = signal(false);

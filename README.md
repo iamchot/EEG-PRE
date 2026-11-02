@@ -227,6 +227,80 @@ EEG-PRE/
 
 ---
 
+## สถาปัตยกรรมและข้อควรระวัง (Architecture & Gotchas)
+
+### Library Compatibility
+- **Bcrypt & Passlib:** Pin `bcrypt>=4.0.1,<4.1.0` — `passlib 1.7.4` ไม่ compatible กับ `bcrypt >= 4.1.0` (removed `__about__`)
+- **Pydantic Settings:** ตั้ง `extra="ignore"` ใน `SettingsConfigDict` ใน `app/config.py` — ตัวแปรใน `.env` ที่ไม่ได้ declare จะ error
+- **EmailStr & Local TLDs:** ใช้ `str` + regex แทน `pydantic.networks.EmailStr` เพื่อรองรับ `.local` / `.dev`
+- **MySQL Auth Plugin:** user `dreamcomic` ต้องใช้ `mysql_native_password` — PyMySQL มีปัญหากับ `caching_sha2_password` บน Docker bridge IP; แก้ด้วย:
+  ```
+  ALTER USER 'dreamcomic'@'%' IDENTIFIED WITH mysql_native_password BY 'dreamcomic_pass';
+  FLUSH PRIVILEGES;
+  ```
+
+### Angular 19 Auth & State
+- **APP_INITIALIZER for Reload Fix:** Route guards รันก่อน `AuthService` fetch `/auth/me` เสร็จ — ต้องมี `APP_INITIALIZER` ใน `app.config.ts` เพื่อ block routing จนกว่า user fetch จะเสร็จ
+- **Signal-based EEG State:** ใช้ Angular Signals ใน `EegWsService` — share sensor states ผ่าน `computed()` signals
+
+### EEG Signal Processing Rules
+- **ห้าม FFT ข้าม Pause/Resume boundary** — คำนวณ PSD ราย Epoch เสมอ
+- **Baseline (User Flow):** สะสม clean signal ≥ 20 วินาที — quality-based accumulation (ไม่ reset เมื่อสัญญาณตก)
+- **Baseline (Dataset Collection):** Eyes Open 60s / clean ≥ 30s + Eyes Closed 60s / clean ≥ 30s
+- **Recording:** accepted data ≥ 30 วินาที; wall-clock สูงสุด 120 วินาที
+- **Emotion Classifier:** Rule-based v1.0 ใช้ `delta_faa` และ `delta_arousal` — ยังไม่มี ML model
+
+### Muse 2 / Web Bluetooth
+- อัตราการรับข้อมูล: ~22 Hz (browser average 12 samples ต่อ packet ทุก ~45 ms)
+- ข้อมูล EEG ดิบเก็บใน `backend/collection_data/{participant}/{session_id}/{trial}.csv`
+- DB เก็บเฉพาะ path + SHA-256 checksum + metadata
+
+---
+
+## ไฟล์สำคัญ (Key Files)
+
+| ไฟล์ | หน้าที่ |
+|------|--------|
+| `backend/app/config.py` | Pydantic Settings — ต้องมี `extra="ignore"` |
+| `backend/app/services/signal_processor.py` | EEG Epoch, FFT, FAA, Arousal index |
+| `backend/app/services/eeg_service.py` | 10-state machine สำหรับ User EEG Session |
+| `backend/app/services/collection_state_machine.py` | State machine สำหรับ Dataset Collection |
+| `backend/app/services/raw_eeg_writer.py` | Atomic CSV writer (partial → sha256 → rename) |
+| `backend/app/services/muse_bridge_manager.py` | BLE scan, muselsl bridge, LSL verification |
+| `backend/app/services/gemini_service.py` | Story prompt → 4-panel dialogue |
+| `backend/app/services/diffusion_service.py` | ComfyUI polling → comic panel images |
+| `frontend/src/app/app.config.ts` | APP_INITIALIZER สำหรับ auth persistence |
+| `frontend/src/app/core/guards/auth.guard.ts` | authGuard / adminGuard / guestGuard |
+| `frontend/src/app/shared/components/horseshoe-sensor/` | Muse 2 sensor status UI |
+
+---
+
+## Route Map
+
+| Route | Guard | Component |
+|-------|-------|-----------|
+| `/login` | guestGuard | LoginComponent |
+| `/register` | guestGuard | RegisterComponent |
+| `/dashboard` | authGuard | DashboardComponent |
+| `/eeg-session` | authGuard | EegSessionComponent |
+| `/comic/:id` | authGuard | ComicViewComponent |
+| `/history` | authGuard | HistoryComponent |
+| `/admin` | authGuard + adminGuard | AdminComponent |
+| `/admin/dataset-collection` | authGuard + adminGuard | DatasetCollectionComponent |
+| `/admin/dataset-collection/:id/runner` | authGuard + adminGuard | DatasetCollectionRunnerComponent |
+
+---
+
+## Pre-Change Checklist (สำหรับนักพัฒนา)
+
+1. MySQL Docker container รัน: `docker ps` — ต้องมี `dreamcomic_mysql` ที่ port 3306
+2. Node version: `node --version` → v24.x
+3. `GEMINI_API_KEY` set ใน `backend/.env`
+4. `bcrypt` pinned ที่ `>=4.0.1,<4.1.0` ใน `requirements_backend.txt`
+5. ห้ามรัน `--reload` ขณะ Active Collection
+
+---
+
 ## การแก้ปัญหาที่พบบ่อย (Troubleshooting)
 
 | อาการที่พบ | สาเหตุที่เป็นไปได้ | แนวทางแก้ไข |

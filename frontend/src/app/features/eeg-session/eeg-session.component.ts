@@ -4,7 +4,7 @@ import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { environment } from '../../../environments/environment';
-import { EegWsService } from '../../core/services/eeg-ws.service';
+import { EegWsService, SensorStatus } from '../../core/services/eeg-ws.service';
 import { ComicService } from '../../core/services/comic.service';
 import { PersonaService, Persona } from '../../core/services/persona.service';
 import { HorseshoeSensorComponent } from '../../shared/components/horseshoe-sensor/horseshoe-sensor.component';
@@ -57,6 +57,37 @@ export class EegSessionComponent implements OnInit, OnDestroy {
   readonly connectionStatus = computed(() => ({
     state: this.btState() === 'streaming' ? 'connected' : this.btState(),
   }));
+
+  readonly sensorKeys: ('tp9' | 'af7' | 'af8' | 'tp10')[] = ['tp9', 'af7', 'af8', 'tp10'];
+
+  sensorStatus(key: 'tp9' | 'af7' | 'af8' | 'tp10'): SensorStatus {
+    return this.eegWs.sensors()[key];
+  }
+
+  sensorQualityTone(key: 'tp9' | 'af7' | 'af8' | 'tp10'): 'good' | 'fair' | 'poor' | 'unknown' {
+    const s = this.sensorStatus(key);
+    if (!s || s.state === 'unknown') return 'unknown';
+    if (s.state === 'good') return 'good';
+    if (s.quality_score >= 35) return 'fair';
+    return 'poor';
+  }
+
+  sensorQualityScore(key: 'tp9' | 'af7' | 'af8' | 'tp10'): string {
+    const s = this.sensorStatus(key);
+    if (!s || s.state === 'unknown') return this.lang.currentLang() === 'th' ? 'รอสัญญาณ' : 'Waiting';
+    return `${Math.round(s.quality_score)}%`;
+  }
+
+  sensorQualityLabel(key: 'tp9' | 'af7' | 'af8' | 'tp10'): string {
+    const isTh = this.lang.currentLang() === 'th';
+    const tone = this.sensorQualityTone(key);
+    switch (tone) {
+      case 'good': return isTh ? 'สัมผัสผิวดี' : 'Good Contact';
+      case 'fair': return isTh ? 'สัญญาณปานกลาง' : 'Fair Signal';
+      case 'poor': return isTh ? 'แตะไม่สนิท' : 'Poor Contact';
+      default: return isTh ? 'รอสัญญาณ' : 'Waiting';
+    }
+  }
 
   private readonly http = inject(HttpClient);
   private readonly personaService = inject(PersonaService);
@@ -127,11 +158,13 @@ export class EegSessionComponent implements OnInit, OnDestroy {
     }
   }
 
-  startBaseline() {
+  readonly Math = Math;
+
+  startBaseline(subphase: string = 'eyes_open') {
     if (this.sessionId()) {
-      this.http.post(`${environment.apiUrl}/sessions/${this.sessionId()}/start-baseline`, {}).subscribe();
+      this.http.post(`${environment.apiUrl}/sessions/${this.sessionId()}/start-baseline?subphase=${subphase}`, {}).subscribe();
     }
-    this.eegWs.sendCommand('start_baseline');
+    this.eegWs.sendCommand('start_baseline', { subphase });
   }
 
   startRecording() {

@@ -16,12 +16,23 @@
             [attr.cy]="pt.key === 'tp9' || pt.key === 'tp10' ? 160 : 81"
             r="18"
           />
-          <text
-            [attr.x]="pt.key === 'tp9' ? 64 : pt.key === 'af7' ? 139 : pt.key === 'af8' ? 221 : 296"
-            [attr.y]="pt.key === 'tp9' || pt.key === 'tp10' ? 160 : 81"
-            [attr.dominant-baseline]="'central'"
-            [attr.text-anchor]="'middle'"
-          >{{ stateIcon(pt.key) }}</text>
+          @if (getSensorData(pt.key).state === 'good') {
+            <path
+              [attr.d]="'M ' + ((pt.key === 'tp9' ? 64 : pt.key === 'af7' ? 139 : pt.key === 'af8' ? 221 : 296) - 5.5) + ' ' + ((pt.key === 'tp9' || pt.key === 'tp10' ? 160 : 81) - 0.5) + ' l 3.8 4.2 l 7.5 -8'"
+              fill="none"
+              stroke="#ffffff"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          } @else {
+            <text
+              [attr.x]="pt.key === 'tp9' ? 64 : pt.key === 'af7' ? 139 : pt.key === 'af8' ? 221 : 296"
+              [attr.y]="pt.key === 'tp9' || pt.key === 'tp10' ? 160 : 81"
+              dominant-baseline="central"
+              text-anchor="middle"
+            >{{ stateIcon(pt.key) }}</text>
+          }
         </g>
       }
     </svg>
@@ -30,8 +41,18 @@
 
 
   <div class="readiness" [class.ready]="allGood()" aria-live="polite">
-    <span class="readiness-icon">{{ allGood() ? '✓' : '•' }}</span>
-    <div>
+    <div class="readiness-icon-box">
+      <span class="readiness-icon">
+        @if (allGood()) {
+          <svg class="icon-check" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 8.2 6.5 11.7 13 4.8"></polyline>
+          </svg>
+        } @else {
+          <span class="dot-mark"></span>
+        }
+      </span>
+    </div>
+    <div class="readiness-text">
       <strong>{{ readinessLabel() }}</strong>
       <span>{{ readinessHint() }}</span>
     </div>
@@ -39,13 +60,24 @@
 
   <div class="sensor-list">
     @for (pt of sensorPoints; track pt.key) {
-      <div class="sensor-row" [attr.data-state]="getSensorData(pt.key).state">
-        <span class="state-mark" aria-hidden="true">{{ stateIcon(pt.key) }}</span>
+      <div class="sensor-row" [attr.data-state]="sensorQualityTone(pt.key)">
+        <span class="state-mark" aria-hidden="true">
+          @if (sensorQualityTone(pt.key) === 'good') {
+            <svg class="mark-svg check" viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="2.5 7 5.5 10 11.5 3.5"></polyline>
+            </svg>
+          } @else {
+            <span class="glyph">{{ stateIcon(pt.key) }}</span>
+          }
+        </span>
         <div class="sensor-name">
           <strong>{{ pt.label }}</strong>
           <span>{{ locationLabel(pt.key) }}</span>
         </div>
-        <span class="state-label">{{ stateLabel(pt.key) }}</span>
+        <div class="sensor-status-col">
+          <span class="sensor-score">{{ sensorQualityScore(pt.key) }}</span>
+          <span class="state-label">{{ sensorQualityLabel(pt.key) }}</span>
+        </div>
       </div>
     }
   </div>

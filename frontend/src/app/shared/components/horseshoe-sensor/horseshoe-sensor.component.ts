@@ -66,6 +66,31 @@ export class HorseshoeSensorComponent {
     return this.lang.currentLang() === 'th' ? 'รอสัญญาณ' : 'Waiting';
   }
 
+  sensorQualityTone(key: SensorKey): 'good' | 'fair' | 'poor' | 'unknown' {
+    const s = this.getSensorData(key);
+    if (!s || s.state === 'unknown') return 'unknown';
+    if (s.state === 'good') return 'good';
+    if (s.quality_score >= 35) return 'fair';
+    return 'poor';
+  }
+
+  sensorQualityScore(key: SensorKey): string {
+    const s = this.getSensorData(key);
+    if (!s || s.state === 'unknown') return this.lang.currentLang() === 'th' ? 'รอสัญญาณ' : 'Waiting';
+    return `${Math.round(s.quality_score)}%`;
+  }
+
+  sensorQualityLabel(key: SensorKey): string {
+    const isTh = this.lang.currentLang() === 'th';
+    const tone = this.sensorQualityTone(key);
+    switch (tone) {
+      case 'good': return isTh ? 'สัมผัสผิวดี' : 'Good Contact';
+      case 'fair': return isTh ? 'สัญญาณปานกลาง' : 'Fair Signal';
+      case 'poor': return isTh ? 'แตะไม่สนิท' : 'Poor Contact';
+      default: return isTh ? 'รอสัญญาณ' : 'Waiting';
+    }
+  }
+
   stateIcon(key: SensorKey): string {
     return STATE_ICON[this.getSensorData(key).state];
   }

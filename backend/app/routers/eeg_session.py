@@ -30,6 +30,44 @@ _active_machines: dict[str, EEGStateMachine] = {}
 # Rolling EEG sample buffer per WebSocket session (Web Bluetooth path).
 # Stores the last 256 samples [tp9, af7, af8, tp10]; used for sensor quality estimation.
 _web_bt_buffers: dict[str, deque] = defaultdict(lambda: deque(maxlen=256))
+_session_quality_streak: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+_session_quality_display: dict[str, dict[str, str]] = defaultdict(lambda: defaultdict(lambda: "unknown"))
+
+_GOOD_GAIN = 2
+_POOR_LOSS = 1
+_GOOD_THRESH = 6
+_POOR_THRESH = 6
+
+
+def _apply_session_quality_debounce(
+    session_key: str,
+    sensors: dict[str, SensorQuality],
+) -> dict[str, SensorQuality]:
+    streaks = _session_quality_streak[session_key]
+    displays = _session_quality_display[session_key]
+    stable: dict[str, SensorQuality] = {}
+    for ch, sq in sensors.items():
+        s = streaks.get(ch, 0)
+        if sq.state == "good":
+            s = min(s + _GOOD_GAIN, _GOOD_THRESH)
+        elif sq.state == "poor":
+            s = max(s - _POOR_LOSS, -_POOR_THRESH)
+        elif sq.state in ("unknown", "stale"):
+            s = max(s - _POOR_LOSS, 0) if s > 0 else min(s + 1, 0)
+        streaks[ch] = s
+
+        if s >= _GOOD_THRESH:
+            displays[ch] = "good"
+        elif s <= -_POOR_THRESH:
+            displays[ch] = "poor"
+
+        display_state = displays[ch] if displays[ch] != "unknown" else sq.state
+        stable[ch] = SensorQuality(
+            state=display_state,
+            quality_score=sq.quality_score,
+            timestamp=sq.timestamp,
+        )
+    return stable
 
 
 class MuseConnectRequest(BaseModel):
@@ -109,10 +147,15 @@ def confirm_device(
 
 
 @router.post("/{session_id}/start-baseline")
-def start_baseline(session_id: int, current_user: StandardUser, db: Session = Depends(get_db)):
+def start_baseline(
+    session_id: int,
+    current_user: StandardUser,
+    db: Session = Depends(get_db),
+    subphase: str = "eyes_open",
+):
     machine = _owned_session_machine(session_id, current_user, db)
-    machine.start_baseline()
-    return {"status": "ok", "phase": machine.state.phase.value}
+    machine.start_baseline(subphase=subphase)
+    return {"status": "ok", "phase": machine.state.phase.value, "subphase": machine.state.baseline_subphase}
 
 
 @router.post("/{session_id}/start-recording")
@@ -304,55 +347,69 @@ async def eeg_websocket(
     try:
         # Send immediate status
         await eeg_manager.send_to(websocket, machine.to_ws_dict())
+        last_broadcast_time = time.monotonic()
 
         while True:
             try:
                 data = await websocket.receive_json()
-                cmd = data.get("cmd", "")
+            except Exception:
+                break
+
+            cmd = data.get("cmd", "") if isinstance(data, dict) else ""
+            if not cmd:
+                continue
+
+            try:
+                phase_before = machine.state.phase
                 if cmd == "confirm_device":
-                    machine.confirm_device(data["device_name"], data["device_id"])
+                    machine.confirm_device(data.get("device_name", ""), data.get("device_id", ""))
                     machine.mark_connected()
+                    await eeg_manager.broadcast(key, machine.to_ws_dict())
                 elif cmd == "eeg_sample":
-                    # EEG sample forwarded from Web Bluetooth (muse-js) in the browser.
-                    # We maintain a rolling buffer for quality estimation (needs a window),
-                    # but only ingest the NEW single sample for baseline/recording processing
-                    # to avoid re-processing the same data on every packet.
                     tp9 = float(data.get("tp9", 0.0))
                     af7 = float(data.get("af7", 0.0))
                     af8 = float(data.get("af8", 0.0))
                     tp10 = float(data.get("tp10", 0.0))
                     ts = float(data.get("timestamp", 0.0))
                     _web_bt_buffers[key].append([tp9, af7, af8, tp10])
-                    # Build sensor quality dict from full window (accurate estimation)
                     buf_matrix = np.array(_web_bt_buffers[key], dtype=float)
                     now_mono = time.monotonic()
-                    sensor_qualities = {
+                    raw_sensor_qualities = {
                         ch: estimate_sensor_state(buf_matrix, idx, now_mono, now_mono)
                         for idx, ch in enumerate(("tp9", "af7", "af8", "tp10"))
                     }
-                    # Ingest only the current single sample for feature processing
+                    debounced_qualities = _apply_session_quality_debounce(key, raw_sensor_qualities)
                     machine.ingest_samples(
                         np.array([[tp9, af7, af8, tp10]], dtype=float),
                         np.array([ts], dtype=float),
-                        sensor_qualities=sensor_qualities,
+                        sensor_qualities=debounced_qualities,
                     )
-
+                    # Broadcast immediately on phase change, or throttle to ~4 Hz
+                    if machine.state.phase != phase_before or (now_mono - last_broadcast_time) >= 0.25:
+                        last_broadcast_time = now_mono
+                        await eeg_manager.broadcast(key, machine.to_ws_dict())
                 elif cmd == "start_fitting":
                     machine.start_fitting()
+                    await eeg_manager.broadcast(key, machine.to_ws_dict())
                 elif cmd == "start_baseline":
-                    machine.start_baseline()
+                    subphase = data.get("subphase", "eyes_open") if isinstance(data, dict) else "eyes_open"
+                    machine.start_baseline(subphase=subphase)
+                    await eeg_manager.broadcast(key, machine.to_ws_dict())
                 elif cmd == "start_recording":
                     machine.start_recording()
+                    await eeg_manager.broadcast(key, machine.to_ws_dict())
                 elif cmd == "cancel":
                     machine.cancel()
-                # Broadcast updated state
-                await eeg_manager.broadcast(key, machine.to_ws_dict())
+                    await eeg_manager.broadcast(key, machine.to_ws_dict())
             except Exception:
-                break
+                pass
 
     finally:
         eeg_manager.disconnect(key, websocket)
         if not eeg_manager.has_clients(key):
+            _session_quality_streak.pop(key, None)
+            _session_quality_display.pop(key, None)
+            _web_bt_buffers.pop(key, None)
             if machine and machine.state.phase not in {Phase.BASELINE, Phase.RECORDING}:
                 await user_eeg_stream_runner.stop(session_id)
                 await managed_muse_bridge_manager.release(MuseOwner(kind="user", session_id=session_id))

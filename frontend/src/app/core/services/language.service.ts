@@ -296,8 +296,8 @@ export const TRANSLATIONS: Dictionary = {
     en: 'Remain calm and relaxed during signal check.',
   },
   'session.start_baseline': {
-    th: 'เริ่มบันทึกค่าพื้นฐาน 20 วินาที',
-    en: 'Start Baseline Recording (20s)',
+    th: 'เริ่มบันทึกค่าพื้นฐาน (ลืมตา / หลับตา)',
+    en: 'Start Baseline Recording (Eyes Open / Closed)',
   },
   'session.waiting_sensors': {
     th: 'รอสัญญาณให้พร้อมครบ 4 จุด',
@@ -489,6 +489,7 @@ export function toThaiError(err: unknown, preferredLang?: Language): string {
     if (lower.includes('stimulus content duration')) return 'Video duration must be between 45 and 60 seconds.';
     if (lower.includes('all four live sensors good') || lower.includes('require_live_sensor_ready')) return 'All four Muse sensors must maintain solid contact before starting.';
     if (lower.includes('rest requires at least') || lower.includes('rest not ready')) return 'Rest fixation requires at least 10 seconds before starting.';
+    if (lower.includes('post-rating rest requires at least')) return 'Post-rating rest requires at least 10 seconds before next trial.';
     if (lower.includes('muse scan not found')) return 'Muse scan result not found.';
     if (lower.includes('muse disconnected') || lower.includes('muse connection could not be established')) return 'Muse headset disconnected.';
     if (lower.includes('a live muse connection is required')) return 'A live Muse connection is required before recording.';
@@ -526,6 +527,7 @@ export function toThaiError(err: unknown, preferredLang?: Language): string {
   if (lower.includes('stimulus content duration')) return 'ความยาวคลิปต้องอยู่ระหว่าง 45 ถึง 60 วินาทีตามข้อกำหนดการทดลอง';
   if (lower.includes('all four live sensors good') || lower.includes('require_live_sensor_ready')) return 'สัญญาณ Muse ต้องแตะผิวดีทั้ง 4 จุดก่อนเริ่มคลิป';
   if (lower.includes('rest requires at least') || lower.includes('rest not ready')) return 'ต้องพักสายตาให้นิ่งอย่างน้อย 10 วินาทีก่อนเริ่มคลิป';
+  if (lower.includes('post-rating rest requires at least')) return 'ต้องพักสายตาอย่างน้อย 10 วินาทีหลังประเมินเสร็จก่อนเริ่มรอบถัดไป';
   if (lower.includes('muse scan not found')) return 'ไม่พบข้อมูลการค้นหาอุปกรณ์ Muse';
   if (lower.includes('muse disconnected') || lower.includes('muse connection could not be established')) return 'อุปกรณ์ Muse หลุดการเชื่อมต่อ';
   if (lower.includes('a live muse connection is required')) return 'ต้องเชื่อมต่ออุปกรณ์ Muse ก่อนเริ่มบันทึกข้อมูล';

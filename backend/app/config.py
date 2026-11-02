@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # EEG
     raw_eeg_dir: str = "./recordings"
-    baseline_seconds: int = 20
+    baseline_seconds: int = 60
     accepted_recording_seconds: int = 30
     wall_clock_timeout_seconds: int = 120
     resume_stable_seconds: int = 2

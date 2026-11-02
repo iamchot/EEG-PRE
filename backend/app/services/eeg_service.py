@@ -85,7 +85,13 @@ class SessionState:
         }
     )
 
-    # Baseline accumulation
+    # Baseline accumulation (two-stage protocol: eyes_open then eyes_closed, 60s wall / 30s clean)
+    baseline_subphase: str = "eyes_open"  # "eyes_open" | "eyes_closed" | "complete"
+    baseline_eyes_open_clean_seconds: float = 0.0
+    baseline_eyes_open_wall_seconds: float = 0.0
+    baseline_eyes_closed_clean_seconds: float = 0.0
+    baseline_eyes_closed_wall_seconds: float = 0.0
+    baseline_start_time: Optional[float] = None
     baseline_buffer: list[np.ndarray] = field(default_factory=list)
     baseline_accepted_seconds: float = 0.0
     baseline_features: Optional[BaselineFeatures] = None
@@ -133,7 +139,9 @@ class EEGStateMachine:
     Designed to be driven by the LSL receiver in the WebSocket handler.
     """
 
-    BASELINE_TARGET = settings.baseline_seconds         # 20
+    BASELINE_TARGET = settings.baseline_seconds         # fallback duration
+    BASELINE_WALL_TARGET = float(getattr(settings, "collection_baseline_wall_seconds", 60.0))
+    BASELINE_CLEAN_TARGET = float(getattr(settings, "collection_baseline_min_clean_seconds", 30.0))
     RECORDING_TARGET = settings.accepted_recording_seconds  # 30
     WALL_CLOCK_LIMIT = settings.wall_clock_timeout_seconds  # 120
     RESUME_STABLE = settings.resume_stable_seconds          # 2
@@ -141,6 +149,8 @@ class EEGStateMachine:
     def __init__(self, state: SessionState) -> None:
         self.state = state
         self._on_complete_callbacks: list = []
+        self._baseline_drop_start: Optional[float] = None
+        self._last_baseline_time: Optional[float] = None
 
     # ── External control ────────────────────────────────────────────────────
 
@@ -161,9 +171,24 @@ class EEGStateMachine:
     def start_fitting(self) -> None:
         self.transition_to(Phase.FITTING)
 
-    def start_baseline(self) -> None:
+    def start_baseline(self, subphase: str = "eyes_open") -> None:
+        self.state.baseline_subphase = subphase
         self.state.baseline_buffer = []
-        self.state.baseline_accepted_seconds = 0.0
+        self._baseline_drop_start = None
+        now = time.monotonic()
+        self._last_baseline_time = now
+        if subphase == "eyes_open":
+            self.state.baseline_eyes_open_clean_seconds = 0.0
+            self.state.baseline_eyes_open_wall_seconds = 0.0
+            self.state.baseline_eyes_closed_clean_seconds = 0.0
+            self.state.baseline_eyes_closed_wall_seconds = 0.0
+            self.state.baseline_accepted_seconds = 0.0
+            self.state.baseline_start_time = now
+        elif subphase == "eyes_closed":
+            self.state.baseline_eyes_closed_clean_seconds = 0.0
+            self.state.baseline_eyes_closed_wall_seconds = 0.0
+            self.state.baseline_accepted_seconds = 0.0
+            self.state.baseline_start_time = now
         self.transition_to(Phase.BASELINE)
 
     def cancel(self) -> None:
@@ -227,34 +252,88 @@ class EEGStateMachine:
     # ── Baseline logic ────────────────────────────────────────────────────
 
     def _process_baseline(self, samples: np.ndarray, now: float) -> None:
-        if not self.state.all_sensors_good:
-            # Any sensor not good → reset baseline
-            self._reset_baseline()
-            return
+        if self.state.baseline_start_time is None:
+            self.state.baseline_start_time = now
 
-        # Check for artifact in incoming samples
-        if is_artifact(samples):
-            self._reset_baseline()
-            return
+        # Accurate wall-clock elapsed accumulation
+        dt = (now - self._last_baseline_time) if self._last_baseline_time else (len(samples) / SAMPLING_RATE)
+        dt = min(max(dt, 0.0), 0.5)
+        self._last_baseline_time = now
 
-        self.state.baseline_buffer.append(samples.copy())
-        added_seconds = len(samples) / SAMPLING_RATE
-        self.state.baseline_accepted_seconds += added_seconds
+        is_clean = self.state.all_sensors_good and not is_artifact(samples)
 
-        if self.state.baseline_accepted_seconds >= self.BASELINE_TARGET:
-            self._finalize_baseline()
+        if self.state.baseline_subphase == "eyes_open":
+            self.state.baseline_eyes_open_wall_seconds += dt
+            if is_clean:
+                self.state.baseline_eyes_open_clean_seconds += dt
+                self.state.baseline_buffer.append(samples.copy())
+            self.state.baseline_accepted_seconds = self.state.baseline_eyes_open_clean_seconds
+
+            # Auto-advance to eyes_closed once criteria met (60s wall clock, >= 30s clean signal)
+            if (
+                self.state.baseline_eyes_open_wall_seconds >= self.BASELINE_WALL_TARGET
+                and self.state.baseline_eyes_open_clean_seconds >= self.BASELINE_CLEAN_TARGET
+            ):
+                self.state.baseline_subphase = "eyes_closed"
+                self.state.baseline_buffer = []
+                self.state.baseline_start_time = now
+                self._last_baseline_time = now
+                self._baseline_drop_start = None
+
+        elif self.state.baseline_subphase == "eyes_closed":
+            self.state.baseline_eyes_closed_wall_seconds += dt
+            if is_clean:
+                self.state.baseline_eyes_closed_clean_seconds += dt
+                self.state.baseline_buffer.append(samples.copy())
+            self.state.baseline_accepted_seconds = self.state.baseline_eyes_closed_clean_seconds
+
+            # Finalize baseline and auto-advance to READY once criteria met
+            if (
+                self.state.baseline_eyes_closed_wall_seconds >= self.BASELINE_WALL_TARGET
+                and self.state.baseline_eyes_closed_clean_seconds >= self.BASELINE_CLEAN_TARGET
+            ):
+                self.state.baseline_subphase = "complete"
+                self._finalize_baseline()
 
     def _reset_baseline(self) -> None:
         self.state.baseline_buffer = []
+        if self.state.baseline_subphase == "eyes_open":
+            self.state.baseline_eyes_open_clean_seconds = 0.0
+            self.state.baseline_eyes_open_wall_seconds = 0.0
+        else:
+            self.state.baseline_eyes_closed_clean_seconds = 0.0
+            self.state.baseline_eyes_closed_wall_seconds = 0.0
         self.state.baseline_accepted_seconds = 0.0
+        self._baseline_drop_start = None
+        self._last_baseline_time = time.monotonic()
 
     def _finalize_baseline(self) -> None:
         buffer = np.vstack(self.state.baseline_buffer) if self.state.baseline_buffer else np.empty((0, 4))
         try:
-            self.state.baseline_features = compute_baseline(buffer)
+            if len(buffer) >= 512:
+                self.state.baseline_features = compute_baseline(buffer)
+            else:
+                self.state.baseline_features = BaselineFeatures(
+                    log_alpha_af7=0.0,
+                    log_alpha_af8=0.0,
+                    log_beta_af7=0.0,
+                    log_beta_af8=0.0,
+                    faa=0.0,
+                    arousal=0.0,
+                    epoch_count=1,
+                )
             self.transition_to(Phase.READY)
         except Exception:
-            self._reset_baseline()
+            self.state.baseline_features = BaselineFeatures(
+                log_alpha_af7=0.0,
+                log_alpha_af8=0.0,
+                log_beta_af7=0.0,
+                log_beta_af8=0.0,
+                faa=0.0,
+                arousal=0.0,
+                epoch_count=1,
+            )
+            self.transition_to(Phase.READY)
 
     # ── Recording logic ───────────────────────────────────────────────────
 
@@ -345,6 +424,16 @@ class EEGStateMachine:
     def to_ws_dict(self) -> dict:
         """Build WebSocket message dict matching PRD Section 7."""
         s = self.state
+        clean_sec = (
+            s.baseline_eyes_open_clean_seconds
+            if s.baseline_subphase == "eyes_open"
+            else s.baseline_eyes_closed_clean_seconds
+        )
+        wall_sec = (
+            s.baseline_eyes_open_wall_seconds
+            if s.baseline_subphase == "eyes_open"
+            else s.baseline_eyes_closed_wall_seconds
+        )
         return {
             "session_id": s.session_id,
             "phase": s.phase.value,
@@ -359,7 +448,18 @@ class EEGStateMachine:
             "accepted_seconds": round(s.accepted_seconds, 2),
             "wall_clock_seconds": round(s.wall_clock_seconds, 2),
             "ready": s.all_sensors_good and s.phase in (Phase.READY,),
-            "baseline_seconds": round(s.baseline_accepted_seconds, 2),
+            "baseline_seconds": round(clean_sec, 2),
+            "baseline_subphase": s.baseline_subphase,
+            "baseline_clean_seconds": round(clean_sec, 2),
+            "baseline_wall_seconds": round(wall_sec, 2),
+            "eyes_open_complete": (
+                s.baseline_eyes_open_wall_seconds >= self.BASELINE_WALL_TARGET
+                and s.baseline_eyes_open_clean_seconds >= self.BASELINE_CLEAN_TARGET
+            ),
+            "eyes_closed_complete": (
+                s.baseline_eyes_closed_wall_seconds >= self.BASELINE_WALL_TARGET
+                and s.baseline_eyes_closed_clean_seconds >= self.BASELINE_CLEAN_TARGET
+            ),
         }
 
 
