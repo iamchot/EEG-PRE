@@ -68,6 +68,8 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   private playbackFailureHandled = false;
   readonly stimulusStarting = signal(false);
   readonly stimulusStartError = signal('');
+  readonly artifactFeedback = signal('');
+  private artifactFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
   private lastStimulusErrorTrialId: number | null = null;
   private destroyed = false;
   private activeVideo: HTMLVideoElement | null = null;
@@ -515,7 +517,13 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     this.run(
       this.api.markArtifact(this.sessionId, state.current_trial_id, body),
       undefined,
-      () => { if (this.artifactNote === submittedNote) this.artifactNote = ''; },
+      () => {
+        if (this.artifactNote === submittedNote) this.artifactNote = '';
+        const label = this.artifacts.find((a) => a.type === eventType)?.label ?? eventType;
+        this.artifactFeedback.set(`บันทึกแล้ว: ${label} ✓`);
+        if (this.artifactFeedbackTimer) clearTimeout(this.artifactFeedbackTimer);
+        this.artifactFeedbackTimer = setTimeout(() => this.artifactFeedback.set(''), 3000);
+      },
     );
   }
 

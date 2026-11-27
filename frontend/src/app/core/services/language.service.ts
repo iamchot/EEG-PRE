@@ -13,7 +13,7 @@ export const TRANSLATIONS: Dictionary = {
   // Navigation & Shell
   'nav.admin': { th: 'แผงควบคุมระบบแอดมิน', en: 'Admin Dashboard' },
   'nav.dashboard': { th: 'แผงควบคุม', en: 'Dashboard' },
-  'nav.personas': { th: 'ตัวละคร & สไตล์', en: 'Personas' },
+  'nav.personas': { th: 'จัดการตัวละคร', en: 'Characters' },
   'nav.create': { th: 'สร้างเรื่องราวคลื่นสมอง', en: 'Create Dream' },
   'nav.history': { th: 'ประวัติเรื่องราว', en: 'Timeline' },
   'nav.logout': { th: 'ออกจากระบบ', en: 'Logout' },
@@ -21,19 +21,22 @@ export const TRANSLATIONS: Dictionary = {
 
   // User Dashboard
   'dashboard.kicker': {
-    th: 'DREAM LAB / COMIC STUDIO',
-    en: 'DREAM LAB / COMIC STUDIO',
+    th: 'ดรีมคอมิกเวิร์ส · สตูดิโอสร้างการ์ตูนจากคลื่นสมอง',
+    en: 'DREAM COMICVERSE · CREATIVE HEADSET STUDIO',
   },
   'dashboard.title': {
-    th: 'Brainwave to Comic Studio',
+    th: 'คลื่นสมองสู่การ์ตูน 4 ช่อง',
     en: 'Brainwave to Comic Studio',
   },
   'dashboard.welcome': {
-    th: 'สร้างคอมิก 4 ช่องจากอารมณ์ที่วิเคราะห์ผ่านคลื่นสมอง โดยคุมทุกขั้นตอนผ่าน Local FastAPI, Muse 2 และ ComfyUI',
-    en: 'Generate 4-panel AI comics from brainwave emotion analysis, controlled via FastAPI, Muse 2, and ComfyUI.',
+    th: 'สร้างการ์ตูน 4 ช่องจากอารมณ์ที่วิเคราะห์ผ่านคลื่นสมอง โดยเชื่อม Muse 2, Gemini และ ComfyUI เข้าด้วยกัน',
+    en: 'Generate 4-panel AI comics from brainwave emotion analysis with Muse 2, Gemini, and ComfyUI.',
   },
-  'dashboard.create_new': { th: 'Start EEG Session', en: 'Start EEG Session' },
-  'dashboard.view_history': { th: 'View History', en: 'View History' },
+  'dashboard.create_new': {
+    th: 'เริ่มสร้างการ์ตูนจากคลื่นสมอง',
+    en: 'Start EEG Session',
+  },
+  'dashboard.view_history': { th: 'ดูประวัติผลงาน', en: 'View History' },
   'dashboard.available': { th: 'บริการพร้อมใช้งาน', en: 'Service Available' },
   'dashboard.unavailable': {
     th: 'บริการไม่พร้อมใช้งาน',
@@ -41,10 +44,10 @@ export const TRANSLATIONS: Dictionary = {
   },
   'dashboard.checked': { th: 'Checked', en: 'Checked' },
   'dashboard.not_checked': { th: 'ยังไม่ได้ตรวจสอบ', en: 'Not checked yet' },
-  'dashboard.char_studio': { th: 'Character Studio', en: 'Character Studio' },
-  'dashboard.add_persona': { th: '+ Add Persona', en: '+ Add Persona' },
-  'dashboard.recent_results': { th: 'Recent Results', en: 'Recent Results' },
-  'dashboard.all_comics': { th: 'All comics', en: 'All comics' },
+  'dashboard.char_studio': { th: 'ตัวละครของฉัน', en: 'Character Studio' },
+  'dashboard.add_persona': { th: '+ เพิ่มตัวละคร', en: '+ Add Persona' },
+  'dashboard.recent_results': { th: 'ผลงานล่าสุด', en: 'Recent Results' },
+  'dashboard.all_comics': { th: 'ดูทั้งหมด', en: 'All comics' },
   'dashboard.no_comics_yet': {
     th: 'ยังไม่มีผลงานล่าสุด กด Start EEG Session เพื่อสร้างคอมิกแรก',
     en: 'No recent comics yet. Click Start EEG Session to generate your first comic.',
@@ -304,6 +307,213 @@ export const TRANSLATIONS: Dictionary = {
     en: 'Waiting for all 4 sensors',
   },
 
+  // EEG Session — READY stage
+  'session.ready_eyebrow': {
+    th: 'Story Prompt และตัวละคร',
+    en: 'Story Prompt & Persona',
+  },
+  'session.ready_title': {
+    th: 'พร้อมบันทึกคลื่นสมอง',
+    en: 'Ready to Record EEG Stream',
+  },
+  'session.ready_desc': {
+    th: 'ป้อนเรื่องราวที่ต้องการและเลือกตัวละครก่อนเริ่มบันทึก EEG 30 วินาที',
+    en: 'Enter your story prompt and select a persona before starting 30s EEG stream recording.',
+  },
+  'session.story_prompt_label': {
+    th: 'เรื่องราวที่ต้องการ',
+    en: 'Story prompt',
+  },
+  'session.story_placeholder': {
+    th: 'เช่น เด็กหญิงพบหนังสือเวทย์ที่เรืองแสงและถูกดูดเข้าไปในโลกฝัน...',
+    en: 'e.g. A young girl finds a glowing magic book and gets pulled into a dream world...',
+  },
+  'session.persona_label': { th: 'ตัวละคร (Persona)', en: 'Persona' },
+  'session.persona_none': { th: 'ไม่เลือกตัวละคร', en: 'No persona selected' },
+  'session.start_recording': {
+    th: 'เริ่มบันทึก EEG Stream',
+    en: 'Start Recording Stream',
+  },
+
+  // EEG Session — RECORD stage
+  'session.record_eyebrow': {
+    th: 'กำลังบันทึก EEG Stream',
+    en: 'EEG Recording Stream',
+  },
+  'session.record_title': {
+    th: 'กำลังบันทึก EEG สะอาด 30 วินาที',
+    en: 'Recording 30s Clean EEG',
+  },
+  'session.record_paused_title': {
+    th: 'หยุดชั่วคราว — สัญญาณไม่นิ่ง',
+    en: 'Paused by signal quality',
+  },
+  'session.record_desc': {
+    th: 'นับเฉพาะวินาทีที่สัญญาณสะอาดครบทั้ง 4 ช่องเท่านั้น',
+    en: 'Only good quality seconds across all 4 channels count toward the 30s target.',
+  },
+  'session.record_wall_clock': { th: 'เวลารวม', en: 'Wall clock' },
+  'session.record_paused_msg': {
+    th: 'สัญญาณไม่นิ่ง กรุณาปรับสายคาด Muse 2 ให้เซนเซอร์เขียวครบ 4 จุด',
+    en: 'Signal noisy — please adjust Muse 2 headband until all 4 sensors show green.',
+  },
+  'session.cancel_session': { th: 'ยกเลิก Session', en: 'Cancel Session' },
+  'session.retry_recording': { th: 'ลองบันทึกใหม่', en: 'Retry Recording' },
+
+  // EEG Session — EMOTION stage
+  'session.emotion_eyebrow': {
+    th: 'วิเคราะห์อารมณ์จาก EEG',
+    en: 'EEG Emotion Analysis',
+  },
+  'session.emotion_title': {
+    th: 'ยืนยันอารมณ์ที่ตรวจพบ',
+    en: 'Confirm Emotion Classification',
+  },
+  'session.emotion_confirm_desc': {
+    th: 'ยืนยันอารมณ์เพื่อสร้างการ์ตูนคอมิกผ่าน ComfyUI และ Gemini',
+    en: 'Confirm emotion to generate comic panels via ComfyUI & Gemini',
+  },
+  'session.generate_comic_btn': {
+    th: 'สร้างการ์ตูนด้วย ComfyUI',
+    en: 'Generate Comic with ComfyUI',
+  },
+  'session.remeasure_btn': { th: 'วัดซ้ำอีกครั้ง', en: 'Remeasure' },
+
+  // EEG Session — GENERATE stage
+  'session.generate_eyebrow': {
+    th: 'ComfyUI & Gemini Pipeline',
+    en: 'ComfyUI & Gemini Pipeline',
+  },
+  'session.generate_title': {
+    th: 'กำลังสร้างการ์ตูนฝัน',
+    en: 'Creating your Dream Comic',
+  },
+  'session.gen_step1': { th: 'วิเคราะห์อารมณ์ EEG', en: 'Analyze EEG Emotion' },
+  'session.gen_step2': {
+    th: 'สร้างเรื่องราวด้วย Gemini',
+    en: 'Create Story with Gemini',
+  },
+  'session.gen_step3': {
+    th: 'สร้างภาพด้วย ComfyUI',
+    en: 'Generate Comic Panels via ComfyUI',
+  },
+  'session.gen_step4': { th: 'บันทึกผลลัพธ์', en: 'Save Result' },
+  'session.gen_loading': {
+    th: 'กำลังสร้างการ์ตูน 4 ช่องผ่าน Local ComfyUI pipeline...',
+    en: 'Generating 4-panel comic via Local ComfyUI pipeline...',
+  },
+
+  // EEG Session — device connect step
+  'session.step1_kicker': { th: 'ขั้นตอนที่ 1', en: 'Step 1' },
+  'session.connect_h2': {
+    th: 'เชื่อมต่อ Muse 2 ผ่าน Web Bluetooth',
+    en: 'Connect Muse 2 via Web Bluetooth',
+  },
+  'session.connect_desc': {
+    th: 'กดปุ่มด้านล่าง — เบราว์เซอร์จะเปิดหน้าต่างให้เลือก Muse 2 ของคุณ',
+    en: 'Click the button below — your browser will open a device picker for Muse 2.',
+  },
+  'session.no_bt': {
+    th: 'เบราว์เซอร์นี้ไม่รองรับ Web Bluetooth — กรุณาใช้ Chrome หรือ Edge',
+    en: 'Web Bluetooth is not supported — please use Chrome or Edge.',
+  },
+  'session.connecting_msg': {
+    th: 'กำลังเชื่อมต่อ Muse 2…',
+    en: 'Connecting to Muse 2…',
+  },
+  'session.connecting_hint': {
+    th: 'เปิด Muse 2 ให้ไฟกะพริบ แล้วเลือกในหน้าต่างที่ปรากฏขึ้น',
+    en: 'Power on Muse 2 (blinking light) then select it in the popup.',
+  },
+
+  // EEG Session — baseline fixation
+  'session.baseline_eyes_open_eyebrow': {
+    th: 'การวัดค่าพื้นฐาน 1 จาก 2 : ลืมตา',
+    en: 'Baseline 1 of 2 : Eyes Open',
+  },
+  'session.baseline_eyes_closed_eyebrow': {
+    th: 'การวัดค่าพื้นฐาน 2 จาก 2 : หลับตา',
+    en: 'Baseline 2 of 2 : Eyes Closed',
+  },
+  'session.baseline_eyes_open_title': {
+    th: 'ลืมตาและมองจุดกึ่งกลาง (60 วินาที)',
+    en: 'Eyes Open & Look at Center (60s)',
+  },
+  'session.baseline_eyes_closed_title': {
+    th: 'หลับตาและอยู่นิ่ง (60 วินาที)',
+    en: 'Eyes Closed & Rest Quietly (60s)',
+  },
+  'session.baseline_eyes_open_desc': {
+    th: 'นั่งผ่อนคลาย ลืมตามองตรงไปข้างหน้า ระบบต้องการเวลารวม 60 วินาที และคลื่นสะอาดอย่างน้อย 30 วินาที',
+    en: 'Relax, keep eyes open looking straight. Requires 60s total with at least 30s clean signal.',
+  },
+  'session.baseline_eyes_closed_desc': {
+    th: 'หลับตาสบายๆ หายใจเข้าออกช้าๆ ระบบต้องการเวลารวม 60 วินาที และคลื่นสะอาดอย่างน้อย 30 วินาที',
+    en: 'Close eyes comfortably and breathe gently. Requires 60s total with at least 30s clean signal.',
+  },
+  'session.baseline_wall_left': {
+    th: 'วินาทีเวลารวม (Wall clock)',
+    en: 'wall seconds left',
+  },
+  'session.baseline_clean_goal': {
+    th: 'วินาทีคลื่นสะอาด (เป้าหมาย 30 วิ)',
+    en: 'clean seconds (goal: 30s)',
+  },
+  'session.baseline_clean_progress': {
+    th: 'ความคืบหน้าคลื่นสะอาด',
+    en: 'Clean Signal Progress',
+  },
+  'session.baseline_noisy': {
+    th: 'สัญญาณบางจุดไม่นิ่ง กรุณานิ่งไว้เพื่อให้คลื่นสะอาดนับต่อ',
+    en: 'Signal noise detected. Please hold still to continue accumulating clean seconds.',
+  },
+  'session.baseline_30s_done': {
+    th: 'คลื่นสะอาดครบ 30 วินาทีแล้ว กำลังบันทึกให้ครบเวลา 60 วินาที...',
+    en: '30s clean signal reached! Completing 60s total window...',
+  },
+  'session.baseline_fixation_label': {
+    th: 'มองจุดนี้ / Focus here',
+    en: 'Focus here',
+  },
+
+  // EEG Session — misc
+  'session.muse_connected': { th: 'Muse เชื่อมต่อแล้ว', en: 'Muse Connected' },
+  'session.muse_setup': { th: 'Muse Setup', en: 'Muse Setup' },
+  'session.entertainment_note': {
+    th: 'ข้อมูลอารมณ์ประมวลผลเพื่อสร้างเรื่องราวการ์ตูนสร้างสรรค์ — ไม่ใช่การวินิจฉัยทางการแพทย์',
+    en: 'Subconscious emotion data is processed for creative comic story generation — not medical diagnosis.',
+  },
+  'session.state_eyebrow': { th: 'สถานะเซสชัน', en: 'Session State' },
+  'session.timeout_title': {
+    th: 'หมดเวลาการบันทึก (เกิน 120 วินาที)',
+    en: 'Recording Timeout (Exceeded 120s)',
+  },
+  'session.timeout_desc': {
+    th: 'ไม่สามารถสะสมสัญญาณคลื่นสะอาดครบ 30 วินาทีภายในเวลา 120 วินาที กรุณาตรวจสอบสายคาด Muse 2 ให้เซนเซอร์แนบสนิท แล้วกด "ลองบันทึกใหม่"',
+    en: 'Could not accumulate 30 clean seconds within the 120s limit. Please ensure your Muse 2 headband is firmly seated and click "Retry Recording".',
+  },
+  'session.timeout_tip': {
+    th: 'คำแนะนำ: นั่งนิ่งๆ ผ่อนคลายกล้ามเนื้อใบหน้าและขากรรไกร เพื่อให้คลื่นสมองนิ่งสะอาดต่อเนื่อง',
+    en: 'Tip: Sit comfortably, relax facial and jaw muscles to maintain steady clean brainwaves.',
+  },
+  'session.restart_entire_session': {
+    th: 'เริ่มใหม่ทั้งหมด',
+    en: 'Restart Entire Session',
+  },
+  'session.failed_title': {
+    th: 'การบันทึกข้อมูลขัดข้อง',
+    en: 'Session Failed',
+  },
+  'session.disconnected_title': {
+    th: 'อุปกรณ์หลุดการเชื่อมต่อ',
+    en: 'Device Disconnected',
+  },
+  'session.waiting_status': {
+    th: 'กำลังรอการอัปเดตสถานะจากระบบ...',
+    en: 'Waiting for status update from backend...',
+  },
+  'session.restart_session': { th: 'เริ่มเซสชันใหม่', en: 'Restart Session' },
+
   // Dataset Collection Runner
   'runner.back': {
     th: 'ระบบรวบรวมข้อมูลคลื่นสมอง',
@@ -459,7 +669,8 @@ export function toThaiError(err: unknown, preferredLang?: Language): string {
     preferredLang ??
     ((typeof localStorage !== 'undefined'
       ? (localStorage.getItem('app_lang') as Language)
-      : 'th') || 'th');
+      : 'th') ||
+      'th');
 
   if (!msg) {
     return currentLang === 'en'
@@ -470,78 +681,214 @@ export function toThaiError(err: unknown, preferredLang?: Language): string {
   const lower = msg.toLowerCase();
 
   if (currentLang === 'en') {
-    if (lower.includes('invalid email or password')) return 'Invalid email or password. Please try again.';
-    if (lower.includes('email already registered')) return 'This email is already registered. Please use another email.';
-    if (lower.includes('invalid or expired token') || lower.includes('token expired')) return 'Session expired or invalid. Please log in again.';
-    if (lower.includes('not authenticated')) return 'Please log in before continuing.';
-    if (lower.includes('admin access required')) return 'Admin privileges required.';
-    if (lower.includes('user access required')) return 'User privileges required.';
-    if (lower.includes('user not found or inactive')) return 'User not found or account is deactivated.';
-    if (lower.includes('session not found') || lower.includes('active session not found')) return 'Session not found in the system.';
-    if (lower.includes('collection session not found')) return 'EEG collection session not found.';
-    if (lower.includes('collection session is terminal')) return 'This collection session is already completed or closed.';
-    if (lower.includes('trial not found')) return 'Trial not found for this session.';
-    if (lower.includes('trial is not next in schedule')) return 'Trial does not match the next scheduled order.';
-    if (lower.includes('stimulus media not found')) return 'Stimulus video file not found on the server.';
-    if (lower.includes('stimulus media verification failed') || lower.includes('checksum mismatch')) return 'Media verification failed: SHA-256 checksum mismatch.';
-    if (lower.includes('stimulus media is not a video')) return 'Stimulus file is not a valid video.';
-    if (lower.includes('stimulus playback failed')) return 'Stimulus playback failed. Collection was interrupted for recovery.';
-    if (lower.includes('stimulus content duration')) return 'Video duration must be between 45 and 60 seconds.';
-    if (lower.includes('all four live sensors good') || lower.includes('require_live_sensor_ready')) return 'All four Muse sensors must maintain solid contact before starting.';
-    if (lower.includes('rest requires at least') || lower.includes('rest not ready')) return 'Rest fixation requires at least 10 seconds before starting.';
-    if (lower.includes('post-rating rest requires at least')) return 'Post-rating rest requires at least 10 seconds before next trial.';
-    if (lower.includes('muse scan not found')) return 'Muse scan result not found.';
-    if (lower.includes('muse disconnected') || lower.includes('muse connection could not be established')) return 'Muse headset disconnected.';
-    if (lower.includes('a live muse connection is required')) return 'A live Muse connection is required before recording.';
-    if (lower.includes('baseline requires exactly 12 persisted schedule rows')) return 'Exactly 12 scheduled trials are required before starting baseline.';
-    if (lower.includes('baseline requires participant consent')) return 'Participant consent is required before starting baseline.';
-    if (lower.includes('capture requires all four live sensors good')) return 'All 4 sensors must provide a steady 256 Hz signal before recording.';
-    if (lower.includes('eyes-closed baseline requires completed eyes-open baseline')) return 'Eyes-open baseline must be completed before eyes-closed baseline.';
-    if (lower.includes('user cancelled') || lower.includes('user canceled')) return 'Bluetooth device selection was cancelled.';
-    if (lower.includes('bluetooth') && lower.includes('not available')) return 'Bluetooth receiver not found or disabled on this computer.';
-    if (lower.includes('gatt server is disconnected') || lower.includes('device is disconnected')) return 'Bluetooth connection to Muse was disconnected. Please reconnect.';
-    if (lower.includes('queuepool limit') || lower.includes('connection timed out')) return 'Database connection timed out. Please try again.';
-    if (lower.includes('networkerror') || lower.includes('failed to fetch') || lower.includes('http failure response')) return 'Cannot connect to backend server. Please verify backend is running.';
-    if (lower.includes('not in ready state') || lower.includes('not in emotion_confirmation state')) return 'Invalid session state for this action.';
-    if (lower.includes('request failed') || lower.includes('an error occurred')) return 'Operation failed. Please try again.';
+    if (lower.includes('invalid email or password'))
+      return 'Invalid email or password. Please try again.';
+    if (lower.includes('email already registered'))
+      return 'This email is already registered. Please use another email.';
+    if (
+      lower.includes('invalid or expired token') ||
+      lower.includes('token expired')
+    )
+      return 'Session expired or invalid. Please log in again.';
+    if (lower.includes('not authenticated'))
+      return 'Please log in before continuing.';
+    if (lower.includes('admin access required'))
+      return 'Admin privileges required.';
+    if (lower.includes('user access required'))
+      return 'User privileges required.';
+    if (lower.includes('user not found or inactive'))
+      return 'User not found or account is deactivated.';
+    if (
+      lower.includes('session not found') ||
+      lower.includes('active session not found')
+    )
+      return 'Session not found in the system.';
+    if (lower.includes('collection session not found'))
+      return 'EEG collection session not found.';
+    if (lower.includes('collection session is terminal'))
+      return 'This collection session is already completed or closed.';
+    if (lower.includes('trial not found'))
+      return 'Trial not found for this session.';
+    if (lower.includes('trial is not next in schedule'))
+      return 'Trial does not match the next scheduled order.';
+    if (lower.includes('stimulus media not found'))
+      return 'Stimulus video file not found on the server.';
+    if (
+      lower.includes('stimulus media verification failed') ||
+      lower.includes('checksum mismatch')
+    )
+      return 'Media verification failed: SHA-256 checksum mismatch.';
+    if (lower.includes('stimulus media is not a video'))
+      return 'Stimulus file is not a valid video.';
+    if (lower.includes('stimulus playback failed'))
+      return 'Stimulus playback failed. Collection was interrupted for recovery.';
+    if (lower.includes('stimulus content duration'))
+      return 'Video duration must be between 45 and 60 seconds.';
+    if (
+      lower.includes('all four live sensors good') ||
+      lower.includes('require_live_sensor_ready')
+    )
+      return 'All four Muse sensors must maintain solid contact before starting.';
+    if (
+      lower.includes('rest requires at least') ||
+      lower.includes('rest not ready')
+    )
+      return 'Rest fixation requires at least 10 seconds before starting.';
+    if (lower.includes('post-rating rest requires at least'))
+      return 'Post-rating rest requires at least 10 seconds before next trial.';
+    if (lower.includes('muse scan not found'))
+      return 'Muse scan result not found.';
+    if (
+      lower.includes('muse disconnected') ||
+      lower.includes('muse connection could not be established')
+    )
+      return 'Muse headset disconnected.';
+    if (lower.includes('a live muse connection is required'))
+      return 'A live Muse connection is required before recording.';
+    if (lower.includes('baseline requires exactly 12 persisted schedule rows'))
+      return 'Exactly 12 scheduled trials are required before starting baseline.';
+    if (lower.includes('baseline requires participant consent'))
+      return 'Participant consent is required before starting baseline.';
+    if (lower.includes('capture requires all four live sensors good'))
+      return 'All 4 sensors must provide a steady 256 Hz signal before recording.';
+    if (
+      lower.includes(
+        'eyes-closed baseline requires completed eyes-open baseline',
+      )
+    )
+      return 'Eyes-open baseline must be completed before eyes-closed baseline.';
+    if (lower.includes('user cancelled') || lower.includes('user canceled'))
+      return 'Bluetooth device selection was cancelled.';
+    if (lower.includes('bluetooth') && lower.includes('not available'))
+      return 'Bluetooth receiver not found or disabled on this computer.';
+    if (
+      lower.includes('gatt server is disconnected') ||
+      lower.includes('device is disconnected')
+    )
+      return 'Bluetooth connection to Muse was disconnected. Please reconnect.';
+    if (
+      lower.includes('queuepool limit') ||
+      lower.includes('connection timed out')
+    )
+      return 'Database connection timed out. Please try again.';
+    if (
+      lower.includes('networkerror') ||
+      lower.includes('failed to fetch') ||
+      lower.includes('http failure response')
+    )
+      return 'Cannot connect to backend server. Please verify backend is running.';
+    if (
+      lower.includes('not in ready state') ||
+      lower.includes('not in emotion_confirmation state')
+    )
+      return 'Invalid session state for this action.';
+    if (lower.includes('request failed') || lower.includes('an error occurred'))
+      return 'Operation failed. Please try again.';
     return msg;
   }
 
   // Pure Thai translations
-  if (lower.includes('invalid email or password')) return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง';
-  if (lower.includes('email already registered')) return 'อีเมลนี้ถูกลงทะเบียนในระบบแล้ว กรุณาใช้อีเมลอื่น';
-  if (lower.includes('invalid or expired token') || lower.includes('token expired')) return 'เซสชันหมดอายุหรือไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง';
-  if (lower.includes('not authenticated')) return 'ยังไม่ได้เข้าสู่ระบบ กรุณาเข้าสู่ระบบก่อนใช้งาน';
-  if (lower.includes('admin access required')) return 'ต้องใช้สิทธิ์ผู้ดูแลระบบในการเข้าถึง';
-  if (lower.includes('user access required')) return 'ต้องใช้สิทธิ์ผู้ใช้งานทั่วไปในการเข้าถึง';
-  if (lower.includes('user not found or inactive')) return 'ไม่พบข้อมูลผู้ใช้ หรือบัญชีถูกระงับการใช้งาน';
-  if (lower.includes('session not found') || lower.includes('active session not found')) return 'ไม่พบเซสชันการทดสอบในระบบ';
-  if (lower.includes('collection session not found')) return 'ไม่พบเซสชันการเก็บข้อมูลคลื่นสมอง';
-  if (lower.includes('collection session is terminal')) return 'เซสชันการเก็บข้อมูลนี้เสร็จสิ้นหรือปิดไปแล้ว ไม่สามารถดำเนินการต่อได้';
-  if (lower.includes('trial not found')) return 'ไม่พบข้อมูลรอบทดสอบสำหรับเซสชันนี้';
-  if (lower.includes('trial is not next in schedule')) return 'รอบทดสอบนี้ไม่ตรงกับลำดับถัดไปในตาราง';
-  if (lower.includes('stimulus media not found')) return 'ไม่พบไฟล์วิดีโอสื่อกระตุ้นในโฟลเดอร์ระบบ';
-  if (lower.includes('stimulus media verification failed') || lower.includes('checksum mismatch')) return 'ตรวจสอบไฟล์วิดีโอล้มเหลว: ค่ารหัสตรวจสอบไม่ตรงกับที่บันทึกไว้ในระบบ';
-  if (lower.includes('stimulus media is not a video')) return 'ไฟล์สื่อกระตุ้นไม่ใช่วิดีโอที่ถูกต้อง';
-  if (lower.includes('stimulus playback failed')) return 'การเล่นวิดีโอคลิปล้มเหลว ระบบหยุดชั่วคราวเพื่อกู้คืนการทำงาน';
-  if (lower.includes('stimulus content duration')) return 'ความยาวคลิปต้องอยู่ระหว่าง 45 ถึง 60 วินาทีตามข้อกำหนดการทดลอง';
-  if (lower.includes('all four live sensors good') || lower.includes('require_live_sensor_ready')) return 'สัญญาณ Muse ต้องแตะผิวดีทั้ง 4 จุดก่อนเริ่มคลิป';
-  if (lower.includes('rest requires at least') || lower.includes('rest not ready')) return 'ต้องพักสายตาให้นิ่งอย่างน้อย 10 วินาทีก่อนเริ่มคลิป';
-  if (lower.includes('post-rating rest requires at least')) return 'ต้องพักสายตาอย่างน้อย 10 วินาทีหลังประเมินเสร็จก่อนเริ่มรอบถัดไป';
-  if (lower.includes('muse scan not found')) return 'ไม่พบข้อมูลการค้นหาอุปกรณ์ Muse';
-  if (lower.includes('muse disconnected') || lower.includes('muse connection could not be established')) return 'อุปกรณ์ Muse หลุดการเชื่อมต่อ';
-  if (lower.includes('a live muse connection is required')) return 'ต้องเชื่อมต่ออุปกรณ์ Muse ก่อนเริ่มบันทึกข้อมูล';
-  if (lower.includes('baseline requires exactly 12 persisted schedule rows')) return 'ต้องมีตารางรอบทดลองครบ 12 รอบก่อนเริ่ม Baseline';
-  if (lower.includes('baseline requires participant consent')) return 'ต้องได้รับการยืนยันความยินยอมจากผู้เข้าร่วมทดลองก่อนเริ่ม Baseline';
-  if (lower.includes('capture requires all four live sensors good')) return 'ต้องการสัญญาณเซนเซอร์ทั้ง 4 จุดที่ดีและคงที่ 256 Hz ก่อนเริ่มบันทึก';
-  if (lower.includes('eyes-closed baseline requires completed eyes-open baseline')) return 'ต้องผ่าน Baseline ลืมตาก่อนเริ่ม Baseline หลับตา';
-  if (lower.includes('user cancelled') || lower.includes('user canceled')) return 'ยกเลิกการเลือกอุปกรณ์บลูทูธ';
-  if (lower.includes('bluetooth') && lower.includes('not available')) return 'ไม่พบตัวรับสัญญาณบลูทูธ หรือไม่ได้เปิดใช้งานบลูทูธในคอมพิวเตอร์';
-  if (lower.includes('gatt server is disconnected') || lower.includes('device is disconnected')) return 'การเชื่อมต่อบลูทูธกับ Muse หลุดหาย กรุณาเชื่อมต่อใหม่';
-  if (lower.includes('queuepool limit') || lower.includes('connection timed out')) return 'การเชื่อมต่อฐานข้อมูลล่าช้าหรือหมดเวลา กรุณาลองใหม่อีกครั้ง';
-  if (lower.includes('networkerror') || lower.includes('failed to fetch') || lower.includes('http failure response')) return 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์หลักได้ กรุณาตรวจสอบว่าระบบกำลังทำงาน';
-  if (lower.includes('not in ready state') || lower.includes('not in emotion_confirmation state')) return 'สถานะของเซสชันไม่ถูกต้องสำหรับการดำเนินการนี้';
-  if (lower.includes('request failed') || lower.includes('an error occurred')) return 'เกิดข้อผิดพลาดในการดำเนินการ กรุณาลองใหม่อีกครั้ง';
+  if (lower.includes('invalid email or password'))
+    return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง';
+  if (lower.includes('email already registered'))
+    return 'อีเมลนี้ถูกลงทะเบียนในระบบแล้ว กรุณาใช้อีเมลอื่น';
+  if (
+    lower.includes('invalid or expired token') ||
+    lower.includes('token expired')
+  )
+    return 'เซสชันหมดอายุหรือไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง';
+  if (lower.includes('not authenticated'))
+    return 'ยังไม่ได้เข้าสู่ระบบ กรุณาเข้าสู่ระบบก่อนใช้งาน';
+  if (lower.includes('admin access required'))
+    return 'ต้องใช้สิทธิ์ผู้ดูแลระบบในการเข้าถึง';
+  if (lower.includes('user access required'))
+    return 'ต้องใช้สิทธิ์ผู้ใช้งานทั่วไปในการเข้าถึง';
+  if (lower.includes('user not found or inactive'))
+    return 'ไม่พบข้อมูลผู้ใช้ หรือบัญชีถูกระงับการใช้งาน';
+  if (
+    lower.includes('session not found') ||
+    lower.includes('active session not found')
+  )
+    return 'ไม่พบเซสชันการทดสอบในระบบ';
+  if (lower.includes('collection session not found'))
+    return 'ไม่พบเซสชันการเก็บข้อมูลคลื่นสมอง';
+  if (lower.includes('collection session is terminal'))
+    return 'เซสชันการเก็บข้อมูลนี้เสร็จสิ้นหรือปิดไปแล้ว ไม่สามารถดำเนินการต่อได้';
+  if (lower.includes('trial not found'))
+    return 'ไม่พบข้อมูลรอบทดสอบสำหรับเซสชันนี้';
+  if (lower.includes('trial is not next in schedule'))
+    return 'รอบทดสอบนี้ไม่ตรงกับลำดับถัดไปในตาราง';
+  if (lower.includes('stimulus media not found'))
+    return 'ไม่พบไฟล์วิดีโอสื่อกระตุ้นในโฟลเดอร์ระบบ';
+  if (
+    lower.includes('stimulus media verification failed') ||
+    lower.includes('checksum mismatch')
+  )
+    return 'ตรวจสอบไฟล์วิดีโอล้มเหลว: ค่ารหัสตรวจสอบไม่ตรงกับที่บันทึกไว้ในระบบ';
+  if (lower.includes('stimulus media is not a video'))
+    return 'ไฟล์สื่อกระตุ้นไม่ใช่วิดีโอที่ถูกต้อง';
+  if (lower.includes('stimulus playback failed'))
+    return 'การเล่นวิดีโอคลิปล้มเหลว ระบบหยุดชั่วคราวเพื่อกู้คืนการทำงาน';
+  if (lower.includes('stimulus content duration'))
+    return 'ความยาวคลิปต้องอยู่ระหว่าง 45 ถึง 60 วินาทีตามข้อกำหนดการทดลอง';
+  if (
+    lower.includes('all four live sensors good') ||
+    lower.includes('require_live_sensor_ready')
+  )
+    return 'สัญญาณ Muse ต้องแตะผิวดีทั้ง 4 จุดก่อนเริ่มคลิป';
+  if (
+    lower.includes('rest requires at least') ||
+    lower.includes('rest not ready')
+  )
+    return 'ต้องพักสายตาให้นิ่งอย่างน้อย 10 วินาทีก่อนเริ่มคลิป';
+  if (lower.includes('post-rating rest requires at least'))
+    return 'ต้องพักสายตาอย่างน้อย 10 วินาทีหลังประเมินเสร็จก่อนเริ่มรอบถัดไป';
+  if (lower.includes('muse scan not found'))
+    return 'ไม่พบข้อมูลการค้นหาอุปกรณ์ Muse';
+  if (
+    lower.includes('muse disconnected') ||
+    lower.includes('muse connection could not be established')
+  )
+    return 'อุปกรณ์ Muse หลุดการเชื่อมต่อ';
+  if (lower.includes('a live muse connection is required'))
+    return 'ต้องเชื่อมต่ออุปกรณ์ Muse ก่อนเริ่มบันทึกข้อมูล';
+  if (lower.includes('baseline requires exactly 12 persisted schedule rows'))
+    return 'ต้องมีตารางรอบทดลองครบ 12 รอบก่อนเริ่ม Baseline';
+  if (lower.includes('baseline requires participant consent'))
+    return 'ต้องได้รับการยืนยันความยินยอมจากผู้เข้าร่วมทดลองก่อนเริ่ม Baseline';
+  if (lower.includes('capture requires all four live sensors good'))
+    return 'ต้องการสัญญาณเซนเซอร์ทั้ง 4 จุดที่ดีและคงที่ 256 Hz ก่อนเริ่มบันทึก';
+  if (
+    lower.includes('eyes-closed baseline requires completed eyes-open baseline')
+  )
+    return 'ต้องผ่าน Baseline ลืมตาก่อนเริ่ม Baseline หลับตา';
+  if (lower.includes('user cancelled') || lower.includes('user canceled'))
+    return 'ยกเลิกการเลือกอุปกรณ์บลูทูธ';
+  if (lower.includes('bluetooth') && lower.includes('not available'))
+    return 'ไม่พบตัวรับสัญญาณบลูทูธ หรือไม่ได้เปิดใช้งานบลูทูธในคอมพิวเตอร์';
+  if (
+    lower.includes('gatt server is disconnected') ||
+    lower.includes('device is disconnected')
+  )
+    return 'การเชื่อมต่อบลูทูธกับ Muse หลุดหาย กรุณาเชื่อมต่อใหม่';
+  if (
+    lower.includes('queuepool limit') ||
+    lower.includes('connection timed out')
+  )
+    return 'การเชื่อมต่อฐานข้อมูลล่าช้าหรือหมดเวลา กรุณาลองใหม่อีกครั้ง';
+  if (
+    lower.includes('networkerror') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('http failure response')
+  )
+    return 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์หลักได้ กรุณาตรวจสอบว่าระบบกำลังทำงาน';
+  if (
+    lower.includes('not in ready state') ||
+    lower.includes('not in emotion_confirmation state')
+  )
+    return 'สถานะของเซสชันไม่ถูกต้องสำหรับการดำเนินการนี้';
+  if (lower.includes('request failed') || lower.includes('an error occurred'))
+    return 'เกิดข้อผิดพลาดในการดำเนินการ กรุณาลองใหม่อีกครั้ง';
 
   // If already in Thai, return as is
   if (/[\u0E00-\u0E7F]/.test(msg)) return msg;

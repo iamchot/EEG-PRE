@@ -1,15 +1,15 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ComicService, Comic } from '../../core/services/comic.service';
-import { DatePipe } from '@angular/common';
 import { LanguageService } from '../../core/services/language.service';
 
 import { TranslatePipe } from '../../core/pipes/translate.pipe';
+import { ThaiDatePipe } from '../../core/pipes/thai-date.pipe';
 
 @Component({
   selector: 'app-history',
   standalone: true,
-  imports: [RouterLink, DatePipe, TranslatePipe],
+  imports: [RouterLink, ThaiDatePipe, TranslatePipe],
   templateUrl: './history.component.html',
   styleUrl: './history.component.css',
 })

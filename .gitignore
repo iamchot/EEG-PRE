@@ -38,6 +38,10 @@ tmp/
 
 # ---- Research data (participant-level EEG recordings — personal data) ----
 backend/collection_data/
+backend/recordings/
+
+# ---- Runtime generated comic panels ----
+backend/comfyui_outputs/
 
 # ---- Large video stimulus assets (use Git LFS or host separately) ----
 backend/collection_stimuli/**/*.mp4

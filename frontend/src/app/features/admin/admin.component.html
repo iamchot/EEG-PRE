@@ -60,7 +60,7 @@
                 {{ stats()!.average_rating | number: "1.1-1" }}/5.0
               </div>
               <div class="stat-hint">
-                Based on {{ stats()!.total_comics }} reviews
+                Based on {{ stats()!.rating_count ?? stats()!.total_comics }} reviews
               </div>
             </div>
           </div>
@@ -126,7 +126,13 @@
 
           <!-- Bar Chart -->
           <div class="chart-card">
-            <h2>{{ "admin.sys_activity" | translate }}</h2>
+            <div class="chart-header-row">
+              <h2>{{ lang.currentLang() === 'th' ? 'กิจกรรมในระบบ (7 วันล่าสุด)' : 'System Activity (Last 7 Days)' }}</h2>
+              <div class="bar-legend">
+                <span><i class="dot-eeg"></i>{{ lang.currentLang() === 'th' ? 'วัดคลื่นสมองสำเร็จ' : 'EEG Completed' }}</span>
+                <span><i class="dot-comic"></i>{{ lang.currentLang() === 'th' ? 'สร้างการ์ตูนสำเร็จ' : 'Comics Created' }}</span>
+              </div>
+            </div>
             <div class="bar-chart-container">
               <div class="bar-y-axis">
                 <span>{{ maxActivity() }}</span>
@@ -139,21 +145,52 @@
                 @for (bar of activityBars(); track bar.day) {
                   <div
                     class="bar-col"
-                    [title]="bar.day + ': ' + bar.val + ' sessions'"
+                    [title]="bar.day + ' — EEG: ' + bar.eegVal + ', Comics: ' + bar.comicVal"
                   >
-                    <span class="bar-val-badge">{{ bar.val }}</span>
-                    <div
-                      class="bar-fill"
-                      [style.height.%]="
-                        bar.val > 0 ? (bar.val / maxActivity()) * 100 : 4
-                      "
-                    ></div>
+                    <span class="bar-val-badge">{{ bar.eegVal }}/{{ bar.comicVal }}</span>
+                    <div class="bar-pair">
+                      <div
+                        class="bar-fill bar-eeg"
+                        [style.height.%]="bar.eegVal > 0 ? (bar.eegVal / maxActivity()) * 100 : 0"
+                      ></div>
+                      <div
+                        class="bar-fill bar-comic"
+                        [style.height.%]="bar.comicVal > 0 ? (bar.comicVal / maxActivity()) * 100 : 0"
+                      ></div>
+                    </div>
                     <span class="bar-label">{{ bar.day }}</span>
                   </div>
                 }
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- Recent Reviews & Feedback -->
+        <div class="chart-card reviews-card">
+          <h2>{{ lang.currentLang() === 'th' ? 'ผลการสร้างการ์ตูนและคำแนะนำจากผู้ใช้' : 'Comic Reviews & User Feedback' }}</h2>
+          @if (stats()!.recent_reviews?.length) {
+            <div class="reviews-list">
+              @for (rev of stats()!.recent_reviews!; track rev.id) {
+                <div class="review-item">
+                  <div class="review-top">
+                    <span class="review-user">{{ rev.username }}</span>
+                    @if (rev.emotion) {
+                      <span class="review-emotion">{{ emotionThai(rev.emotion) }}</span>
+                    }
+                    <span class="review-stars">★ {{ rev.stars }}/5</span>
+                    <span class="review-date">{{ rev.created_at | thaiDate: 'dd MMM yyyy HH:mm' }}</span>
+                  </div>
+                  <div class="review-story">{{ rev.input_story }}</div>
+                  <div class="review-feedback">
+                    {{ rev.feedback || (lang.currentLang() === 'th' ? 'ไม่ได้ระบุข้อเสนอแนะเพิ่มเติม' : 'No written feedback') }}
+                  </div>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="reviews-empty">{{ lang.currentLang() === 'th' ? 'ยังไม่มีรีวิวหรือคำแนะนำจากผู้ใช้' : 'No reviews or feedback yet' }}</p>
+          }
         </div>
       } @else {
         <div class="loading-wrap">
@@ -173,8 +210,9 @@
       <div class="section-header">
         <h2>{{ "admin.manage_users" | translate }}</h2>
         <button
+          type="button"
           class="btn btn-primary btn-sm"
-          (click)="showAddUser.set(true)"
+          (click)="openAddUser()"
           id="btn-add-user"
         >
           + {{ "admin.add_user" | translate }}
@@ -231,7 +269,7 @@
                   }
                 </td>
                 <td class="date-cell">
-                  {{ user.created_at | date: "M/d/yyyy" }}
+                  {{ user.created_at | thaiDate: "dd/MM/yyyy HH:mm" }}
                 </td>
                 <td class="td-actions">
                   <div class="actions-group">
@@ -291,6 +329,49 @@
         >
           {{ "admin.open_dataset" | translate }}
         </a>
+      </div>
+    </div>
+  }
+
+  @if (showAddUser()) {
+    <div class="modal-backdrop" (click)="closeAddUser()" role="dialog" aria-modal="true" aria-label="Add User">
+      <div class="modal-card" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>{{ lang.currentLang() === 'th' ? 'เพิ่มผู้ใช้งานใหม่' : 'Add New User' }}</h3>
+          <button type="button" class="modal-close" (click)="closeAddUser()" aria-label="Close">✕</button>
+        </div>
+        <form class="modal-form" (ngSubmit)="createUser()">
+          <label class="modal-field">
+            <span>{{ lang.currentLang() === 'th' ? 'ชื่อผู้ใช้ (Username)' : 'Username' }}</span>
+            <input name="username" [(ngModel)]="newUser.username" required placeholder="e.g. somchai" />
+          </label>
+          <label class="modal-field">
+            <span>{{ lang.currentLang() === 'th' ? 'อีเมล (Email)' : 'Email' }}</span>
+            <input type="email" name="email" [(ngModel)]="newUser.email" required placeholder="user@example.com" />
+          </label>
+          <label class="modal-field">
+            <span>{{ lang.currentLang() === 'th' ? 'รหัสผ่าน (อย่างน้อย 6 ตัว)' : 'Password (min 6 chars)' }}</span>
+            <input type="password" name="password" [(ngModel)]="newUser.password" required minlength="6" />
+          </label>
+          <label class="modal-field">
+            <span>{{ lang.currentLang() === 'th' ? 'บทบาท (Role)' : 'Role' }}</span>
+            <select name="role" [(ngModel)]="newUser.role">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+          @if (createUserError()) {
+            <div class="modal-error" role="alert">{{ createUserError() }}</div>
+          }
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary btn-sm" (click)="closeAddUser()">
+              {{ lang.currentLang() === 'th' ? 'ยกเลิก' : 'Cancel' }}
+            </button>
+            <button type="submit" class="btn btn-primary btn-sm" [disabled]="creatingUser()">
+              {{ creatingUser() ? (lang.currentLang() === 'th' ? 'กำลังบันทึก…' : 'Saving…') : (lang.currentLang() === 'th' ? 'บันทึกผู้ใช้งาน' : 'Create User') }}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   }

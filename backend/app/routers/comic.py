@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import logging
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.middleware.auth_middleware import StandardUser
@@ -47,17 +52,39 @@ async def generate_comic(
         ).first()
 
     # Generate story with Gemini
-    story = await generate_comic_story(
-        input_story=body.input_story,
-        emotion=emotion_result.final_emotion.value,
-        art_style=body.art_style,
-        persona_name=persona.persona_name if persona else None,
-        persona_appearance=persona.appearance if persona else None,
-    )
+    try:
+        story = await generate_comic_story(
+            input_story=body.input_story,
+            emotion=emotion_result.final_emotion.value,
+            art_style=body.art_style,
+            persona_name=persona.persona_name if persona else None,
+            persona_appearance=persona.appearance if persona else None,
+        )
+    except Exception as exc:
+        logger.exception("Gemini comic story generation failed")
+        msg = str(exc).strip() or type(exc).__name__
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Gemini error ({type(exc).__name__}): {msg}",
+        ) from exc
 
     # Generate images with ComfyUI
     descriptions = [p.scene_description for p in story.panels]
-    panel_urls = await generate_all_panels(descriptions, body.art_style)
+    try:
+        panel_urls = await generate_all_panels(descriptions, body.art_style)
+    except httpx.HTTPStatusError as exc:
+        logger.exception("ComfyUI returned HTTP error")
+        body_text = exc.response.text[:300] if exc.response is not None else str(exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"ComfyUI error ({exc.response.status_code if exc.response else 'HTTP'}): {body_text}",
+        ) from exc
+    except Exception as exc:
+        logger.exception("ComfyUI panel generation failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"ComfyUI error: {type(exc).__name__}: {exc}",
+        ) from exc
 
     # Persist comic
     comic = Comic(

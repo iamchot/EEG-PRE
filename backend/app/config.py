@@ -23,11 +23,12 @@ class Settings(BaseSettings):
 
     # AI
     gemini_api_key: str = "YOUR_GEMINI_API_KEY_HERE"
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
 
     # ComfyUI
     comfyui_url: str = "http://127.0.0.1:8188"
     comfyui_output_dir: str = "./comfyui_outputs"
+    comfyui_checkpoint: str = "Counterfeit-V3.0_fix_fp16.safetensors"
 
     # Authenticated dependency health
     health_comfyui_timeout_seconds: float = 2.0
@@ -49,6 +50,7 @@ class Settings(BaseSettings):
     collection_sampling_tolerance_hz: int = 8
     collection_baseline_wall_seconds: int = 60
     collection_baseline_min_clean_seconds: int = 30
+    # collection_rest_min_seconds: int = 0
     collection_rest_min_seconds: int = 10
     collection_rest_max_seconds: int = 15
     collection_stimulus_finish_grace_seconds: float = Field(default=5.0, ge=0, le=10)

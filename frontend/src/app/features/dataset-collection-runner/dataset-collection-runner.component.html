@@ -57,7 +57,7 @@
           <app-eeg-waveform [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" [isConnected]="ws.isConnected()" />
         </div>
         <section class="action-card">
-          <p class="step">Step 1</p><h2>{{ 'runner.scan_select_muse' | translate }}</h2>
+          <p class="step">{{ lang.currentLang() === 'th' ? 'ขั้นตอนที่ 1' : 'Step 1' }}</p><h2>{{ 'runner.scan_select_muse' | translate }}</h2>
           <p>{{ 'runner.scan_desc' | translate }}</p>
           @if (!museBt.isSupported) {
             <div class="error" role="alert">เบราว์เซอร์นี้ไม่รองรับ Web Bluetooth — กรุณาใช้ Chrome หรือ Edge</div>
@@ -114,10 +114,10 @@
     @case ('eyes_open') {
       <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
       <section class="focus-card" data-stage="eyes_open" aria-live="polite">
-        <p class="step">Baseline 1 of 2</p><h2>ลืมตาและมองจุดกึ่งกลาง</h2>
+        <p class="step">{{ lang.currentLang() === 'th' ? 'ค่าพื้นฐาน 1 จาก 2' : 'Baseline 1 of 2' }}</p><h2>ลืมตาและมองจุดกึ่งกลาง</h2>
         <div class="fixation" aria-label="Fixation point">+</div>
         <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
-        <p>{{ seconds(runnerState()?.wall_clock_seconds) }}s wall · {{ seconds(runnerState()?.accepted_clean_seconds) }}s clean</p>
+        <p>{{ seconds(runnerState()?.wall_clock_seconds) }}{{ lang.currentLang() === 'th' ? ' วิ (รวม) · ' : 's wall · ' }}{{ seconds(runnerState()?.accepted_clean_seconds) }}{{ lang.currentLang() === 'th' ? ' วิ (คลื่นสะอาด)' : 's clean' }}</p>
         <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
           @for (key of sensorKeys; track key) {
             <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
@@ -135,11 +135,11 @@
     @case ('eyes_closed') {
       <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
       <section class="focus-card" data-stage="eyes_closed" aria-live="polite">
-        <p class="step">Baseline 2 of 2</p><h2>หลับตาและอยู่นิ่ง</h2>
+        <p class="step">{{ lang.currentLang() === 'th' ? 'ค่าพื้นฐาน 2 จาก 2' : 'Baseline 2 of 2' }}</p><h2>หลับตาและอยู่นิ่ง</h2>
         <div class="fixation" aria-label="Fixation point">+</div>
         <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
         @if (runnerState()?.active_baseline === 'eyes_closed') {
-          <p>{{ seconds(runnerState()?.wall_clock_seconds) }}s wall · {{ seconds(runnerState()?.accepted_clean_seconds) }}s clean</p>
+          <p>{{ seconds(runnerState()?.wall_clock_seconds) }}{{ lang.currentLang() === 'th' ? ' วิ (รวม) · ' : 's wall · ' }}{{ seconds(runnerState()?.accepted_clean_seconds) }}{{ lang.currentLang() === 'th' ? ' วิ (คลื่นสะอาด)' : 's clean' }}</p>
         } @else {
           <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy() || !canStartBaseline()">{{ 'runner.start_baseline_closed' | translate }}</button>
         }
@@ -178,7 +178,7 @@
     @case ('rest') {
       <section class="media-layout" data-stage="rest">
         <div class="focus-card">
-          <p class="step">Rest / Fixation</p>
+          <p class="step">{{ lang.currentLang() === 'th' ? 'พักสายตา / มองจุดกึ่งกลาง' : 'Rest / Fixation' }}</p>
           <h2>มองจุดกึ่งกลางและอยู่นิ่ง</h2>
           <div class="fixation" aria-label="Fixation point">+</div>
           <p>เป้าหมาย 10–15 วินาที · Backend: {{ seconds(runnerState()?.wall_clock_seconds) }}s</p>
@@ -210,9 +210,29 @@
     }
     @case ('stimulus') {
       <section class="media-layout" data-stage="stimulus"><ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
-        <aside class="artifact-card"><h2>Artifact marker</h2><label for="artifact-note">หมายเหตุ (ไม่บังคับ)<input id="artifact-note" [(ngModel)]="artifactNote"></label>
-          <div class="artifact-grid">@for (item of artifacts; track item.type) { <button type="button" (click)="markArtifact(item.type)" [disabled]="busy()">{{ item.label }}</button> }</div>
-        </aside>
+        <div class="stimulus-side">
+          <aside class="artifact-card"><h2>{{ lang.currentLang() === 'th' ? 'บันทึกเหตุการณ์รบกวน (Artifact)' : 'Artifact marker' }}</h2><label for="artifact-note">{{ lang.currentLang() === 'th' ? 'หมายเหตุ (ไม่บังคับ)' : 'Note (optional)' }}<input id="artifact-note" [(ngModel)]="artifactNote"></label>
+            <div class="artifact-grid">@for (item of artifacts; track item.type) { <button type="button" (click)="markArtifact(item.type)" [disabled]="busy()">{{ item.label }}</button> }</div>
+            @if (artifactFeedback()) {
+              <div class="artifact-toast" role="status">{{ artifactFeedback() }}</div>
+            }
+          </aside>
+          <div class="sensor-card" aria-label="สถานะเซนเซอร์ 4 จุด">
+            <div class="sensor-card-title">{{ lang.currentLang() === 'th' ? 'สถานะเซนเซอร์ 4 จุด' : 'Live EEG Sensors' }}</div>
+            <div class="sensor-status-strip">
+              @for (key of sensorKeys; track key) {
+                <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+                  <div class="sensor-pill-top">
+                    <span class="sensor-dot"></span>
+                    <span class="sensor-name">{{ key.toUpperCase() }}</span>
+                    <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+                  </div>
+                  <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
       </section>
     }
     @case ('rating') {
@@ -220,23 +240,23 @@
         <p class="step">{{ lang.currentLang() === 'th' ? 'การประเมินตนเอง' : 'Self-rating' }}</p>
         <h2>{{ lang.currentLang() === 'th' ? 'บันทึกความรู้สึกของผู้เข้าร่วม' : 'Record Participant Rating' }}</h2>
         <label for="valence">
-          {{ lang.currentLang() === 'th' ? 'ระดับความรู้สึก (1–9)' : 'Valence — Pleasantness (1–9)' }}
+          {{ lang.currentLang() === 'th' ? 'ความพึงพอใจ / ความรู้สึกบวก-ลบ (Valence 1–9)' : 'Valence — Pleasantness (1–9)' }}
           <span class="scale-hint">
-            {{ lang.currentLang() === 'th' ? '1 = ไม่ดีเลย / เศร้ามาก · 5 = ปานกลาง · 9 = ดีมาก / มีความสุขมาก' : '1 = Highly Unpleasant · 5 = Neutral · 9 = Highly Pleasant' }}
+            {{ lang.currentLang() === 'th' ? '1 = แย่มาก / เศร้า / เครียด · 5 = เฉยๆ (ก้ำกึ่ง) · 9 = ดีมาก / มีความสุข / สนุก' : '1 = Highly Unpleasant · 5 = Neutral · 9 = Highly Pleasant' }}
           </span>
           <input id="valence" name="valence" type="number" min="1" max="9" required [(ngModel)]="valence">
         </label>
         <label for="arousal">
-          {{ lang.currentLang() === 'th' ? 'ระดับความตื่นตัว (1–9)' : 'Arousal — Activation Level (1–9)' }}
+          {{ lang.currentLang() === 'th' ? 'ความเข้มข้น / ความเร้าของอารมณ์ (Arousal 1–9)' : 'Arousal — Activation Level (1–9)' }}
           <span class="scale-hint">
-            {{ lang.currentLang() === 'th' ? '1 = สงบ / ง่วงซึม · 5 = ปานกลาง · 9 = ตื่นตัวมาก / ตื่นเต้นมาก' : '1 = Calm / Sleepy · 5 = Neutral · 9 = Highly Activated / Excited' }}
+            {{ lang.currentLang() === 'th' ? '1 = สงบนิ่ง / ผ่อนคลาย / เฉื่อย · 5 = ปานกลาง · 9 = ตื่นเต้นมาก / เร้าใจ / ตึงเครียด' : '1 = Calm / Sleepy · 5 = Neutral · 9 = Highly Activated / Excited' }}
           </span>
           <input id="arousal" name="arousal" type="number" min="1" max="9" required [(ngModel)]="arousal">
         </label>
         <label for="confidence">
-          {{ lang.currentLang() === 'th' ? 'ระดับความมั่นใจ (1–5)' : 'Confidence — Rating Certainty (1–5)' }}
+          {{ lang.currentLang() === 'th' ? 'ความมั่นใจในการประเมินคะแนนข้างต้น (1–5)' : 'Confidence — Rating Certainty (1–5)' }}
           <span class="scale-hint">
-            {{ lang.currentLang() === 'th' ? '1 = ไม่มั่นใจเลย · 3 = ค่อนข้างมั่นใจ · 5 = มั่นใจมาก' : '1 = Not Confident · 3 = Moderately Confident · 5 = Highly Confident' }}
+            {{ lang.currentLang() === 'th' ? '1 = ไม่แน่ใจเลย · 3 = ค่อนข้างแน่ใจ · 5 = มั่นใจมากตรงกับความรู้สึกจริง' : '1 = Not Confident · 3 = Moderately Confident · 5 = Highly Confident' }}
           </span>
           <input id="confidence" name="confidence" type="number" min="1" max="5" required [(ngModel)]="confidence">
         </label>
@@ -436,15 +456,15 @@
         }
       </section>
     }
-    @case ('interrupted') { <section class="focus-card warning" data-stage="interrupted"><h2>Session ถูกขัดจังหวะ</h2><p>{{ runnerState()?.interruption_reason }}</p><p>เริ่ม Trial {{ displayedTrialOrder() }} ใหม่ในลำดับเดิม โดยไม่สุ่ม Schedule ใหม่</p><button class="primary" type="button" (click)="resume()" [disabled]="busy()">Resume same order</button></section> }
+    @case ('interrupted') { <section class="focus-card warning" data-stage="interrupted"><h2>Session ถูกขัดจังหวะ</h2><p>{{ runnerState()?.interruption_reason }}</p><p>เริ่ม Trial {{ displayedTrialOrder() }} ใหม่ในลำดับเดิม โดยไม่สุ่ม Schedule ใหม่</p><button class="primary" type="button" (click)="resume()" [disabled]="busy()">{{ lang.currentLang() === 'th' ? 'ดำเนินการต่อตามลำดับเดิม' : 'Resume same order' }}</button></section> }
     @case ('failed') { <section class="focus-card danger" data-stage="failed"><h2>ไม่สามารถดำเนิน Session ต่อได้</h2><p>ตรวจอุปกรณ์และสถานะไฟล์ก่อนกลับมาลองใหม่</p></section> }
   }
 
-  @if (canEmergencyStop()) { <button class="emergency" type="button" (click)="emergencyStop()" [disabled]="busy()">Emergency stop</button> }
+  @if (canEmergencyStop()) { <button class="emergency" type="button" (click)="emergencyStop()" [disabled]="busy()">{{ lang.currentLang() === 'th' ? 'หยุดฉุกเฉิน' : 'Emergency stop' }}</button> }
 
   <ng-template #mediaPanel>
     <section class="media-card">
-      <div><p class="step">Approved stimulus</p><h2>{{ runnerState()?.current_stimulus_title }}</h2></div>
+      <div><p class="step">{{ lang.currentLang() === 'th' ? 'สื่อกระตุ้นที่อนุมัติแล้ว' : 'Approved stimulus' }}</p><h2>{{ runnerState()?.current_stimulus_title }}</h2></div>
       @if (mediaError()) {
         <div class="error" role="alert">
           โหลดคลิปไม่สำเร็จ — จะยังไม่เริ่มบันทึก stimulus

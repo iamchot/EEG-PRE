@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -8,7 +11,8 @@ from app.database import get_db
 from app.middleware.auth_middleware import AdminUser
 from app.models.comic import Comic, Rating
 from app.models.eeg import EmotionResult
-from app.models.user import User
+from app.models.user import Role, User
+from app.services.auth_service import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -17,7 +21,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 def dashboard_stats(admin: AdminUser, db: Session = Depends(get_db)):
     """PRD 5.6 — Check Statistics: emotion distribution + activity."""
     from datetime import datetime, timedelta, timezone
-    from app.models.eeg import EEGSession
+    from app.models.eeg import EEGSession, SessionStatus
 
     total_users = db.query(func.count(User.id)).scalar() or 0
     active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
@@ -33,18 +37,62 @@ def dashboard_stats(admin: AdminUser, db: Session = Depends(get_db)):
 
     avg_rating_row = db.query(func.avg(Rating.stars)).scalar()
     avg_rating = round(float(avg_rating_row), 2) if avg_rating_row else 0.0
+    rating_count = db.query(func.count(Rating.id)).scalar() or 0
 
-    today = datetime.now(timezone.utc).date()
+    recent_rating_rows = (
+        db.query(Rating, Comic, User)
+        .join(Comic, Rating.comic_id == Comic.id)
+        .outerjoin(User, Rating.user_id == User.id)
+        .order_by(Rating.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    recent_reviews = []
+    for r, c, u in recent_rating_rows:
+        er = (
+            db.query(EmotionResult)
+            .filter(EmotionResult.session_id == c.session_id)
+            .first()
+            if c.session_id
+            else None
+        )
+        recent_reviews.append(
+            {
+                "id": r.id,
+                "stars": r.stars,
+                "feedback": r.feedback,
+                "created_at": r.created_at,
+                "username": u.username if u else "User",
+                "comic_id": c.id,
+                "input_story": c.input_story,
+                "emotion": er.final_emotion.value if er else None,
+            }
+        )
+
+    bangkok_tz = timezone(timedelta(hours=7))
+    today = datetime.now(bangkok_tz).date()
     daily_activity = []
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
-        day_start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
-        day_end = datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc)
-        count = db.query(func.count(EEGSession.id)).filter(
-            EEGSession.started_at >= day_start,
-            EEGSession.started_at <= day_end
+        day_start_utc = datetime.combine(day, datetime.min.time(), tzinfo=bangkok_tz).astimezone(timezone.utc).replace(tzinfo=None)
+        day_end_utc = datetime.combine(day, datetime.max.time(), tzinfo=bangkok_tz).astimezone(timezone.utc).replace(tzinfo=None)
+        eeg_count = db.query(func.count(EEGSession.id)).filter(
+            EEGSession.status == SessionStatus.completed,
+            EEGSession.completed_at >= day_start_utc,
+            EEGSession.completed_at <= day_end_utc,
         ).scalar() or 0
-        daily_activity.append({"day": day.strftime("%a"), "count": count})
+        comic_count = db.query(func.count(Comic.id)).filter(
+            Comic.created_at >= day_start_utc,
+            Comic.created_at <= day_end_utc,
+        ).scalar() or 0
+        daily_activity.append(
+            {
+                "day": day.strftime("%a"),
+                "count": comic_count,
+                "eeg_count": eeg_count,
+                "comic_count": comic_count,
+            }
+        )
 
     return {
         "total_users": total_users,
@@ -53,6 +101,8 @@ def dashboard_stats(admin: AdminUser, db: Session = Depends(get_db)):
         "eeg_samples": eeg_samples,
         "emotion_distribution": emotion_dist,
         "average_rating": avg_rating,
+        "rating_count": rating_count,
+        "recent_reviews": recent_reviews,
         "daily_activity": daily_activity,
     }
 
@@ -72,6 +122,49 @@ def list_users(admin: AdminUser, db: Session = Depends(get_db), skip: int = 0, l
         }
         for u in users
     ]
+
+
+class AdminCreateUserRequest(BaseModel):
+    username: str = Field(min_length=2, max_length=50)
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=128)
+    role: Literal["user", "admin"] = "user"
+
+
+@router.post("/users", status_code=201)
+def create_user(body: AdminCreateUserRequest, admin: AdminUser, db: Session = Depends(get_db)):
+    """Create a new user or admin account from the Admin panel."""
+    username = body.username.strip()
+    email = body.email.strip().lower()
+    if db.query(User).filter(User.username == username).first():
+        raise HTTPException(status_code=409, detail="Username already taken")
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    role_obj = db.query(Role).filter(Role.name == body.role).first()
+    if role_obj is None:
+        role_obj = Role(name=body.role)
+        db.add(role_obj)
+        db.flush()
+
+    user = User(
+        username=username,
+        email=email,
+        password_hash=hash_password(body.password),
+        role_id=role_obj.id,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role": body.role,
+        "is_active": user.is_active,
+        "created_at": user.created_at,
+    }
 
 
 @router.patch("/users/{user_id}/deactivate")

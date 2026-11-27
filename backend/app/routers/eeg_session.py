@@ -202,35 +202,50 @@ async def confirm_emotion(session_id: str, current_user: StandardUser, db: Sessi
         ec = state.emotion
         bl = state.baseline_features
 
-        feature = EEGFeature(
-            session_id=int(session_id),
-            baseline_faa=bl.faa if bl else None,
-            baseline_arousal=bl.arousal if bl else None,
-            baseline_log_alpha_af7=bl.log_alpha_af7 if bl else None,
-            baseline_log_alpha_af8=bl.log_alpha_af8 if bl else None,
-            baseline_log_beta_af7=bl.log_beta_af7 if bl else None,
-            baseline_log_beta_af8=bl.log_beta_af8 if bl else None,
-            recording_faa=rf.faa,
-            recording_arousal=rf.arousal,
-            delta_faa=rf.delta_faa,
-            delta_arousal=rf.delta_arousal,
-        )
-        db.add(feature)
+        existing_feature = db.query(EEGFeature).filter(EEGFeature.session_id == int(session_id)).first()
+        if existing_feature is None:
+            feature = EEGFeature(
+                session_id=int(session_id),
+                baseline_faa=bl.faa if bl else None,
+                baseline_arousal=bl.arousal if bl else None,
+                baseline_log_alpha_af7=bl.log_alpha_af7 if bl else None,
+                baseline_log_alpha_af8=bl.log_alpha_af8 if bl else None,
+                baseline_log_beta_af7=bl.log_beta_af7 if bl else None,
+                baseline_log_beta_af8=bl.log_beta_af8 if bl else None,
+                recording_faa=rf.faa,
+                recording_arousal=rf.arousal,
+                delta_faa=rf.delta_faa,
+                delta_arousal=rf.delta_arousal,
+            )
+            db.add(feature)
 
-        emotion_result = EmotionResult(
-            session_id=int(session_id),
-            final_emotion=ec.emotion,
-            rule_version=ec.rule_version,
-            threshold_version=ec.threshold_version,
-            valence=ec.valence,
-            arousal=ec.arousal_value,
-            delta_faa=ec.delta_faa,
-            delta_arousal=ec.delta_arousal,
-            quality_score_avg=rf.quality_score_avg,
-            accepted_epochs=rf.accepted_epochs,
-            rejected_epochs=rf.rejected_epochs,
-        )
-        db.add(emotion_result)
+        emotion_result = db.query(EmotionResult).filter(EmotionResult.session_id == int(session_id)).first()
+        if emotion_result is None:
+            emotion_result = EmotionResult(
+                session_id=int(session_id),
+                final_emotion=ec.emotion,
+                rule_version=ec.rule_version,
+                threshold_version=ec.threshold_version,
+                valence=ec.valence,
+                arousal=ec.arousal_value,
+                delta_faa=ec.delta_faa,
+                delta_arousal=ec.delta_arousal,
+                quality_score_avg=rf.quality_score_avg,
+                accepted_epochs=rf.accepted_epochs,
+                rejected_epochs=rf.rejected_epochs,
+            )
+            db.add(emotion_result)
+        else:
+            emotion_result.final_emotion = ec.emotion
+            emotion_result.rule_version = ec.rule_version
+            emotion_result.threshold_version = ec.threshold_version
+            emotion_result.valence = ec.valence
+            emotion_result.arousal = ec.arousal_value
+            emotion_result.delta_faa = ec.delta_faa
+            emotion_result.delta_arousal = ec.delta_arousal
+            emotion_result.quality_score_avg = rf.quality_score_avg
+            emotion_result.accepted_epochs = rf.accepted_epochs
+            emotion_result.rejected_epochs = rf.rejected_epochs
         db.commit()
 
         return EmotionResultOut.model_validate(emotion_result)
@@ -252,6 +267,18 @@ async def cancel_session(session_id: str, current_user: StandardUser, db: Sessio
     _active_machines.pop(session_id, None)
     _pending_muse_devices.pop(session_id, None)
     return {"status": "cancelled"}
+
+
+@router.post("/{session_id}/reset-recording")
+def reset_recording(session_id: int, current_user: StandardUser, db: Session = Depends(get_db)):
+    """Smart rollback: reset recording state back to READY without cancelling the session.
+    Equivalent to 'remeasure' — clears accepted seconds and transitions to READY.
+    """
+    machine = _owned_session_machine(session_id, current_user, db)
+    if machine.state.phase not in (Phase.RECORDING, Phase.PAUSED_SIGNAL_QUALITY, Phase.READY):
+        raise HTTPException(status_code=400, detail="Not in a resettable recording phase")
+    machine.remeasure()
+    return {"status": "ok", "phase": machine.state.phase.value}
 
 
 @router.post("/{session_id}/muse", response_model=MuseConnectionStatus)

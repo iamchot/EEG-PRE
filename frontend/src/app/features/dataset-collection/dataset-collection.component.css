@@ -17,7 +17,31 @@ p { color: #94A3B8; line-height: 1.55; } .back-link { color: #C4B5FD; text-decor
 .form-card { display: grid; gap: 16px; } label { display: grid; gap: 7px; color: #E2E8F0; font-weight: 600; }
 input, select, button { min-height: 44px; } input, select { box-sizing: border-box; width: 100%; padding: 10px 14px; border: 1px solid #334155; border-radius: 10px; background: #0B1224; color: #F8FAFC; font: inherit; transition: border-color 150ms; }
 input:focus, select:focus { outline: none; border-color: #7C3AED; box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.25); }
-.check-row { grid-template-columns: 24px 1fr; align-items: center; min-height: 44px; font-weight: 400; cursor: pointer; } .check-row input { width: 20px; min-height: 20px; }
+.check-row { grid-template-columns: 24px 1fr; align-items: center; min-height: 44px; font-weight: 400; cursor: pointer; }
+.check-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: 2px solid #475569;
+  border-radius: 6px;
+  background: #0B1224;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: all 150ms ease;
+}
+.check-row input[type="checkbox"]:hover { border-color: #7C3AED; }
+.check-row input[type="checkbox"]:checked {
+  background: #7C3AED;
+  border-color: #7C3AED;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='2.5 7 5.5 10 11.5 3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 13px 13px;
+}
 .primary { padding: 10px 20px; border: 0; border-radius: 10px; background: linear-gradient(135deg, #7C3AED, #9333EA); color: white; font: inherit; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35); transition: all 180ms ease; }
 .primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(124, 58, 237, 0.5); }
 .primary:disabled { opacity: .48; cursor: not-allowed; } :focus-visible { outline: 3px solid #C4B5FD; outline-offset: 3px; }

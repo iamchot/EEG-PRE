@@ -17,6 +17,27 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 20px;
+  border: 1px solid rgba(139, 92, 246, 0.28);
+  background: linear-gradient(145deg, rgba(17, 24, 39, 0.96), rgba(30, 27, 75, 0.35));
+}
+.result-hero .eyebrow,
+.meta-card .eyebrow,
+.rating-card .eyebrow {
+  color: var(--color-secondary);
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.result-actions .btn-primary,
+.rating-card .btn-primary {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  border-color: #7c3aed;
+  color: #fff;
+}
+.result-actions .btn-primary:hover:not(:disabled),
+.rating-card .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
 }
 .result-hero h1 {
   max-width: 760px;
@@ -96,6 +117,7 @@
   display: grid;
   gap: 16px;
   align-content: start;
+  border: 1px solid rgba(139, 92, 246, 0.25);
 }
 dl {
   display: grid;

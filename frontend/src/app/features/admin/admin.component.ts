@@ -1,5 +1,5 @@
 import { Component, OnInit, signal, computed } from '@angular/core';
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DecimalPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { FormsModule } from '@angular/forms';
@@ -8,6 +8,19 @@ import { RouterLink } from '@angular/router';
 interface ActivityBar {
   day: string;
   count: number;
+  eeg_count?: number;
+  comic_count?: number;
+}
+
+interface RecentReview {
+  id: number;
+  stars: number;
+  feedback: string | null;
+  created_at: string;
+  username: string;
+  comic_id: number;
+  input_story: string;
+  emotion: string | null;
 }
 
 interface AdminStats {
@@ -15,6 +28,8 @@ interface AdminStats {
   total_comics: number;
   emotion_distribution: Record<string, number>;
   average_rating: number;
+  rating_count?: number;
+  recent_reviews?: RecentReview[];
   active_users?: number;
   eeg_samples?: number;
   daily_activity?: ActivityBar[];
@@ -32,11 +47,12 @@ interface AdminUser {
 import { LanguageService } from '../../core/services/language.service';
 
 import { TranslatePipe } from '../../core/pipes/translate.pipe';
+import { ThaiDatePipe } from '../../core/pipes/thai-date.pipe';
 
 @Component({
   selector: 'app-admin',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, RouterLink, TranslatePipe],
+  imports: [DecimalPipe, FormsModule, RouterLink, TranslatePipe, ThaiDatePipe],
   templateUrl: './admin.component.html',
   styleUrl: './admin.component.css',
 })
@@ -45,6 +61,9 @@ export class AdminComponent implements OnInit {
   stats = signal<AdminStats | null>(null);
   users = signal<AdminUser[]>([]);
   showAddUser = signal(false);
+  creatingUser = signal(false);
+  createUserError = signal('');
+  newUser = { username: '', email: '', password: '', role: 'user' as 'user' | 'admin' };
 
   constructor(
     private http: HttpClient,
@@ -63,16 +82,25 @@ export class AdminComponent implements OnInit {
   activityBars = computed(() => {
     const raw = this.stats()?.daily_activity;
     if (raw && raw.length > 0) {
-      return raw.map((item) => ({ day: item.day, val: item.count }));
+      return raw.map((item) => ({
+        day: item.day,
+        eegVal: item.eeg_count ?? 0,
+        comicVal: item.comic_count ?? item.count ?? 0,
+      }));
     }
     return [
-      { day: 'Mon', val: 0 }, { day: 'Tue', val: 0 }, { day: 'Wed', val: 0 },
-      { day: 'Thu', val: 0 }, { day: 'Fri', val: 0 }, { day: 'Sat', val: 0 }, { day: 'Sun', val: 0 },
+      { day: 'Mon', eegVal: 0, comicVal: 0 }, { day: 'Tue', eegVal: 0, comicVal: 0 },
+      { day: 'Wed', eegVal: 0, comicVal: 0 }, { day: 'Thu', eegVal: 0, comicVal: 0 },
+      { day: 'Fri', eegVal: 0, comicVal: 0 }, { day: 'Sat', eegVal: 0, comicVal: 0 },
+      { day: 'Sun', eegVal: 0, comicVal: 0 },
     ];
   });
 
   maxActivity = computed(() => {
-    const maxVal = Math.max(...this.activityBars().map((b) => b.val), 0);
+    const maxVal = Math.max(
+      ...this.activityBars().flatMap((b) => [b.eegVal, b.comicVal]),
+      0,
+    );
     return maxVal > 0 ? Math.ceil(maxVal * 1.2) : 10;
   });
 
@@ -89,6 +117,42 @@ export class AdminComponent implements OnInit {
 
   loadUsers() {
     this.http.get<AdminUser[]>(`${environment.apiUrl}/admin/users`).subscribe((u) => this.users.set(u));
+  }
+
+  openAddUser() {
+    this.newUser = { username: '', email: '', password: '', role: 'user' };
+    this.createUserError.set('');
+    this.showAddUser.set(true);
+  }
+
+  closeAddUser() {
+    this.showAddUser.set(false);
+    this.createUserError.set('');
+  }
+
+  createUser() {
+    if (!this.newUser.username.trim() || !this.newUser.email.trim() || this.newUser.password.length < 6) {
+      this.createUserError.set(
+        this.lang.currentLang() === 'th'
+          ? 'กรุณากรอกข้อมูลให้ครบ และรหัสผ่านอย่างน้อย 6 ตัวอักษร'
+          : 'Please complete all fields (password min 6 chars)',
+      );
+      return;
+    }
+    this.creatingUser.set(true);
+    this.createUserError.set('');
+    this.http.post<AdminUser>(`${environment.apiUrl}/admin/users`, this.newUser).subscribe({
+      next: () => {
+        this.creatingUser.set(false);
+        this.closeAddUser();
+        this.loadUsers();
+        this.loadStats();
+      },
+      error: (err: { error?: { detail?: string } }) => {
+        this.creatingUser.set(false);
+        this.createUserError.set(err?.error?.detail || 'Failed to create user');
+      },
+    });
   }
 
   deactivateUser(user: AdminUser) {

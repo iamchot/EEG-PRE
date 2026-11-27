@@ -13,17 +13,17 @@ import {
   StimulusApprovalState,
 } from '../../core/services/dataset-collection.service';
 import { SensorStatus } from '../../core/services/eeg-ws.service';
-import { EegWaveformComponent } from '../../shared/components/eeg-waveform/eeg-waveform.component';
 
 type CollectionTab = 'overview' | 'participants' | 'stimuli' | 'sessions';
 
 import { LanguageService, toThaiError } from '../../core/services/language.service';
 import { TranslatePipe } from '../../core/pipes/translate.pipe';
+import { ThaiDatePipe } from '../../core/pipes/thai-date.pipe';
 
 @Component({
   selector: 'app-dataset-collection',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TranslatePipe, EegWaveformComponent],
+  imports: [CommonModule, FormsModule, RouterLink, TranslatePipe, ThaiDatePipe],
   templateUrl: './dataset-collection.component.html',
   styleUrl: './dataset-collection.component.css',
 })
@@ -100,6 +100,8 @@ export class DatasetCollectionComponent implements OnInit {
   isStimulusReady(): boolean { return !!(this.stimulus.title.trim() && this.stimulus.file_path.trim() && this.stimulus.checksum.length === 64 && this.stimulus.stimulus_set_version.trim() && this.isStimulusDurationValid()); }
   sessionActionLabel(item: CollectionSession): string | null {
     if (item.state === 'completed') return 'ดูสรุปผล';
+    const participant = this.participants().find((p) => p.id === item.participant_id);
+    if (participant?.state === 'withdrawn') return null;
     return ['preparation', 'baseline', 'ready', 'in_progress', 'interrupted'].includes(item.state) ? 'เริ่ม / ดำเนินการต่อ' : null;
   }
 
@@ -246,6 +248,14 @@ export class DatasetCollectionComponent implements OnInit {
     this.api.withdrawParticipant(p.id).subscribe({
       next: (updated) => {
         this.participants.update(list => list.map(item => item.id === updated.id ? updated : item));
+        this.sessions.update(list =>
+          list.map(sess =>
+            sess.participant_id === updated.id &&
+            ['preparation', 'baseline', 'ready', 'in_progress', 'interrupted'].includes(sess.state)
+              ? { ...sess, state: 'withdrawn' }
+              : sess
+          )
+        );
         this.participantWithdrawing.set(false);
         this.participantToWithdraw.set(null);
       },

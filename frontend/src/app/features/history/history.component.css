@@ -29,12 +29,16 @@
   text-decoration: none;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  transition: transform 200ms ease;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: transform 200ms ease, border-color 200ms ease;
   cursor: pointer;
 }
 .gallery-card:hover {
   transform: translateY(-4px);
+  border-color: var(--color-border-strong);
 }
 .gallery-card:focus-visible {
   outline: 3px solid var(--color-focus);
@@ -43,11 +47,10 @@
 .panels-preview {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 3px;
-  border-radius: 8px;
-  overflow: hidden;
+  grid-template-rows: repeat(2, 1fr);
+  gap: 2px;
   background: var(--color-surface-elevated);
-  aspect-ratio: 1;
+  aspect-ratio: 4 / 5;
 }
 .panel-mini {
   width: 100%;
@@ -65,7 +68,8 @@
 .gallery-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 16px 18px 18px;
 }
 .story-text {
   font-size: 0.875rem;

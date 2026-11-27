@@ -36,7 +36,7 @@
             }
           </div>
           <time class="comic-date" [attr.datetime]="comic.created_at">
-            {{ comic.created_at | date:'d MMM yyyy HH:mm' }}
+            {{ comic.created_at | thaiDate:'d MMM yyyy HH:mm' }}
           </time>
         </div>
       </a>

@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 
 export interface Comic {
@@ -38,19 +39,41 @@ export interface RatingCreate {
 @Injectable({ providedIn: 'root' })
 export class ComicService {
   private readonly url = `${environment.apiUrl}/comics`;
+  private readonly backendOrigin = (() => {
+    try {
+      return new URL(environment.apiUrl).origin;
+    } catch {
+      return '';
+    }
+  })();
 
   constructor(private http: HttpClient) {}
 
+  private resolvePanelUrl(path: string | null): string | null {
+    if (!path || !path.startsWith('/') || !this.backendOrigin) return path;
+    return `${this.backendOrigin}${path}`;
+  }
+
+  private normalizeComic = (c: Comic): Comic => ({
+    ...c,
+    panel_1_url: this.resolvePanelUrl(c.panel_1_url),
+    panel_2_url: this.resolvePanelUrl(c.panel_2_url),
+    panel_3_url: this.resolvePanelUrl(c.panel_3_url),
+    panel_4_url: this.resolvePanelUrl(c.panel_4_url),
+  });
+
   generate(body: ComicGenerateRequest) {
-    return this.http.post<Comic>(`${this.url}/generate`, body);
+    return this.http.post<Comic>(`${this.url}/generate`, body).pipe(map(this.normalizeComic));
   }
 
   getAll(skip = 0, limit = 20) {
-    return this.http.get<Comic[]>(this.url, { params: { skip, limit } });
+    return this.http
+      .get<Comic[]>(this.url, { params: { skip, limit } })
+      .pipe(map((list) => list.map(this.normalizeComic)));
   }
 
   getById(id: number) {
-    return this.http.get<Comic>(`${this.url}/${id}`);
+    return this.http.get<Comic>(`${this.url}/${id}`).pipe(map(this.normalizeComic));
   }
 
   submitRating(body: RatingCreate) {

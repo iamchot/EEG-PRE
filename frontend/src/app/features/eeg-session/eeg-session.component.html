@@ -7,7 +7,7 @@
     </div>
     <div class="service-status" [class.online]="connectionStatus().state === 'connected'" [class.connected]="connectionStatus().state === 'connected'" role="status">
       <span class="status-dot" aria-hidden="true"></span>
-      {{ connectionStatus().state === 'connected' ? 'Muse Connected' : 'Muse Setup' }}
+      {{ connectionStatus().state === 'connected' ? ('session.muse_connected' | translate) : ('session.muse_setup' | translate) }}
     </div>
   </header>
 
@@ -44,20 +44,20 @@
             [class.busy]="isConnecting()"
             [class.failed]="btState() === 'failed'"
           >
-          <p class="section-kicker">Step 1</p>
-          <h2>เชื่อมต่อ Muse 2 ผ่าน Web Bluetooth</h2>
-          <p>กดปุ่มด้านล่าง — เบราว์เซอร์จะเปิดหน้าต่างให้เลือก Muse 2 ของคุณ</p>
+          <p class="section-kicker">{{ 'session.step1_kicker' | translate }}</p>
+          <h2>{{ 'session.connect_h2' | translate }}</h2>
+          <p>{{ 'session.connect_desc' | translate }}</p>
 
           @if (!museBt.isSupported) {
             <div class="inline-message warning">
-              เบราว์เซอร์นี้ไม่รองรับ Web Bluetooth — กรุณาใช้ Chrome หรือ Edge
+              {{ 'session.no_bt' | translate }}
             </div>
           }
           @if (isConnecting()) {
             <div class="device-status busy" role="status">
               <span class="spinner" aria-hidden="true"></span>
-              <strong>กำลังเชื่อมต่อ Muse 2…</strong>
-              <span>เปิด Muse 2 ให้ไฟกะพริบ แล้วเลือกในหน้าต่างที่ปรากฏขึ้น</span>
+              <strong>{{ 'session.connecting_msg' | translate }}</strong>
+              <span>{{ 'session.connecting_hint' | translate }}</span>
             </div>
           } @else {
             <button id="btn-scan" class="btn primary-action" (click)="scanDevices()"
@@ -72,7 +72,7 @@
         }
 
         @case ('prepare') {
-          <p class="section-kicker">Step 2</p>
+          <p class="section-kicker">{{ 'session.step2' | translate }}</p>
           <h2>{{ 'session.fitting_guide' | translate }}</h2>
           <p>{{ 'session.fitting_desc' | translate }}</p>
           <ol class="fitting-list">
@@ -108,36 +108,47 @@
           <div class="baseline-stage-card">
             <span class="eyebrow">
               {{ eegWs.baselineSubphase() === 'eyes_open'
-                  ? (lang.currentLang() === 'th' ? 'การวัดค่าพื้นฐาน 1 จาก 2 : ลืมตา' : 'Baseline 1 of 2 : Eyes Open')
-                  : (lang.currentLang() === 'th' ? 'การวัดค่าพื้นฐาน 2 จาก 2 : หลับตา' : 'Baseline 2 of 2 : Eyes Closed') }}
+                  ? ('session.baseline_eyes_open_eyebrow' | translate)
+                  : ('session.baseline_eyes_closed_eyebrow' | translate) }}
             </span>
             <h2>
               {{ eegWs.baselineSubphase() === 'eyes_open'
-                  ? (lang.currentLang() === 'th' ? 'ลืมตาและมองจุดกึ่งกลาง (60 วินาที)' : 'Eyes Open & Look at Center (60s)')
-                  : (lang.currentLang() === 'th' ? 'หลับตาและอยู่นิ่ง (60 วินาที)' : 'Eyes Closed & Rest Quietly (60s)') }}
+                  ? ('session.baseline_eyes_open_title' | translate)
+                  : ('session.baseline_eyes_closed_title' | translate) }}
             </h2>
             <p>
               {{ eegWs.baselineSubphase() === 'eyes_open'
-                  ? (lang.currentLang() === 'th' ? 'นั่งผ่อนคลาย ลืมตามองตรงไปข้างหน้า ระบบต้องการเวลารวม 60 วินาที และคลื่นสะอาดอย่างน้อย 30 วินาที' : 'Relax, keep eyes open looking straight. Requires 60s total with at least 30s clean signal.')
-                  : (lang.currentLang() === 'th' ? 'หลับตาสบายๆ หายใจเข้าออกช้าๆ ระบบต้องการเวลารวม 60 วินาที และคลื่นสะอาดอย่างน้อย 30 วินาที' : 'Close eyes comfortably and breathe gently. Requires 60s total with at least 30s clean signal.') }}
+                  ? ('session.baseline_eyes_open_desc' | translate)
+                  : ('session.baseline_eyes_closed_desc' | translate) }}
             </p>
+
+            @if (eegWs.baselineSubphase() === 'eyes_open') {
+              <div class="fixation-cross-wrap" [attr.aria-label]="'session.baseline_fixation_label' | translate">
+                <span class="fixation-cross" aria-hidden="true">+</span>
+              </div>
+            }
 
             <div class="baseline-kpis">
               <div class="timer-block">
-                <strong>{{ Math.max(0, 60 - eegWs.baselineWallSeconds()) | number:'1.0-0' }}</strong>
-                <span>{{ lang.currentLang() === 'th' ? 'วินาทีเวลารวม (Wall clock)' : 'wall seconds left' }}</span>
+                @if (eegWs.baselineWallSeconds() >= 60 && eegWs.baselineCleanSeconds() < 30) {
+                  <strong>{{ Math.max(0, 120 - eegWs.baselineWallSeconds()) | number:'1.0-0' }}</strong>
+                  <span>{{ lang.currentLang() === 'th' ? 'วินาทีสำรอง (รอคลื่นสะอาด)' : 'Extra sec (waiting clean EEG)' }}</span>
+                } @else {
+                  <strong>{{ Math.max(0, 60 - eegWs.baselineWallSeconds()) | number:'1.0-0' }}</strong>
+                  <span>{{ 'session.baseline_wall_left' | translate }}</span>
+                }
               </div>
               <div class="timer-block clean-kpi">
                 <strong [class.target-met]="eegWs.baselineCleanSeconds() >= 30">
                   {{ eegWs.baselineCleanSeconds() | number:'1.0-0' }} / 30
                 </strong>
-                <span>{{ lang.currentLang() === 'th' ? 'วินาทีคลื่นสะอาด (เป้าหมาย 30 วิ)' : 'clean seconds (goal: 30s)' }}</span>
+                <span>{{ 'session.baseline_clean_goal' | translate }}</span>
               </div>
             </div>
 
             <div class="baseline-progress-wrap">
               <div class="baseline-progress-label">
-                <span>{{ lang.currentLang() === 'th' ? 'ความคืบหน้าคลื่นสะอาด' : 'Clean Signal Progress' }}</span>
+                <span>{{ 'session.baseline_clean_progress' | translate }}</span>
                 <span>{{ Math.min(100, (eegWs.baselineCleanSeconds() / 30) * 100) | number:'1.0-0' }}%</span>
               </div>
               <progress class="session-progress" max="30" [value]="Math.min(30, eegWs.baselineCleanSeconds())">{{ eegWs.baselineCleanSeconds() }} / 30</progress>
@@ -145,72 +156,135 @@
 
             @if (!eegWs.allSensorsGood()) {
               <div class="alert alert-warning">
-                {{ lang.currentLang() === 'th' ? 'สัญญาณบางจุดไม่นิ่ง กรุณานิ่งไว้เพื่อให้คลื่นสะอาดนับต่อ' : 'Signal noise detected. Please hold still to continue accumulating clean seconds.' }}
+                {{ 'session.baseline_noisy' | translate }}
+              </div>
+            } @else if (eegWs.baselineWallSeconds() >= 60 && eegWs.baselineCleanSeconds() < 30) {
+              <div class="alert alert-info">
+                {{ lang.currentLang() === 'th'
+                  ? 'ครบ 60 วินาทีแล้ว — ระบบกำลังเก็บคลื่นสะอาดเพิ่มให้ครบ 30 วินาที (สูงสุด 120 วิ)'
+                  : '60s reached — collecting remaining clean EEG up to 30s (max 120s)' }}
               </div>
             } @else if (eegWs.baselineCleanSeconds() >= 30 && eegWs.baselineWallSeconds() < 60) {
               <div class="alert alert-info">
-                {{ lang.currentLang() === 'th' ? 'คลื่นสะอาดครบ 30 วินาทีแล้ว กำลังบันทึกให้ครบเวลา 60 วินาที...' : '30s clean signal reached! Completing 60s total window...' }}
+                {{ 'session.baseline_30s_done' | translate }}
               </div>
             }
           </div>
         }
 
         @case ('ready') {
-          <span class="eyebrow">Story Prompt & Persona</span>
-          <h2>Ready to record EEG stream</h2>
-          <p>Enter your story prompt and select a persona before starting 30s EEG stream recording.</p>
+          <span class="eyebrow">{{ 'session.ready_eyebrow' | translate }}</span>
+          <h2>{{ 'session.ready_title' | translate }}</h2>
+          <p>{{ 'session.ready_desc' | translate }}</p>
           <div class="form-group">
-            <label class="form-label" for="input-story">Story prompt</label>
-            <textarea id="input-story" class="form-textarea" [(ngModel)]="inputStory" placeholder="e.g. A young girl finds a glowing magic book and gets pulled into a dream world..."></textarea>
+            <label class="form-label" for="input-story">{{ 'session.story_prompt_label' | translate }}</label>
+            <textarea id="input-story" class="form-textarea" [(ngModel)]="inputStory" [placeholder]="'session.story_placeholder' | translate"></textarea>
           </div>
           <div class="form-group">
-            <label class="form-label" for="persona-select">Persona</label>
+            <label class="form-label" for="persona-select">{{ 'session.persona_label' | translate }}</label>
             <select id="persona-select" class="form-select" [(ngModel)]="selectedPersonaId">
-              <option [ngValue]="null">No persona selected</option>
-              @for (p of personas(); track p.id) { <option [ngValue]="p.id">{{ p.persona_name }} · {{ p.art_style }}</option> }
+              <option [ngValue]="null">{{ 'session.persona_none' | translate }}</option>
+              @for (p of personas(); track p.id) { <option [ngValue]="p.id">{{ p.persona_name }}</option> }
             </select>
           </div>
-          <button class="btn btn-primary btn-lg" (click)="startRecording()" [disabled]="!inputStory.trim()">Start Recording Stream</button>
+          <div class="form-group">
+            <label class="form-label" for="art-style-select">{{ lang.currentLang() === 'th' ? 'สไตล์ภาพการ์ตูน' : 'Comic Art Style' }}</label>
+            <select id="art-style-select" class="form-select" [(ngModel)]="selectedArtStyle">
+              @for (style of artStyles; track style) {
+                <option [value]="style">{{ style }}</option>
+              }
+            </select>
+          </div>
+          <button class="btn btn-primary btn-lg" (click)="startRecording()" [disabled]="!inputStory.trim()">{{ 'session.start_recording' | translate }}</button>
         }
 
         @case ('record') {
-          <span class="eyebrow">EEG Recording Stream</span>
-          <h2>{{ currentPhase() === 'PAUSED_SIGNAL_QUALITY' ? 'Paused by signal quality' : 'Recording 30s Clean EEG' }}</h2>
-          <p>Only good quality seconds across all 4 channels count toward the 30s target.</p>
+          <span class="eyebrow">{{ 'session.record_eyebrow' | translate }}</span>
+          <h2>{{ currentPhase() === 'PAUSED_SIGNAL_QUALITY' ? ('session.record_paused_title' | translate) : ('session.record_title' | translate) }}</h2>
+          <p>{{ 'session.record_desc' | translate }}</p>
           <div class="record-meter">
-            <strong>{{ eegWs.acceptedSeconds() | number:'1.0-0' }} / 30 sec</strong>
-            <progress class="session-progress" [class.paused]="currentPhase() === 'PAUSED_SIGNAL_QUALITY'" max="30" [value]="eegWs.acceptedSeconds()">{{ eegWs.acceptedSeconds() }} / 30</progress>
-            <small>Wall clock {{ eegWs.wallClockSeconds() | number:'1.0-0' }} / 120 sec</small>
+            <div class="record-meter-header">
+              <strong>{{ displayAcceptedSeconds() | number:'1.0-0' }} / 30 sec</strong>
+              <span class="record-percentage">{{ Math.min(100, (displayAcceptedSeconds() / 30) * 100) | number:'1.0-0' }}%</span>
+            </div>
+            <progress class="session-progress" [class.paused]="currentPhase() === 'PAUSED_SIGNAL_QUALITY'" max="30" [value]="Math.min(30, displayAcceptedSeconds())">{{ displayAcceptedSeconds() }} / 30</progress>
+            <small>{{ 'session.record_wall_clock' | translate }} {{ eegWs.wallClockSeconds() | number:'1.0-0' }} / 120 sec</small>
           </div>
-          @if (currentPhase() === 'PAUSED_SIGNAL_QUALITY') { <div class="alert alert-warning">หยุดชั่วคราวที่ {{ eegWs.acceptedSeconds() | number:'1.0-0' }} วินาที — สัญญาณไม่นิ่ง กรุณาปรับสายคาด Muse 2 ให้เซนเซอร์เขียวครบ 4 จุด</div> }
-          <button class="btn btn-destructive btn-sm" (click)="cancelSession()">Cancel Session</button>
+          @if (currentPhase() === 'PAUSED_SIGNAL_QUALITY') {
+            <div class="alert alert-warning">
+              {{ 'session.record_paused_msg' | translate }}
+            </div>
+          }
+          <div class="record-actions">
+            <button class="btn btn-secondary btn-sm" (click)="retryRecording()">{{ 'session.retry_recording' | translate }}</button>
+            <button class="btn btn-destructive btn-sm" (click)="cancelSession()">{{ 'session.cancel_session' | translate }}</button>
+          </div>
         }
 
         @case ('emotion') {
-          <span class="eyebrow">EEG Emotion Analysis</span>
-          <h2>Confirm Emotion Classification</h2>
-          <div class="emotion-card"><span>{{ emotionLabel(detectedEmotion()) }}</span><strong>{{ detectedEmotion() || 'Analyzed emotion' }}</strong><small>Confirm emotion to generate comic panels via ComfyUI & Gemini</small></div>
-          <div class="inline-actions"><button class="btn btn-primary btn-lg" (click)="confirmEmotion()">Generate Comic with ComfyUI</button><button class="btn btn-secondary" (click)="remeasure()">Remeasure</button></div>
+          <span class="eyebrow">{{ 'session.emotion_eyebrow' | translate }}</span>
+          <h2>{{ 'session.emotion_title' | translate }}</h2>
+          <div class="emotion-card"><span>{{ emotionLabel(detectedEmotion()) }}</span><strong>{{ detectedEmotion() || 'Analyzed emotion' }}</strong><small>{{ 'session.emotion_confirm_desc' | translate }}</small></div>
+          @if (eegWs.recordingQualityWarning()) {
+            <div class="alert alert-warning" role="alert">
+              {{ lang.currentLang() === 'th'
+                ? 'คลื่นสมองช่วงบันทึกมีสัญญาณรบกวนสูงหรือข้อมูลสะอาดไม่พอ ระบบจึงใช้ค่าประมาณการแทน (แม้เซนเซอร์จะขึ้นสีเขียว) แนะนำให้กด "วัดซ้ำอีกครั้ง" เพื่อความแม่นยำ'
+                : 'Clean EEG epochs were insufficient during recording (due to noise or movement). Estimated fallback values were used; consider clicking Remeasure.' }}
+            </div>
+          }
+          @if (generateError()) {
+            <div class="device-status failed" role="alert">{{ generateError() }}</div>
+          }
+          <div class="inline-actions"><button class="btn btn-primary btn-lg" (click)="confirmEmotion()">{{ 'session.generate_comic_btn' | translate }}</button><button class="btn btn-secondary" (click)="remeasure()">{{ 'session.remeasure_btn' | translate }}</button></div>
         }
 
         @case ('generate') {
-          <span class="eyebrow">ComfyUI & Gemini Pipeline</span>
-          <h2>Creating your Dream Comic</h2>
-          <div class="timeline"><span class="done">Analyze EEG Emotion</span><span class="done">Create Story with Gemini</span><span>Generate Comic Panels via ComfyUI</span><span>Save Result</span></div>
-          <div class="alert alert-info"><span class="spinner"></span> กำลังสร้างคอมิก 4 ช่องผ่าน Local ComfyUI pipeline...</div>
+          <span class="eyebrow">{{ 'session.generate_eyebrow' | translate }}</span>
+          <h2>{{ 'session.generate_title' | translate }}</h2>
+          <div class="timeline">
+            <span class="done">{{ 'session.gen_step1' | translate }}</span>
+            <span class="done">{{ 'session.gen_step2' | translate }}</span>
+            <span>{{ 'session.gen_step3' | translate }}</span>
+            <span>{{ 'session.gen_step4' | translate }}</span>
+          </div>
+          <div class="alert alert-info"><span class="spinner"></span> {{ 'session.gen_loading' | translate }}</div>
+        }
+
+        @case ('timeout') {
+          <span class="eyebrow">{{ 'session.state_eyebrow' | translate }}</span>
+          <h2>{{ 'session.timeout_title' | translate }}</h2>
+          <p>{{ 'session.timeout_desc' | translate }}</p>
+          <div class="alert alert-warning">
+            {{ 'session.timeout_tip' | translate }}
+          </div>
+          <div class="inline-actions">
+            <button class="btn btn-primary btn-lg" (click)="retryRecording()">
+              {{ 'session.retry_recording' | translate }}
+            </button>
+            <button class="btn btn-secondary" (click)="restart()">
+              {{ 'session.restart_entire_session' | translate }}
+            </button>
+          </div>
         }
 
         @default {
-          <span class="eyebrow">Session State</span>
-          <h2>{{ currentPhase() }}</h2>
-          <p>{{ eegWs.latestMessage()?.reason || 'Waiting for status update from backend' }}</p>
-          <button class="btn btn-secondary" (click)="restart()">Restart Session</button>
+          <span class="eyebrow">{{ 'session.state_eyebrow' | translate }}</span>
+          <h2>{{ currentPhaseLabel() }}</h2>
+          <p>{{ phaseReason() }}</p>
+          <div class="inline-actions">
+            <button class="btn btn-primary btn-lg" (click)="retryRecording()">
+              {{ 'session.retry_recording' | translate }}
+            </button>
+            <button class="btn btn-secondary" (click)="restart()">
+              {{ 'session.restart_session' | translate }}
+            </button>
+          </div>
         }
       }
     </article>
   </section>
 
   <p class="entertainment-note">
-    Subconscious emotion data is processed for creative comic story generation — not medical diagnosis.
+    {{ 'session.entertainment_note' | translate }}
   </p>
 </main>

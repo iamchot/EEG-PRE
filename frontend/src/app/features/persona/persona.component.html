@@ -16,31 +16,15 @@
     </button>
   </div>
 
-  <!-- Art Style Filter -->
-  <div class="style-filters">
-    @for (s of artStyles; track s) {
-      <button
-        class="style-chip"
-        [class.active]="filterStyle() === s"
-        (click)="filterStyle.set(filterStyle() === s ? null : s)"
-      >
-        {{ s }}
-      </button>
-    }
-  </div>
-
   <!-- Persona Cards -->
   <div class="persona-grid">
-    @for (p of filteredPersonas(); track p.id) {
+    @for (p of personas(); track p.id) {
       <div class="persona-card">
         <div class="persona-avatar">{{ p.persona_name[0].toUpperCase() }}</div>
         <div class="persona-info">
           <div class="persona-name">{{ p.persona_name }}</div>
           <div class="persona-detail">
-            {{ p.appearance || ("persona.no_detail" | translate) }}
-          </div>
-          <div class="persona-badges">
-            <span class="style-badge">{{ p.art_style }}</span>
+            {{ formatAppearance(p) || ("persona.no_detail" | translate) }}
           </div>
         </div>
         <div class="persona-actions">
@@ -169,9 +153,8 @@
               </div>
             </div>
 
-            <div class="col-title" style="margin-top: 8px">
-              {{ "persona.outfit" | translate }} &
-              {{ "persona.distinctive" | translate }}
+            <div class="col-title">
+              {{ "persona.outfit" | translate }}
             </div>
 
             <div class="form-group">
@@ -183,7 +166,11 @@
                 class="form-input"
                 [(ngModel)]="form.outfit"
                 name="outfit"
-                placeholder="เช่น School uniform, Casual hoodie"
+                [placeholder]="
+                  lang.currentLang() === 'th'
+                    ? 'เช่น เสื้อฮู้ดสีแดง กางเกงยีนส์สีดำ'
+                    : 'e.g. Red hoodie, black jeans'
+                "
               />
             </div>
 
@@ -196,24 +183,12 @@
                 class="form-input"
                 [(ngModel)]="form.distinctive"
                 name="distinctive"
-                placeholder="เช่น Glasses, Earring, Scar on cheek"
+                [placeholder]="
+                  lang.currentLang() === 'th'
+                    ? 'เช่น แว่นตา ต่างหู ผ้าพันคอ'
+                    : 'e.g. Glasses, earring, scarf'
+                "
               />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label" for="pf-style">{{
-                "persona.style" | translate
-              }}</label>
-              <select
-                id="pf-style"
-                class="form-select"
-                [(ngModel)]="form.art_style"
-                name="art_style"
-              >
-                @for (s of artStyles; track s) {
-                  <option [value]="s">{{ s }}</option>
-                }
-              </select>
             </div>
           </div>
 
@@ -222,28 +197,40 @@
             <div class="col-title">{{ "persona.appearance" | translate }}</div>
 
             <div class="form-group">
-              <label class="form-label" for="pf-face">{{
-                "persona.face" | translate
-              }}</label>
-              <input
-                id="pf-face"
-                class="form-input"
-                [(ngModel)]="form.face_features"
-                name="face_features"
-                placeholder="เช่น Slim face, Big round eyes"
-              />
-            </div>
-
-            <div class="form-group">
               <label class="form-label" for="pf-hair">{{
-                "persona.hair" | translate
+                lang.currentLang() === "th"
+                  ? "ทรงผมและสีผม (สำคัญ)"
+                  : "Hair Style & Color (Key)"
               }}</label>
               <input
                 id="pf-hair"
                 class="form-input"
                 [(ngModel)]="form.hairstyle"
                 name="hairstyle"
-                placeholder="เช่น Short black hair, Long wavy blonde hair"
+                [placeholder]="
+                  lang.currentLang() === 'th'
+                    ? 'เช่น ผมสั้นสีดำ / ผมยาวสีน้ำตาล'
+                    : 'e.g. Short black hair, Long brown hair'
+                "
+              />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="pf-face">{{
+                lang.currentLang() === "th"
+                  ? "ลักษณะหน้าตาและสีตา"
+                  : "Face & Eye Color"
+              }}</label>
+              <input
+                id="pf-face"
+                class="form-input"
+                [(ngModel)]="form.face_features"
+                name="face_features"
+                [placeholder]="
+                  lang.currentLang() === 'th'
+                    ? 'เช่น ตาสีน้ำตาล หน้าคม ยิ้มอ่อนโยน'
+                    : 'e.g. Brown eyes, sharp face'
+                "
               />
             </div>
 
@@ -255,13 +242,15 @@
                 </div>
                 <div class="preview-info">
                   <div class="preview-name">{{ form.persona_name }}</div>
-                  @if (form.age) {
-                    <div class="preview-meta">
-                      {{ "persona.age" | translate }} {{ form.age }} ·
-                      {{ form.gender }}
-                    </div>
-                  }
-                  <div class="preview-style">{{ form.art_style }}</div>
+                  <div class="preview-meta">
+                    {{ form.gender }}
+                    @if (form.age) {
+                      · {{ "persona.age" | translate }} {{ form.age }}
+                    }
+                    @if (form.hairstyle) {
+                      · {{ form.hairstyle }}
+                    }
+                  </div>
                 </div>
               </div>
             }

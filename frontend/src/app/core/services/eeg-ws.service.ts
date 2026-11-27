@@ -37,6 +37,8 @@ export interface EEGMessage {
   eyes_open_complete?: boolean;
   eyes_closed_complete?: boolean;
   ready: boolean;
+  emotion?: string | null;
+  recording_quality_warning?: string | null;
   reason?: string;
   error_code?: string;
 }
@@ -45,6 +47,7 @@ export interface EEGMessage {
 export class EegWsService {
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingCommands: object[] = [];
 
   readonly latestMessage = signal<EEGMessage | null>(null);
   readonly phase = computed(() => this.latestMessage()?.phase ?? 'DISCOVERING');
@@ -68,6 +71,8 @@ export class EegWsService {
   readonly eyesClosedComplete = computed(() => this.latestMessage()?.eyes_closed_complete ?? false);
   readonly wallClockSeconds = computed(() => this.latestMessage()?.wall_clock_seconds ?? 0);
   readonly ready = computed(() => this.latestMessage()?.ready ?? false);
+  readonly detectedEmotion = computed(() => this.latestMessage()?.emotion ?? '');
+  readonly recordingQualityWarning = computed(() => this.latestMessage()?.recording_quality_warning ?? null);
   readonly isConnected = signal(false);
 
   constructor(private auth: AuthService) {}
@@ -78,7 +83,13 @@ export class EegWsService {
     const url = `${environment.wsUrl}/sessions/ws/${sessionId}${token ? `?token=${token}` : ''}`;
     this.ws = new WebSocket(url);
 
-    this.ws.onopen = () => this.isConnected.set(true);
+    this.ws.onopen = () => {
+      this.isConnected.set(true);
+      const queued = this.pendingCommands.splice(0);
+      for (const cmd of queued) {
+        this.ws?.send(JSON.stringify(cmd));
+      }
+    };
 
     this.ws.onmessage = (event) => {
       try {
@@ -102,6 +113,7 @@ export class EegWsService {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.pendingCommands = [];
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.close();
@@ -113,6 +125,11 @@ export class EegWsService {
   send(cmd: object) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(cmd));
+    } else if (
+      this.ws?.readyState === WebSocket.CONNECTING &&
+      (cmd as { cmd?: string }).cmd !== 'eeg_sample'
+    ) {
+      this.pendingCommands.push(cmd);
     }
   }
 

@@ -211,10 +211,32 @@ def withdraw_participant(participant_id: int, admin: AdminUser, db: Session = De
     participant = db.get(DatasetParticipant, participant_id)
     if participant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
-    if participant.state == ParticipantState.withdrawn:
-        return participant
-    participant.state = ParticipantState.withdrawn
-    participant.withdrawn_at = datetime.now()
+
+    now = datetime.now()
+    if participant.state != ParticipantState.withdrawn:
+        participant.state = ParticipantState.withdrawn
+        participant.withdrawn_at = now
+
+    unfinished_states = (
+        CollectionSessionState.preparation,
+        CollectionSessionState.baseline,
+        CollectionSessionState.ready,
+        CollectionSessionState.in_progress,
+        CollectionSessionState.interrupted,
+    )
+    open_sessions = list(
+        db.scalars(
+            select(CollectionSession).where(
+                CollectionSession.participant_id == participant_id,
+                CollectionSession.state.in_(unfinished_states),
+            )
+        )
+    )
+    for sess in open_sessions:
+        sess.state = CollectionSessionState.withdrawn
+        if sess.completed_at is None:
+            sess.completed_at = now
+
     db.commit()
     db.refresh(participant)
     return participant

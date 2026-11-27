@@ -522,9 +522,38 @@ button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-.artifact-card {
+.stimulus-side {
+  display: grid;
+  gap: 16px;
   position: sticky;
   top: 18px;
+  align-content: start;
+}
+.artifact-card {
+  position: static;
+}
+.artifact-toast {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  background: rgba(6, 78, 59, 0.35);
+  color: #a7f3d0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.sensor-card {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  background: rgba(15, 23, 42, 0.88);
+  display: grid;
+  gap: 12px;
+}
+.sensor-card-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #e2e8f0;
 }
 .artifact-grid {
   display: grid;

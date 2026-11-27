@@ -1,63 +1,108 @@
 <main class="comic-shell">
   @if (loading()) {
-    <section class="loading-card card"><span class="spinner"></span><p>Loading your Dream Comic...</p></section>
+    <section class="loading-card card">
+      <span class="spinner"></span>
+      <p>{{ lang.currentLang() === 'th' ? 'กำลังโหลดการ์ตูนของคุณ...' : 'Loading your Dream Comic...' }}</p>
+    </section>
   }
 
   @if (comic()) {
     <section class="result-hero card animate-fade-in">
       <div>
-        <span class="eyebrow">Your Dream Comic</span>
+        <span class="eyebrow">{{ lang.currentLang() === 'th' ? 'การ์ตูนจากคลื่นสมองของคุณ' : 'Your Dream Comic' }}</span>
         <h1>{{ comic()!.input_story }}</h1>
         <div class="meta-row">
-          <span class="badge badge-accent">Emotion: {{ comic()!.emotion || 'N/A' }}</span>
-          <span class="badge badge-neutral">Persona: {{ comic()!.persona_name || 'Default' }}</span>
-          <span class="badge badge-neutral">{{ comic()!.created_at | date:'dd MMM yyyy' }}</span>
+          <span class="badge badge-accent"
+            >{{ lang.currentLang() === 'th' ? 'อารมณ์: ' : 'Emotion: ' }}{{ emotionLabel(comic()!.emotion) }}</span
+          >
+          <span class="badge badge-neutral"
+            >{{ lang.currentLang() === 'th' ? 'ตัวละคร: ' : 'Persona: ' }}{{ comic()!.persona_name || (lang.currentLang() === 'th' ? 'ทั่วไป' : 'Default') }}</span
+          >
+          <span class="badge badge-neutral">{{
+            comic()!.created_at | thaiDate: "dd MMM yyyy HH:mm"
+          }}</span>
         </div>
       </div>
       <div class="result-actions">
-        <a routerLink="/eeg-session" class="btn btn-primary">Generate Again</a>
-        <a routerLink="/dashboard" class="btn btn-secondary">Dashboard</a>
+        <a routerLink="/eeg-session" class="btn btn-primary">{{ lang.currentLang() === 'th' ? 'สร้างเรื่องใหม่' : 'Generate Again' }}</a>
+        <a routerLink="/dashboard" class="btn btn-secondary">{{ lang.currentLang() === 'th' ? 'แดชบอร์ด' : 'Dashboard' }}</a>
       </div>
     </section>
 
     <section class="comic-board card" aria-label="4-panel comic result">
-      @for (i of [1,2,3,4]; track i) {
+      @for (i of [1, 2, 3, 4]; track i) {
         <article class="panel-card">
-          <div class="panel-top"><span>Panel {{ i }}</span><small>{{ panelCaption(i) }}</small></div>
+          <div class="panel-top">
+            <span>{{ lang.currentLang() === 'th' ? 'ช่องที่ ' + i : 'Panel ' + i }}</span
+            ><small>{{ panelCaption(i) }}</small>
+          </div>
           @if (getPanelUrl(i)) {
-            <img class="panel-image" [src]="getPanelUrl(i)!" [alt]="'Comic panel ' + i" loading="lazy" />
+            <img
+              class="panel-image"
+              [src]="getPanelUrl(i)!"
+              [alt]="'Comic panel ' + i"
+              loading="lazy"
+            />
           } @else {
-            <div class="panel-placeholder">Panel image pending</div>
+            <div class="panel-placeholder">{{ lang.currentLang() === 'th' ? 'ยังไม่มีภาพในช่องนี้' : 'Panel image pending' }}</div>
           }
-          @if (getPanelDialogue(i)) { <p class="dialogue">{{ getPanelDialogue(i) }}</p> }
+          @if (getPanelDialogue(i)) {
+            <p class="dialogue">{{ getPanelDialogue(i) }}</p>
+          }
         </article>
       }
     </section>
 
     <section class="detail-grid">
       <article class="card meta-card">
-        <span class="eyebrow">Generation Metadata</span>
+        <span class="eyebrow">{{ lang.currentLang() === 'th' ? 'ข้อมูลการสร้างภาพ' : 'Generation Metadata' }}</span>
         <dl>
-          <div><dt>Model</dt><dd>Counterfeit-V3.0</dd></div>
-          <div><dt>Seed</dt><dd>0</dd></div>
-          <div><dt>Layout</dt><dd>2 × 2 Comic Panels</dd></div>
-          <div><dt>Session</dt><dd>{{ comic()!.session_id || 'No EEG session' }}</dd></div>
+          <div>
+            <dt>{{ lang.currentLang() === 'th' ? 'โมเดลภาพ' : 'Model' }}</dt>
+            <dd>Counterfeit-V3.0</dd>
+          </div>
+          <div>
+            <dt>{{ lang.currentLang() === 'th' ? 'รูปแบบ' : 'Layout' }}</dt>
+            <dd>{{ lang.currentLang() === 'th' ? 'คอมิก 2 × 2 ช่อง' : '2 × 2 Comic Panels' }}</dd>
+          </div>
+          <div>
+            <dt>{{ lang.currentLang() === 'th' ? 'รอบการวัดคลื่นสมอง' : 'Session' }}</dt>
+            <dd>{{ comic()!.session_id ? '#' + comic()!.session_id : (lang.currentLang() === 'th' ? 'ไม่มี' : 'None') }}</dd>
+          </div>
         </dl>
       </article>
 
       <article class="card rating-card">
-        <span class="eyebrow">Feedback</span>
-        <h2>ให้คะแนนผลงาน</h2>
+        <span class="eyebrow">{{ lang.currentLang() === 'th' ? 'แบบประเมิน' : 'Feedback' }}</span>
+        <h2>{{ lang.currentLang() === 'th' ? 'ให้คะแนนผลงาน' : 'Rate This Comic' }}</h2>
         @if (!ratingSubmitted()) {
           <div class="stars" role="group" aria-label="Rating">
-            @for (star of [1,2,3,4,5]; track star) {
-              <button [class.active]="rating() >= star" (click)="rating.set(star)" [attr.aria-label]="star + ' stars'">★</button>
+            @for (star of [1, 2, 3, 4, 5]; track star) {
+              <button
+                [class.active]="rating() >= star"
+                (click)="rating.set(star)"
+                [attr.aria-label]="star + ' stars'"
+              >
+                ★
+              </button>
             }
           </div>
-          <textarea class="form-textarea" [(ngModel)]="feedback" placeholder="ข้อเสนอแนะเพิ่มเติม"></textarea>
-          <button class="btn btn-primary" (click)="submitRating()" [disabled]="rating() === 0">Submit Rating</button>
+          <textarea
+            class="form-textarea"
+            [(ngModel)]="feedback"
+            [placeholder]="lang.currentLang() === 'th' ? 'ข้อเสนอแนะเพิ่มเติม' : 'Optional feedback'"
+          ></textarea>
+          <button
+            class="btn btn-primary"
+            (click)="submitRating()"
+            [disabled]="rating() === 0"
+          >
+            {{ lang.currentLang() === 'th' ? 'ส่งคะแนนรีวิว' : 'Submit Rating' }}
+          </button>
         } @else {
-          <div class="alert alert-success">ขอบคุณสำหรับ feedback — ใช้ปรับคุณภาพคอมิกต่อได้</div>
+          <div class="alert alert-success">
+            {{ lang.currentLang() === 'th' ? 'ขอบคุณสำหรับคำแนะนำ — จะนำไปใช้ปรับปรุงคุณภาพต่อไป' : 'Thank you for your feedback!' }}
+          </div>
         }
       </article>
     </section>

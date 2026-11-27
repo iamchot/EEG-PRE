@@ -142,24 +142,35 @@
   gap: 8px;
 }
 .icon-btn {
-  width: 34px;
+  min-width: 64px;
   height: 34px;
+  padding: 0 14px;
   border-radius: 8px;
-  padding: 18px;
-  border: none;
-  background: rgba(178, 178, 234, 0.8);
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #e2e8f0;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
-  transition: background 150ms;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: all 150ms ease;
 }
 .icon-btn:hover {
-  background: #7898ca;
+  background: rgba(124, 58, 237, 0.2);
+  border-color: rgba(167, 139, 250, 0.5);
+  color: #f8fafc;
+}
+.icon-btn.danger {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.25);
+  background: rgba(127, 29, 29, 0.15);
 }
 .icon-btn.danger:hover {
-  background: rgb(243, 83, 83);
+  background: rgba(239, 68, 68, 0.28);
+  border-color: rgba(248, 113, 113, 0.65);
+  color: #fecaca;
 }
 
 /* Empty */

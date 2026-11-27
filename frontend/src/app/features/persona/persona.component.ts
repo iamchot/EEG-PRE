@@ -1,7 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { PersonaService, Persona, ArtStyle } from '../../core/services/persona.service';
+import { PersonaService, Persona } from '../../core/services/persona.service';
 
 interface PersonaForm {
   persona_name: string;
@@ -11,7 +11,6 @@ interface PersonaForm {
   hairstyle: string;
   outfit: string;
   distinctive: string;
-  art_style: ArtStyle;
 }
 
 import { LanguageService } from '../../core/services/language.service';
@@ -30,15 +29,11 @@ export class PersonaComponent implements OnInit {
   showModal = signal(false);
   editingId = signal<number | null>(null);
   saving = signal(false);
-  filterStyle = signal<string | null>(null);
-
-  readonly artStyles: ArtStyle[] = ['Manga', 'Webtoon', 'Comic', 'American Comic'];
 
   form: PersonaForm = this.emptyForm();
 
   constructor(
     private personaService: PersonaService,
-    private router: Router,
     readonly lang: LanguageService,
   ) {}
 
@@ -48,29 +43,45 @@ export class PersonaComponent implements OnInit {
     this.personaService.getAll().subscribe((p) => this.personas.set(p));
   }
 
-  filteredPersonas() {
-    const f = this.filterStyle();
-    return f ? this.personas().filter((p) => p.art_style === f) : this.personas();
+  formatAppearance(p: Persona): string {
+    return (p.appearance ?? '')
+      .split('|')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(' · ');
   }
 
   emptyForm(): PersonaForm {
-    return { persona_name: '', age: null, gender: 'Male', face_features: '', hairstyle: '', outfit: '', distinctive: '', art_style: 'Manga' };
+    return { persona_name: '', age: null, gender: 'Male', face_features: '', hairstyle: '', outfit: '', distinctive: '' };
   }
 
   openCreate() { this.form = this.emptyForm(); this.editingId.set(null); this.showModal.set(true); }
 
   openEdit(p: Persona) {
-    const parts = (p.appearance ?? '').split('|');
-    this.form = {
-      persona_name: p.persona_name,
-      age: null,
-      gender: 'Male',
-      face_features: parts[0] ?? '',
-      hairstyle: parts[1] ?? '',
-      outfit: parts[2] ?? '',
-      distinctive: parts[3] ?? '',
-      art_style: p.art_style as ArtStyle,
-    };
+    const parts = (p.appearance ?? '').split('|').map((s) => s.trim());
+    const hasGenderPrefix = parts.length >= 6 || ['Male', 'Female', 'Other'].includes(parts[0] ?? '');
+    if (hasGenderPrefix) {
+      const ageMatch = (parts[1] ?? '').match(/\d+/);
+      this.form = {
+        persona_name: p.persona_name,
+        gender: parts[0] || 'Male',
+        age: ageMatch ? Number(ageMatch[0]) : null,
+        face_features: parts[2] ?? '',
+        hairstyle: parts[3] ?? '',
+        outfit: parts[4] ?? '',
+        distinctive: parts[5] ?? '',
+      };
+    } else {
+      this.form = {
+        persona_name: p.persona_name,
+        age: null,
+        gender: 'Male',
+        face_features: parts[0] ?? '',
+        hairstyle: parts[1] ?? '',
+        outfit: parts[2] ?? '',
+        distinctive: parts[3] ?? '',
+      };
+    }
     this.editingId.set(p.id);
     this.showModal.set(true);
   }
@@ -80,9 +91,18 @@ export class PersonaComponent implements OnInit {
   savePersona() {
     if (!this.form.persona_name.trim()) return;
     this.saving.set(true);
-    const appearance = [this.form.face_features, this.form.hairstyle, this.form.outfit, this.form.distinctive]
-      .map((s) => s.trim()).join('|');
-    const body = { persona_name: this.form.persona_name.trim(), appearance, art_style: this.form.art_style };
+    const ageText = this.form.age ? `age ${this.form.age}` : '';
+    const appearance = [
+      this.form.gender,
+      ageText,
+      this.form.face_features,
+      this.form.hairstyle,
+      this.form.outfit,
+      this.form.distinctive,
+    ]
+      .map((s) => s.trim())
+      .join('|');
+    const body = { persona_name: this.form.persona_name.trim(), appearance, art_style: 'Manga' as const };
     const req = this.editingId()
       ? this.personaService.update(this.editingId()!, body)
       : this.personaService.create(body);

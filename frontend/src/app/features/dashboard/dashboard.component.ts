@@ -1,9 +1,7 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { computed } from '@angular/core';
-import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
-import { PersonaService, Persona, ArtStyle } from '../../core/services/persona.service';
+import { PersonaService, Persona } from '../../core/services/persona.service';
 import { ComicService, Comic } from '../../core/services/comic.service';
 import { ServiceHealth, SystemHealthState, SystemHealthService } from '../../core/services/system-health.service';
 
@@ -14,18 +12,13 @@ import { TranslatePipe } from '../../core/pipes/translate.pipe';
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [RouterLink, FormsModule, TranslatePipe],
+  imports: [RouterLink, TranslatePipe],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.css',
 })
 export class DashboardComponent implements OnInit {
   personas = signal<Persona[]>([]);
   recentComics = signal<Comic[]>([]);
-  showPersonaForm = signal(false);
-  editingPersona = signal<Persona | null>(null);
-  personaName = '';
-  personaAppearance = '';
-  personaStyle: ArtStyle = 'Manga';
 
   readonly systemStatus = computed(() => {
     this.lang.currentLang(); // Track signal reactivity
@@ -43,15 +36,22 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit() { this.loadPersonas(); this.comicService.getAll(0, 6).subscribe((c) => this.recentComics.set(c)); this.systemHealth.refresh(); }
   loadPersonas() { this.personaService.getAll().subscribe((p) => this.personas.set(p)); }
-  savePersona() {
-    const body = { persona_name: this.personaName.trim(), appearance: this.personaAppearance.trim(), art_style: this.personaStyle };
-    const request = this.editingPersona() ? this.personaService.update(this.editingPersona()!.id, body) : this.personaService.create(body);
-    request.subscribe(() => { this.loadPersonas(); this.cancelPersona(); });
+  formatAppearance(p: Persona): string {
+    return (p.appearance ?? '')
+      .split('|')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(' · ');
   }
-  editPersona(p: Persona) { this.editingPersona.set(p); this.personaName = p.persona_name; this.personaAppearance = p.appearance ?? ''; this.personaStyle = p.art_style as ArtStyle; this.showPersonaForm.set(true); }
-  cancelPersona() { this.showPersonaForm.set(false); this.editingPersona.set(null); this.personaName = ''; this.personaAppearance = ''; this.personaStyle = 'Manga'; }
   getPanels(c: Comic) { return [c.panel_1_url, c.panel_2_url, c.panel_3_url, c.panel_4_url].filter(Boolean) as string[]; }
-  emotionLabel(e: string | null) { return e ? `Emotion: ${e}` : 'Emotion pending'; }
+  emotionLabel(e: string | null) {
+    if (!e) return this.lang.currentLang() === 'th' ? 'รอผลอารมณ์' : 'Emotion pending';
+    if (this.lang.currentLang() === 'th') {
+      const thMap: Record<string, string> = { happy: 'มีความสุข', sad: 'เศร้า', stressed: 'เครียด', excited: 'ตื่นเต้น' };
+      return thMap[e] ?? e;
+    }
+    return `Emotion: ${e}`;
+  }
   stateLabel(state: SystemHealthState) {
     if (state === 'available') return this.lang.t('dashboard.available');
     if (state === 'unavailable' || state === 'degraded') return this.lang.t('dashboard.unavailable');

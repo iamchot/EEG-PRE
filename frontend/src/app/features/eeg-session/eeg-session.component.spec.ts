@@ -46,6 +46,8 @@ class EegWsStub {
   eyesOpenComplete = computed(() => false);
   eyesClosedComplete = computed(() => false);
   wallClockSeconds = computed(() => 0);
+  detectedEmotion = computed(() => this.latestMessage()?.emotion ?? '');
+  recordingQualityWarning = computed(() => this.latestMessage()?.recording_quality_warning ?? null);
   isConnected = signal(true);
   connect = jasmine.createSpy('connect');
   disconnect = jasmine.createSpy('disconnect');
@@ -93,8 +95,6 @@ describe('EegSessionComponent', () => {
     eegWs = TestBed.inject(EegWsService) as unknown as EegWsStub;
     museBt = TestBed.inject(MuseWebBluetoothService) as unknown as MuseWebBtStub;
     http = TestBed.inject(HttpTestingController);
-    fixture.detectChanges();
-    http.expectOne(`${environment.apiUrl}/sessions`).flush({ id: 7 });
     fixture.detectChanges();
   });
 
@@ -181,7 +181,10 @@ describe('EegSessionComponent', () => {
   });
 
   it('connects headset via Web Bluetooth and sends confirm_device command', async () => {
-    await component.scanDevices();
+    const scanPromise = component.scanDevices();
+    await Promise.resolve();
+    http.expectOne(`${environment.apiUrl}/sessions`).flush({ id: 7 });
+    await scanPromise;
     expect(museBt.connect).toHaveBeenCalledOnceWith(jasmine.any(Function));
     expect(eegWs.sendCommand).toHaveBeenCalledWith('confirm_device', {
       device_name: 'Muse-TEST',
@@ -243,7 +246,10 @@ describe('EegSessionComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent)
       .toContain('Connection error');
 
-    await component.scanDevices();
+    const retryPromise = component.scanDevices();
+    await Promise.resolve();
+    http.expectOne(`${environment.apiUrl}/sessions`).flush({ id: 7 });
+    await retryPromise;
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
   });
@@ -258,6 +264,8 @@ describe('EegSessionComponent', () => {
   });
 
   it('uses the exact start-baseline POST contract and command', () => {
+    component.dbSessionId.set(7);
+    component.sessionId.set('7');
     component.startBaseline('eyes_open');
 
     const request = http.expectOne(`${environment.apiUrl}/sessions/7/start-baseline?subphase=eyes_open`);

@@ -600,13 +600,13 @@
                   <small class="participant-meta">
                     @if (item.consent_confirmed_at) {
                       ยินยอมเมื่อ:
-                      {{ item.consent_confirmed_at | date: "dd/MM/yyyy HH:mm" }}
+                      {{ item.consent_confirmed_at | thaiDate: "dd/MM/yyyy HH:mm" }}
                     } @else {
                       ยังไม่ระบุเวลา Consent
                     }
                     @if (item.withdrawn_at) {
                       · ถอนตัวเมื่อ:
-                      {{ item.withdrawn_at | date: "dd/MM/yyyy HH:mm" }}
+                      {{ item.withdrawn_at | thaiDate: "dd/MM/yyyy HH:mm" }}
                     }
                   </small>
                 </div>
@@ -1015,28 +1015,28 @@
       <form class="panel form-card" (ngSubmit)="createSession()">
         <h2>{{ "dataset.create_session" | translate }}</h2>
         <label
-          >Select Participant<select
+          >{{ lang.currentLang() === "th" ? "เลือกผู้เข้าร่วมทดลอง" : "Select Participant" }}<select
             name="participant"
             required
             [(ngModel)]="sessionParticipantId"
           >
-            <option [ngValue]="null">-- Select Participant --</option>
+            <option [ngValue]="null">{{ lang.currentLang() === "th" ? "-- เลือกผู้เข้าร่วมทดลอง --" : "-- Select Participant --" }}</option>
             @for (item of activeParticipants(); track item.id) {
               <option [ngValue]="item.id">{{ item.participant_code }}</option>
             }
           </select></label
         >
         <label
-          >Muse Device ID (optional)<input
+          >{{ lang.currentLang() === "th" ? "รหัสอุปกรณ์ Muse (ไม่บังคับ)" : "Muse Device ID (optional)" }}<input
             name="device_id"
             [(ngModel)]="deviceId"
-            placeholder="e.g. Muse-A9C7"
+            [placeholder]="lang.currentLang() === 'th' ? 'เช่น Muse-A9C7' : 'e.g. Muse-A9C7'"
         /></label>
         <label
-          >Device Label (optional)<input
+          >{{ lang.currentLang() === "th" ? "ชื่ออุปกรณ์ที่แสดง (ไม่บังคับ)" : "Device Label (optional)" }}<input
             name="device_name"
             [(ngModel)]="deviceName"
-            placeholder="e.g. Muse 2"
+            [placeholder]="lang.currentLang() === 'th' ? 'เช่น Muse 2' : 'e.g. Muse 2'"
         /></label>
         <button
           id="create-session"
@@ -1046,7 +1046,7 @@
         >
           {{
             sessionSubmitting()
-              ? "Creating…"
+              ? (lang.currentLang() === "th" ? "กำลังสร้าง…" : "Creating…")
               : ("dataset.create_session" | translate)
           }}
         </button>
@@ -1055,13 +1055,13 @@
         <h2>{{ "dataset.sessions" | translate }}</h2>
         <div class="list">
           @if (sessionsLoading()) {
-            <p role="status">Loading sessions…</p>
+            <p role="status">{{ lang.currentLang() === "th" ? "กำลังโหลดรอบการเก็บข้อมูล…" : "Loading sessions…" }}</p>
           } @else {
             @for (item of sessions(); track item.id) {
               <div class="list-row">
                 <div class="session-info-col">
-                  <strong>Session #{{ item.id }}</strong>
-                  <small>State: {{ item.state }}</small>
+                  <strong>{{ lang.currentLang() === "th" ? "รอบที่ #" + item.id : "Session #" + item.id }}</strong>
+                  <small>{{ lang.currentLang() === "th" ? "สถานะ: " + item.state : "State: " + item.state }}</small>
                 </div>
                 <div class="session-action-col">
                   <span class="badge state-badge">{{ item.state }}</span>

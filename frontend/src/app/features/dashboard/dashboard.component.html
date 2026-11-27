@@ -1,29 +1,100 @@
 <main class="dashboard-shell">
   <section class="hero card">
     <div class="hero-copy">
-      <span class="eyebrow">{{ 'dashboard.kicker' | translate }}</span>
-      <h1>{{ 'dashboard.title' | translate }}</h1>
-      <p>{{ 'dashboard.welcome' | translate }}</p>
+      <span class="eyebrow">{{ "dashboard.kicker" | translate }}</span>
+      <br /><br />
+      <h1>{{ "dashboard.title" | translate }}</h1>
+      <p>{{ "dashboard.welcome" | translate }}</p>
       <div class="hero-actions">
-        <a routerLink="/eeg-session" class="btn btn-primary btn-lg" id="btn-start-session">{{ 'dashboard.create_new' | translate }}</a>
-        <a routerLink="/history" class="btn btn-secondary btn-lg">{{ 'dashboard.view_history' | translate }}</a>
+        <a
+          routerLink="/eeg-session"
+          class="btn btn-primary btn-lg"
+          id="btn-start-session"
+          >{{ "dashboard.create_new" | translate }}</a
+        >
+        <a routerLink="/history" class="btn btn-secondary btn-lg">{{
+          "dashboard.view_history" | translate
+        }}</a>
       </div>
     </div>
-    <div class="hero-panel" aria-label="Studio status summary">
-      <div class="studio-orb">DC</div>
-      @for (item of heroStatus(); track item.label) {
-        <div class="mini-status"><span class="dot" [class]="item.state"></span><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div></div>
-      }
+    <div class="hero-panel" aria-label="Quick workflow guide">
+      <div class="panel-brand">
+        <div class="studio-orb" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 13h3.2l2.3-5.5 3.8 9.5 2.4-4H21" />
+            <path d="M18.5 3.5l.7 1.7 1.7.7-1.7.7-.7 1.7-.7-1.7-1.7-.7 1.7-.7z" fill="white" stroke="none" />
+          </svg>
+        </div>
+        <div class="panel-brand-text">
+          <strong>{{ lang.currentLang() === "th" ? "ขั้นตอนการใช้งาน" : "Quick Workflow" }}</strong>
+          <small>{{ lang.currentLang() === "th" ? "3 ขั้นตอนสู่การ์ตูนของคุณ" : "3 steps to your comic" }}</small>
+        </div>
+      </div>
+      <div class="mini-status">
+        <span class="step-pill">1</span>
+        <div>
+          <strong>{{
+            lang.currentLang() === "th"
+              ? "เชื่อมต่อ Muse 2"
+              : "Connect Muse 2"
+          }}</strong
+          ><small>{{
+            lang.currentLang() === "th"
+              ? "สวมสายคาดให้ครบ 4 จุด"
+              : "Fit all 4 EEG sensors"
+          }}</small>
+        </div>
+      </div>
+      <div class="mini-status">
+        <span class="step-pill">2</span>
+        <div>
+          <strong>{{
+            lang.currentLang() === "th"
+              ? "วัดคลื่นสมอง 30 วิ"
+              : "Record 30s EEG"
+          }}</strong
+          ><small>{{
+            lang.currentLang() === "th"
+              ? "เล่าเรื่องและวิเคราะห์อารมณ์"
+              : "Tell story & detect emotion"
+          }}</small>
+        </div>
+      </div>
+      <div class="mini-status">
+        <span class="step-pill">3</span>
+        <div>
+          <strong>{{
+            lang.currentLang() === "th"
+              ? "3. สร้างการ์ตูน 4 ช่อง"
+              : "3. Generate 4-Panel Comic"
+          }}</strong
+          ><small>{{
+            lang.currentLang() === "th"
+              ? "แต่งบทและวาดภาพอัตโนมัติ"
+              : "AI story & artwork"
+          }}</small>
+        </div>
+      </div>
     </div>
   </section>
 
   <section class="status-grid" aria-label="System status">
     @for (item of systemStatus(); track item.label) {
-      <article class="status-card card" [attr.data-health-service]="item.label" [attr.data-health-state]="item.state">
-        <div class="status-top"><span class="dot" [class]="item.state"></span><span>{{ item.label }}</span></div>
+      <article
+        class="status-card card"
+        [attr.data-health-service]="item.label"
+        [attr.data-health-state]="item.state"
+      >
+        <div class="status-top">
+          <span class="dot" [class]="item.state"></span
+          ><span>{{ item.label }}</span>
+        </div>
         <strong>{{ stateLabel(item.state) }}</strong>
         <small>{{ item.detail }}</small>
-        <small>{{ 'dashboard.checked' | translate }}: {{ item.checkedAt || ('dashboard.not_checked' | translate) }}</small>
+        <small
+          >{{ "dashboard.checked" | translate }}:
+          {{ item.checkedAt || ("dashboard.not_checked" | translate) }}</small
+        >
       </article>
     }
   </section>
@@ -31,71 +102,70 @@
   <section class="content-grid">
     <article class="card studio-card">
       <div class="section-title">
-        <div><span class="eyebrow">Persona</span><h2>{{ 'dashboard.char_studio' | translate }}</h2></div>
-        <button class="btn btn-secondary btn-sm" (click)="showPersonaForm.set(true)" id="btn-add-persona">{{ 'dashboard.add_persona' | translate }}</button>
-      </div>
-
-      @if (showPersonaForm()) {
-        <div class="persona-form animate-fade-in">
-          <div class="form-group">
-            <label class="form-label" for="persona-name">{{ 'dashboard.persona_name' | translate }}</label>
-            <input id="persona-name" class="form-input" [(ngModel)]="personaName" placeholder="เช่น Mew, Luna, Nira" />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="persona-appearance">{{ 'dashboard.persona_detail' | translate }}</label>
-            <textarea id="persona-appearance" class="form-textarea" [(ngModel)]="personaAppearance" placeholder="ทรงผม ชุด สีหลัก บุคลิก และจุดเด่นที่ต้องคงไว้ทุกช่อง"></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="persona-style">{{ 'dashboard.art_style' | translate }}</label>
-            <select id="persona-style" class="form-select" [(ngModel)]="personaStyle">
-              <option value="Manga">Manga</option>
-              <option value="Webtoon">Webtoon</option>
-              <option value="Comic">Comic</option>
-              <option value="American Comic">American Comic</option>
-            </select>
-          </div>
-          <div class="inline-actions">
-            <button class="btn btn-primary" (click)="savePersona()" [disabled]="!personaName.trim()">{{ 'dashboard.save_persona' | translate }}</button>
-            <button class="btn btn-secondary" (click)="cancelPersona()">{{ 'dashboard.cancel' | translate }}</button>
-          </div>
+        <div>
+          <span class="eyebrow">{{
+            lang.currentLang() === "th" ? "ตัวละคร" : "Persona"
+          }}</span>
+          <h2>{{ "dashboard.char_studio" | translate }}</h2>
         </div>
-      }
+        <a routerLink="/persona" class="btn btn-secondary btn-sm">{{
+          lang.currentLang() === "th" ? "จัดการตัวละคร" : "Manage"
+        }}</a>
+      </div>
 
       <div class="persona-list">
         @for (persona of personas(); track persona.id) {
           <div class="persona-row">
-            <div class="avatar">{{ persona.persona_name.slice(0, 1).toUpperCase() }}</div>
+            <div class="avatar">
+              {{ persona.persona_name.slice(0, 1).toUpperCase() }}
+            </div>
             <div class="persona-main">
               <strong>{{ persona.persona_name }}</strong>
-              <span>{{ persona.appearance || ('persona.no_detail' | translate) }}</span>
+              <span>{{
+                formatAppearance(persona) || ("persona.no_detail" | translate)
+              }}</span>
             </div>
-            <span class="badge badge-accent">{{ persona.art_style }}</span>
-            <button class="btn btn-secondary btn-sm" (click)="editPersona(persona)">{{ 'dashboard.edit' | translate }}</button>
           </div>
         } @empty {
-          <div class="empty-box">{{ 'dashboard.no_personas_yet' | translate }}</div>
+          <div class="empty-box">
+            {{ "dashboard.no_personas_yet" | translate }}
+          </div>
         }
       </div>
     </article>
 
     <article class="card studio-card">
       <div class="section-title">
-        <div><span class="eyebrow">Latest Comic</span><h2>{{ 'dashboard.recent_results' | translate }}</h2></div>
-        <a routerLink="/history" class="btn btn-secondary btn-sm">{{ 'dashboard.all_comics' | translate }}</a>
+        <div>
+          <span class="eyebrow">{{
+            lang.currentLang() === "th" ? "คอมิกล่าสุด" : "Latest Comic"
+          }}</span>
+          <h2>{{ "dashboard.recent_results" | translate }}</h2>
+        </div>
+        <a routerLink="/history" class="btn btn-secondary btn-sm">{{
+          "dashboard.all_comics" | translate
+        }}</a>
       </div>
       <div class="comic-list">
         @for (comic of recentComics(); track comic.id) {
           <a class="comic-row" [routerLink]="['/comic', comic.id]">
             <div class="thumb-grid">
-              @for (url of getPanels(comic); track url) { <img [src]="url" alt="comic panel" loading="lazy" /> }
+              @for (url of getPanels(comic); track url) {
+                <img [src]="url" alt="comic panel" loading="lazy" />
+              }
             </div>
             <div>
               <strong>{{ comic.input_story }}</strong>
-              <span>{{ emotionLabel(comic.emotion) }} · {{ comic.persona_name }}</span>
+              <span
+                >{{ emotionLabel(comic.emotion) }} ·
+                {{ comic.persona_name }}</span
+              >
             </div>
           </a>
         } @empty {
-          <div class="empty-box">{{ 'dashboard.no_comics_yet' | translate }}</div>
+          <div class="empty-box">
+            {{ "dashboard.no_comics_yet" | translate }}
+          </div>
         }
       </div>
     </article>
