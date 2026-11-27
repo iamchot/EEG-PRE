@@ -478,7 +478,7 @@ export const TRANSLATIONS: Dictionary = {
 
   // EEG Session — misc
   'session.muse_connected': { th: 'Muse เชื่อมต่อแล้ว', en: 'Muse Connected' },
-  'session.muse_setup': { th: 'Muse Setup', en: 'Muse Setup' },
+  'session.muse_setup': { th: 'รอเชื่อมต่อ Muse', en: 'Muse Setup' },
   'session.entertainment_note': {
     th: 'ข้อมูลอารมณ์ประมวลผลเพื่อสร้างเรื่องราวการ์ตูนสร้างสรรค์ — ไม่ใช่การวินิจฉัยทางการแพทย์',
     en: 'Subconscious emotion data is processed for creative comic story generation — not medical diagnosis.',

@@ -90,7 +90,9 @@
           ><span>{{ item.label }}</span>
         </div>
         <strong>{{ stateLabel(item.state) }}</strong>
-        <small>{{ item.detail }}</small>
+        @if (item.detail && item.detail !== stateLabel(item.state)) {
+          <small>{{ item.detail }}</small>
+        }
         <small
           >{{ "dashboard.checked" | translate }}:
           {{ item.checkedAt || ("dashboard.not_checked" | translate) }}</small
@@ -147,7 +149,7 @@
         }}</a>
       </div>
       <div class="comic-list">
-        @for (comic of recentComics(); track comic.id) {
+        @for (comic of paginatedComics(); track comic.id) {
           <a class="comic-row" [routerLink]="['/comic', comic.id]">
             <div class="thumb-grid">
               @for (url of getPanels(comic); track url) {
@@ -168,6 +170,29 @@
           </div>
         }
       </div>
+      @if (totalComicsPages() > 1) {
+        <div class="pagination-bar" aria-label="Recent comics pagination">
+          <button
+            type="button"
+            class="page-btn"
+            [disabled]="comicsPage() <= 1"
+            (click)="prevComicsPage()"
+          >
+            ‹ {{ lang.currentLang() === "th" ? "ก่อนหน้า" : "Prev" }}
+          </button>
+          <span class="page-info">
+            {{ comicsPage() }} / {{ totalComicsPages() }}
+          </span>
+          <button
+            type="button"
+            class="page-btn"
+            [disabled]="comicsPage() >= totalComicsPages()"
+            (click)="nextComicsPage()"
+          >
+            {{ lang.currentLang() === "th" ? "ถัดไป" : "Next" }} ›
+          </button>
+        </div>
+      }
     </article>
   </section>
 </main>

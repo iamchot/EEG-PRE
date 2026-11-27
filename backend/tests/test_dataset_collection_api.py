@@ -283,6 +283,33 @@ def test_withdraw_participant(client):
     assert missing_resp.status_code == 404
 
 
+def test_withdraw_participant_rejects_completed_session(client, db):
+    from app.models.dataset_collection import CollectionSession, CollectionSessionState
+
+    create_resp = client.post(
+        f"{BASE}/participants",
+        headers=admin_headers(client),
+        json={"consent_confirmed_at": "2026-09-27T10:00:00"},
+    )
+    assert create_resp.status_code == 201
+    p_id = create_resp.json()["id"]
+
+    sess = CollectionSession(
+        participant_id=p_id,
+        state=CollectionSessionState.completed,
+        trial_count=12,
+        completed_trials=12,
+    )
+    db.add(sess)
+    db.commit()
+
+    withdraw_resp = client.post(
+        f"{BASE}/participants/{p_id}/withdraw",
+        headers=admin_headers(client),
+    )
+    assert withdraw_resp.status_code == 409
+
+
 def test_update_stimulus_approval(client):
     create_resp = client.post(
         f"{BASE}/stimuli",

@@ -1,0 +1,37 @@
+<div class="custom-select-wrapper">
+  <button
+    type="button"
+    class="custom-select-trigger"
+    [id]="inputId || null"
+    [class.open]="isOpen()"
+    [disabled]="disabled"
+    [attr.aria-expanded]="isOpen()"
+    aria-haspopup="listbox"
+    (click)="toggle($event)"
+  >
+    <span [class.placeholder]="!hasSelection()">{{ selectedLabel() }}</span>
+    <span class="custom-select-arrow" aria-hidden="true">▾</span>
+  </button>
+
+  @if (isOpen()) {
+    <div class="custom-select-menu" role="listbox">
+      @for (opt of options; track opt.value) {
+        <button
+          type="button"
+          class="custom-select-option"
+          [class.selected]="isSelected(opt.value)"
+          [attr.data-value]="opt.value"
+          role="option"
+          [attr.aria-selected]="isSelected(opt.value)"
+          (click)="selectOption(opt.value)"
+        >
+          {{ opt.label }}
+        </button>
+      } @empty {
+        @if (emptyText) {
+          <div class="custom-select-empty">{{ emptyText }}</div>
+        }
+      }
+    </div>
+  }
+</div>

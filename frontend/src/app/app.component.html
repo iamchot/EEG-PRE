@@ -1,6 +1,9 @@
 @if (auth.isLoggedIn()) {
   <div class="app-layout">
-    <nav class="sidebar" aria-label="Main menu">
+    @if (mobileMenuOpen()) {
+      <div class="sidebar-backdrop" (click)="closeMobileMenu()"></div>
+    }
+    <nav class="sidebar" [class.open]="mobileMenuOpen()" aria-label="Main menu">
       <div class="sidebar-brand">
         <div class="brand-icon-wrap" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -19,6 +22,7 @@
               routerLinkActive="active"
               class="nav-link"
               id="nav-admin"
+              (click)="closeMobileMenu()"
               ><span>{{ "nav.admin" | translate }}</span></a
             >
           </li>
@@ -29,6 +33,7 @@
               routerLinkActive="active"
               class="nav-link"
               id="nav-dashboard"
+              (click)="closeMobileMenu()"
               ><span class="nav-icon" aria-hidden="true">⊞</span
               ><span>{{ "nav.dashboard" | translate }}</span></a
             >
@@ -39,6 +44,7 @@
               routerLinkActive="active"
               class="nav-link"
               id="nav-persona"
+              (click)="closeMobileMenu()"
               ><span class="nav-icon" aria-hidden="true">◎</span
               ><span>{{ "nav.personas" | translate }}</span></a
             >
@@ -49,6 +55,7 @@
               routerLinkActive="active"
               class="nav-link"
               id="nav-create"
+              (click)="closeMobileMenu()"
               ><span class="nav-icon" aria-hidden="true">✦</span
               ><span>{{ "nav.create" | translate }}</span></a
             >
@@ -59,6 +66,7 @@
               routerLinkActive="active"
               class="nav-link"
               id="nav-history"
+              (click)="closeMobileMenu()"
               ><span class="nav-icon" aria-hidden="true">◷</span
               ><span>{{ "nav.history" | translate }}</span></a
             >
@@ -103,6 +111,24 @@
 
     <div class="main-shell">
       <header class="top-header">
+        <button
+          type="button"
+          class="mobile-menu-btn"
+          (click)="toggleMobileMenu()"
+          [attr.aria-expanded]="mobileMenuOpen()"
+          aria-label="Toggle menu"
+        >
+          ☰
+        </button>
+        <div class="mobile-brand">
+          <div class="brand-icon-wrap mobile-brand-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 13h3.2l2.3-5.5 3.8 9.5 2.4-4H21" />
+              <path d="M18.5 3.5l.7 1.7 1.7.7-1.7.7-.7 1.7-.7-1.7-1.7-.7 1.7-.7z" fill="white" stroke="none" />
+            </svg>
+          </div>
+          <span class="mobile-brand-name">Dream Comicverse</span>
+        </div>
         <div class="header-spacer"></div>
         <button
           type="button"
@@ -117,13 +143,13 @@
           <span
             class="lang-pill"
             [class.active]="langService.currentLang() === 'th'"
-            >ภาษาไทย TH</span
+            ><span class="lang-full">ภาษาไทย </span>TH</span
           >
           <span class="lang-divider">|</span>
           <span
             class="lang-pill"
             [class.active]="langService.currentLang() === 'en'"
-            >English EN</span
+            ><span class="lang-full">English </span>EN</span
           >
         </button>
       </header>

@@ -182,18 +182,11 @@
           </div>
           <div class="form-group">
             <label class="form-label" for="persona-select">{{ 'session.persona_label' | translate }}</label>
-            <select id="persona-select" class="form-select" [(ngModel)]="selectedPersonaId">
-              <option [ngValue]="null">{{ 'session.persona_none' | translate }}</option>
-              @for (p of personas(); track p.id) { <option [ngValue]="p.id">{{ p.persona_name }}</option> }
-            </select>
+            <app-select inputId="persona-select" [options]="personaOptions()" [(ngModel)]="selectedPersonaId" />
           </div>
           <div class="form-group">
             <label class="form-label" for="art-style-select">{{ lang.currentLang() === 'th' ? 'สไตล์ภาพการ์ตูน' : 'Comic Art Style' }}</label>
-            <select id="art-style-select" class="form-select" [(ngModel)]="selectedArtStyle">
-              @for (style of artStyles; track style) {
-                <option [value]="style">{{ style }}</option>
-              }
-            </select>
+            <app-select inputId="art-style-select" [options]="artStyleOptions()" [(ngModel)]="selectedArtStyle" />
           </div>
           <button class="btn btn-primary btn-lg" (click)="startRecording()" [disabled]="!inputStory.trim()">{{ 'session.start_recording' | translate }}</button>
         }

@@ -1,4 +1,4 @@
-import { Component, computed } from '@angular/core';
+import { Component, computed, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 
 import { AuthService } from './core/services/auth.service';
@@ -23,6 +23,16 @@ export class AppComponent {
     readonly langService: LanguageService,
     readonly museWebBt: MuseWebBluetoothService,
   ) {}
+
+  mobileMenuOpen = signal(false);
+
+  toggleMobileMenu(): void {
+    this.mobileMenuOpen.update((v) => !v);
+  }
+
+  closeMobileMenu(): void {
+    this.mobileMenuOpen.set(false);
+  }
 
   toggleLang(): void {
     this.langService.toggleLanguage();

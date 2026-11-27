@@ -214,6 +214,22 @@ def withdraw_participant(participant_id: int, admin: AdminUser, db: Session = De
 
     now = datetime.now()
     if participant.state != ParticipantState.withdrawn:
+        has_completed_session = (
+            db.scalar(
+                select(CollectionSession.id)
+                .where(
+                    CollectionSession.participant_id == participant_id,
+                    CollectionSession.state == CollectionSessionState.completed,
+                )
+                .limit(1)
+            )
+            is not None
+        )
+        if has_completed_session:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot withdraw participant after a completed session",
+            )
         participant.state = ParticipantState.withdrawn
         participant.withdrawn_at = now
 

@@ -100,11 +100,11 @@
 .section-header h2 { font-size: 1.125rem; font-weight: 700; color: #F8FAFC; display: flex; align-items: center; gap: 8px; margin: 0; }
 
 /* Table */
-.table-card { background: #151D35; border: 1px solid #1E293B; border-radius: 14px; overflow: hidden; }
-.data-table { width: 100%; border-collapse: collapse; }
-.data-table th { padding: 12px 20px; text-align: left; font-size: 0.75rem; font-weight: 700; color: #64748B; letter-spacing: 0.06em; border-bottom: 1px solid #1E293B; }
+.table-card { background: #151D35; border: 1px solid #1E293B; border-radius: 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.data-table { width: 100%; min-width: 640px; border-collapse: collapse; }
+.data-table th { padding: 12px 20px; text-align: left; font-size: 0.75rem; font-weight: 700; color: #64748B; letter-spacing: 0.06em; border-bottom: 1px solid #1E293B; white-space: nowrap; }
 .data-table th.th-actions { text-align: right; padding-right: 20px; }
-.data-table td { padding: 14px 20px; border-bottom: 1px solid #1E293B; color: #CBD5E1; vertical-align: middle; }
+.data-table td { padding: 14px 20px; border-bottom: 1px solid #1E293B; color: #CBD5E1; vertical-align: middle; white-space: nowrap; }
 .data-table td.td-actions { text-align: right; }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tr:hover td { background: rgba(30,41,59,0.5); }
@@ -128,7 +128,7 @@
 .role-admin { background: rgba(124,58,237,0.2); color: #A78BFA; border: 1px solid rgba(124,58,237,0.3); }
 .role-user { background: rgba(100,116,139,0.2); color: #94A3B8; border: 1px solid rgba(100,116,139,0.3); }
 
-.status-dot { display: flex; align-items: center; gap: 6px; font-size: 0.875rem; font-weight: 500; }
+.status-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 0.875rem; font-weight: 500; white-space: nowrap; }
 .dot-circle { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .status-dot.active { color: #22C55E; }
 .status-dot.active .dot-circle { background: #22C55E; }
@@ -187,8 +187,15 @@
   .charts-row { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
-  .admin-page { padding: 20px 16px; }
-  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .admin-page { padding: 18px 12px; }
+  .tab-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; max-width: 100%; overflow-x: visible; gap: 4px; }
+  .tab-btn { justify-content: center; text-align: center; padding: 8px 6px; font-size: 0.78rem; white-space: normal; line-height: 1.25; }
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stat-card { min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; }
+  .stat-icon-wrap { width: 34px; height: 34px; font-size: 1.05rem; border-radius: 9px; }
+  .stat-value { font-size: 1.2rem; }
+  .stat-label { font-size: 0.74rem; line-height: 1.25; }
+  .table-card { overflow-x: auto; }
 }
 
 .reviews-card {

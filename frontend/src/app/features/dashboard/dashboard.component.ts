@@ -19,6 +19,15 @@ import { TranslatePipe } from '../../core/pipes/translate.pipe';
 export class DashboardComponent implements OnInit {
   personas = signal<Persona[]>([]);
   recentComics = signal<Comic[]>([]);
+  readonly comicsPageSize = 3;
+  readonly comicsPage = signal(1);
+  readonly totalComicsPages = computed(() =>
+    Math.max(1, Math.ceil(this.recentComics().length / this.comicsPageSize))
+  );
+  readonly paginatedComics = computed(() => {
+    const start = (this.comicsPage() - 1) * this.comicsPageSize;
+    return this.recentComics().slice(start, start + this.comicsPageSize);
+  });
 
   readonly systemStatus = computed(() => {
     this.lang.currentLang(); // Track signal reactivity
@@ -34,7 +43,9 @@ export class DashboardComponent implements OnInit {
     readonly lang: LanguageService,
   ) {}
 
-  ngOnInit() { this.loadPersonas(); this.comicService.getAll(0, 6).subscribe((c) => this.recentComics.set(c)); this.systemHealth.refresh(); }
+  ngOnInit() { this.loadPersonas(); this.comicService.getAll(0, 12).subscribe((c) => { this.recentComics.set(c); this.comicsPage.set(1); }); this.systemHealth.refresh(); }
+  prevComicsPage() { this.comicsPage.update((p) => Math.max(1, p - 1)); }
+  nextComicsPage() { this.comicsPage.update((p) => Math.min(this.totalComicsPages(), p + 1)); }
   loadPersonas() { this.personaService.getAll().subscribe((p) => this.personas.set(p)); }
   formatAppearance(p: Persona): string {
     return (p.appearance ?? '')

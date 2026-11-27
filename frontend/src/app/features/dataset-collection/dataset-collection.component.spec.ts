@@ -119,8 +119,13 @@ describe('DatasetCollectionComponent', () => {
   it('renders exactly the four supported quadrant options', () => {
     component.switchTab('stimuli');
     fixture.detectChanges();
-    const values = Array.from(fixture.nativeElement.querySelectorAll('#target-quadrant option'))
-      .map((option) => (option as HTMLOptionElement).value);
+    const trigger = fixture.nativeElement.querySelector('#target-quadrant') as HTMLButtonElement;
+    expect(trigger).toBeTruthy();
+    trigger.click();
+    fixture.detectChanges();
+    const values = Array.from(
+      trigger.closest('.custom-select-wrapper')!.querySelectorAll('.custom-select-option')
+    ).map((option) => option.getAttribute('data-value'));
     expect(values).toEqual(['positive_low', 'positive_high', 'negative_low', 'negative_high']);
   });
 
@@ -233,6 +238,56 @@ describe('DatasetCollectionComponent', () => {
     expect(service.withdrawParticipant).toHaveBeenCalledWith(1);
     expect(component.participantToWithdraw()).toBeNull();
     expect(component.participants()[0].state).toBe('withdrawn');
+  });
+
+  it('hides withdraw button when participant has a completed session', () => {
+    const activeP = { id: 1, participant_code: 'P001', state: 'active' as const, consent_confirmed_at: '2026-01-01T00:00:00Z', withdrawn_at: null, created_at: '2026-01-01T00:00:00Z' };
+    component.participants.set([activeP]);
+    component.sessions.set([
+      {
+        id: 10,
+        participant_id: 1,
+        device_id: null,
+        device_name: 'Muse-A9C7',
+        completed_trials: 12,
+        total_trials: 12,
+        state: 'completed',
+        started_at: '2026-01-01T00:01:00Z',
+        completed_at: '2026-01-01T00:10:00Z',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    component.switchTab('participants');
+    fixture.detectChanges();
+
+    expect(component.canWithdrawParticipant(activeP)).toBeFalse();
+    expect(fixture.nativeElement.querySelector('.btn-action-withdraw')).toBeNull();
+  });
+
+  it('excludes participants with a completed session from session dropdown', () => {
+    const completedP = { id: 1, participant_code: 'P001', state: 'active' as const, consent_confirmed_at: '2026-01-01T00:00:00Z', withdrawn_at: null, created_at: '2026-01-01T00:00:00Z' };
+    const eligibleP = { id: 2, participant_code: 'P002', state: 'active' as const, consent_confirmed_at: '2026-01-01T00:00:00Z', withdrawn_at: null, created_at: '2026-01-01T00:00:00Z' };
+    component.participants.set([completedP, eligibleP]);
+    component.sessions.set([
+      {
+        id: 10,
+        participant_id: 1,
+        device_id: null,
+        device_name: 'Muse-A9C7',
+        completed_trials: 12,
+        total_trials: 12,
+        state: 'completed',
+        started_at: '2026-01-01T00:01:00Z',
+        completed_at: '2026-01-01T00:10:00Z',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    component.switchTab('sessions');
+    fixture.detectChanges();
+
+    expect(component.activeParticipants().map((p) => p.participant_code)).toEqual(['P002']);
+    component.sessionParticipantId = 1;
+    expect(component.hasActiveParticipant()).toBeFalse();
   });
 
   it('auto-detects stimulus file checksum and duration', () => {

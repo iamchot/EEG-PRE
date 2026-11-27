@@ -1,7 +1,8 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, computed, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { PersonaService, Persona } from '../../core/services/persona.service';
+import { AppSelectComponent, AppSelectOption } from '../../shared/components/app-select/app-select.component';
 
 interface PersonaForm {
   persona_name: string;
@@ -20,7 +21,7 @@ import { TranslatePipe } from '../../core/pipes/translate.pipe';
 @Component({
   selector: 'app-persona',
   standalone: true,
-  imports: [FormsModule, RouterLink, TranslatePipe],
+  imports: [FormsModule, RouterLink, TranslatePipe, AppSelectComponent],
   templateUrl: './persona.component.html',
   styleUrl: './persona.component.css',
 })
@@ -31,6 +32,14 @@ export class PersonaComponent implements OnInit {
   saving = signal(false);
 
   form: PersonaForm = this.emptyForm();
+  readonly genderOptions = computed<AppSelectOption<string>[]>(() => {
+    const isTh = this.lang.currentLang() === 'th';
+    return [
+      { value: 'Male', label: isTh ? 'ชาย' : 'Male' },
+      { value: 'Female', label: isTh ? 'หญิง' : 'Female' },
+      { value: 'Other', label: isTh ? 'อื่นๆ' : 'Other' },
+    ];
+  });
 
   constructor(
     private personaService: PersonaService,

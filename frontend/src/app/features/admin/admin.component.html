@@ -355,10 +355,7 @@
           </label>
           <label class="modal-field">
             <span>{{ lang.currentLang() === 'th' ? 'บทบาท (Role)' : 'Role' }}</span>
-            <select name="role" [(ngModel)]="newUser.role">
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
+            <app-select name="role" [options]="roleOptions" [(ngModel)]="newUser.role" />
           </label>
           @if (createUserError()) {
             <div class="modal-error" role="alert">{{ createUserError() }}</div>

@@ -73,6 +73,20 @@ def create_collection_session(
     if participant is None or participant.state is not ParticipantState.active:
         raise ParticipantUnavailableError("Participant is unavailable for collection")
 
+    has_completed_session = (
+        db.scalar(
+            select(CollectionSession.id)
+            .where(
+                CollectionSession.participant_id == participant_id,
+                CollectionSession.state == CollectionSessionState.completed,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    if has_completed_session:
+        raise DatasetConflictError("Participant has already completed a collection session")
+
     collection_session = CollectionSession(
         participant_id=participant_id,
         device_id=device_id,

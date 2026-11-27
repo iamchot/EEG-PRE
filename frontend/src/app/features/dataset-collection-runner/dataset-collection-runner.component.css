@@ -73,6 +73,8 @@ p {
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
   background: #252d4a;
   border: 1px solid #4a5785;
   color: #e2e8f0;
@@ -595,10 +597,30 @@ button:disabled {
   .artifact-card {
     position: static;
   }
+  .completed-hero-card {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 20px;
+  }
+  .completed-hero-text h2 {
+    font-size: 1.25rem;
+  }
 }
 @media (max-width: 520px) {
   .runner-shell {
     padding: 22px 14px 52px;
+  }
+  .connection {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .reconnect-btn {
+    margin-left: 0;
+  }
+  .btn-primary-back {
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
   }
   .progress-card {
     grid-template-columns: 1fr;

@@ -1,0 +1,120 @@
+:host {
+  display: block;
+  width: 100%;
+}
+
+.custom-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select-trigger {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  background: #0b1224;
+  color: #f8fafc;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.custom-select-trigger:hover:not(:disabled),
+.custom-select-trigger.open {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
+}
+
+.custom-select-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.custom-select-trigger span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select-trigger .placeholder {
+  color: #94a3b8;
+}
+
+.custom-select-arrow {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+
+.custom-select-trigger.open .custom-select-arrow {
+  transform: rotate(180deg);
+}
+
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: #475569 #0f172a;
+}
+
+.custom-select-option {
+  width: 100%;
+  flex-shrink: 0;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.custom-select-option:hover {
+  background: rgba(124, 58, 237, 0.22);
+  color: #ffffff;
+}
+
+.custom-select-option.selected {
+  background: rgba(124, 58, 237, 0.32);
+  color: #c4b5fd;
+  font-weight: 600;
+}
+
+.custom-select-empty {
+  padding: 10px 12px;
+  font-size: 0.84rem;
+  color: #64748b;
+  text-align: center;
+}

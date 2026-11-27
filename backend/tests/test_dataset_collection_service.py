@@ -138,3 +138,27 @@ def test_collection_session_commit_failure_rolls_back_and_hides_sql(db, monkeypa
 
     assert rolled_back is True
     assert "secret SQL" not in str(exc_info.value)
+
+
+def test_create_collection_session_rejects_completed_participant(db):
+    from app.models.dataset_collection import CollectionSession, CollectionSessionState
+
+    participant = DatasetParticipant(
+        participant_code="P099",
+        consent_confirmed_at=datetime(2026, 7, 19, 10, 0),
+        state=ParticipantState.active,
+    )
+    db.add(participant)
+    db.flush()
+    db.add(
+        CollectionSession(
+            participant_id=participant.id,
+            completed_trials=12,
+            total_trials=12,
+            state=CollectionSessionState.completed,
+        )
+    )
+    db.commit()
+
+    with pytest.raises(DatasetConflictError, match="completed"):
+        create_collection_session(db, participant.id, None, None)

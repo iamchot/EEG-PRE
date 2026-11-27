@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -19,11 +19,12 @@ type CollectionTab = 'overview' | 'participants' | 'stimuli' | 'sessions';
 import { LanguageService, toThaiError } from '../../core/services/language.service';
 import { TranslatePipe } from '../../core/pipes/translate.pipe';
 import { ThaiDatePipe } from '../../core/pipes/thai-date.pipe';
+import { AppSelectComponent, AppSelectOption } from '../../shared/components/app-select/app-select.component';
 
 @Component({
   selector: 'app-dataset-collection',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TranslatePipe, ThaiDatePipe],
+  imports: [CommonModule, FormsModule, RouterLink, TranslatePipe, ThaiDatePipe, AppSelectComponent],
   templateUrl: './dataset-collection.component.html',
   styleUrl: './dataset-collection.component.css',
 })
@@ -65,6 +66,46 @@ export class DatasetCollectionComponent implements OnInit {
   readonly inspectError = signal('');
   readonly inspectSuccess = signal('');
   readonly updatingStimulusId = signal<number | null>(null);
+  readonly participantDropdownOpen = signal(false);
+  private readonly hostEl = inject(ElementRef<HTMLElement>);
+
+  readonly participantOptions = computed<AppSelectOption<number | null>[]>(() => {
+    const isTh = this.lang.currentLang() === 'th';
+    return [
+      { value: null, label: isTh ? '-- เลือกผู้เข้าร่วมทดลอง --' : '-- Select Participant --' },
+      ...this.activeParticipants().map((item) => ({
+        value: item.id,
+        label: item.participant_code,
+      })),
+    ];
+  });
+
+  readonly libraryFileOptions = computed<AppSelectOption<string>[]>(() => {
+    const isTh = this.lang.currentLang() === 'th';
+    return [
+      { value: '', label: isTh ? '-- คลิกเลือกไฟล์วิดีโอจากคลัง --' : '-- Select video from library --' },
+      ...this.availableMediaFiles().map((file) => ({ value: file, label: file })),
+    ];
+  });
+
+  readonly quadrantOptions = computed<AppSelectOption<EmotionQuadrant>[]>(() => {
+    const isTh = this.lang.currentLang() === 'th';
+    return [
+      { value: 'positive_low', label: isTh ? '🟢 ผ่อนคลาย / สงบ' : '🟢 Relax / Calm' },
+      { value: 'positive_high', label: isTh ? '🟣 ตื่นเต้น / สนุกสนาน' : '🟣 Excited / Joy' },
+      { value: 'negative_low', label: isTh ? '🔵 เศร้า / หดหู่' : '🔵 Sad / Depressed' },
+      { value: 'negative_high', label: isTh ? '🔴 เครียด / ตกใจกลัว' : '🔴 Stress / Fear' },
+    ];
+  });
+
+  readonly approvalOptions = computed<AppSelectOption<StimulusApprovalState>[]>(() => {
+    const isTh = this.lang.currentLang() === 'th';
+    return [
+      { value: 'draft', label: isTh ? '🟡 แบบร่าง (ยังไม่นำไปสุ่ม)' : '🟡 Draft' },
+      { value: 'approved', label: isTh ? '🟢 อนุมัติแล้ว (พร้อมใช้งาน)' : '🟢 Approved' },
+      { value: 'retired', label: isTh ? '⚪ ปลดระวาง (ระงับการใช้งาน)' : '⚪ Retired' },
+    ];
+  });
 
   consentConfirmed = false;
   stimulus = { title: '', file_path: '', checksum: '', duration_seconds: 45, target_quadrant: 'positive_low' as EmotionQuadrant, approval_state: 'draft' as StimulusApprovalState, stimulus_set_version: 'v1' };
@@ -94,8 +135,45 @@ export class DatasetCollectionComponent implements OnInit {
     this.switchTab(key);
     document.getElementById(`collection-tab-${key}`)?.focus();
   }
-  activeParticipants(): DatasetParticipant[] { return this.participants().filter((item) => item.state === 'active'); }
-  hasActiveParticipant(): boolean { return this.sessionParticipantId !== null && this.activeParticipants().some((item) => item.id === this.sessionParticipantId); }
+  hasCompletedSession(participantId: number): boolean {
+    return this.sessions().some(
+      (sess) => sess.participant_id === participantId && sess.state === 'completed'
+    );
+  }
+
+  activeParticipants(): DatasetParticipant[] {
+    return this.participants().filter(
+      (item) => item.state === 'active' && !this.hasCompletedSession(item.id)
+    );
+  }
+
+  hasActiveParticipant(): boolean {
+    return this.sessionParticipantId !== null && this.activeParticipants().some((item) => item.id === this.sessionParticipantId);
+  }
+
+  toggleParticipantDropdown(event: Event): void {
+    event.stopPropagation();
+    this.participantDropdownOpen.update((open) => !open);
+  }
+
+  selectSessionParticipant(participantId: number | null): void {
+    this.sessionParticipantId = participantId;
+    this.participantDropdownOpen.set(false);
+  }
+
+  selectedParticipantLabel(): string {
+    const selected = this.activeParticipants().find((item) => item.id === this.sessionParticipantId);
+    if (selected) return selected.participant_code;
+    return this.lang.currentLang() === 'th' ? '-- เลือกผู้เข้าร่วมทดลอง --' : '-- Select Participant --';
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: Event): void {
+    const target = event.target as HTMLElement | null;
+    if (!target || !this.hostEl.nativeElement.querySelector('.custom-select-wrapper')?.contains(target)) {
+      this.participantDropdownOpen.set(false);
+    }
+  }
   isStimulusDurationValid(): boolean { return this.stimulus.duration_seconds >= 45 && this.stimulus.duration_seconds <= 60; }
   isStimulusReady(): boolean { return !!(this.stimulus.title.trim() && this.stimulus.file_path.trim() && this.stimulus.checksum.length === 64 && this.stimulus.stimulus_set_version.trim() && this.isStimulusDurationValid()); }
   sessionActionLabel(item: CollectionSession): string | null {
@@ -232,7 +310,12 @@ export class DatasetCollectionComponent implements OnInit {
     });
   }
 
+  canWithdrawParticipant(participant: DatasetParticipant): boolean {
+    return participant.state === 'active' && !this.hasCompletedSession(participant.id);
+  }
+
   openWithdrawModal(p: DatasetParticipant): void {
+    if (!this.canWithdrawParticipant(p)) return;
     this.participantToWithdraw.set(p);
   }
 

@@ -13,11 +13,12 @@ import { EegWaveformComponent } from '../../shared/components/eeg-waveform/eeg-w
 import { LanguageService, toThaiError } from '../../core/services/language.service';
 import { TranslatePipe } from '../../core/pipes/translate.pipe';
 import { MuseWebBluetoothService } from '../../core/services/muse-web-bluetooth.service';
+import { AppSelectComponent, AppSelectOption } from '../../shared/components/app-select/app-select.component';
 
 @Component({
   selector: 'app-eeg-session',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, HorseshoeSensorComponent, EegWaveformComponent, TranslatePipe],
+  imports: [FormsModule, DecimalPipe, HorseshoeSensorComponent, EegWaveformComponent, TranslatePipe, AppSelectComponent],
   templateUrl: './eeg-session.component.html',
   styleUrl: './eeg-session.component.css',
 })
@@ -32,6 +33,16 @@ export class EegSessionComponent implements OnInit, OnDestroy {
   connecting = signal(false);
   connectError = signal('');
   personas = signal<Persona[]>([]);
+  readonly personaOptions = computed<AppSelectOption<number | null>[]>(() => {
+    this.lang.currentLang();
+    return [
+      { value: null, label: this.lang.t('session.persona_none') },
+      ...this.personas().map((p) => ({ value: p.id, label: p.persona_name })),
+    ];
+  });
+  readonly artStyleOptions = computed<AppSelectOption<string>[]>(() =>
+    this.artStyles.map((style) => ({ value: style, label: style }))
+  );
   private confirmedEmotion = signal('');
   detectedEmotion = computed(() => this.confirmedEmotion() || this.eegWs.detectedEmotion());
   readonly artStyles = ['Webtoon', 'Manga', 'American Comic', 'Comic'] as const;

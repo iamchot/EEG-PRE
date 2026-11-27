@@ -65,6 +65,7 @@
 .step-index {
   width: 28px;
   height: 28px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -404,8 +405,15 @@ app-horseshoe-sensor {
     flex-direction: column;
   }
   .stepper {
-    overflow-x: auto;
-    grid-template-columns: repeat(4, minmax(110px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    padding: 12px 0;
+    overflow-x: visible;
+  }
+  .step {
+    min-height: 40px;
+    justify-content: flex-start;
+    font-size: 0.85rem;
   }
   app-horseshoe-sensor,
   .stage-panel {

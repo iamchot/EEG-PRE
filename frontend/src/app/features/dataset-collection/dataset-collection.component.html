@@ -509,7 +509,9 @@
                                 : "View 12-Trial Summary"
                             }}
                           </a>
-                        } @else {
+                        } @else if (
+                          sess.state !== "withdrawn" && sess.state !== "failed"
+                        ) {
                           <a
                             class="btn-table-action btn-continue"
                             [routerLink]="[
@@ -600,7 +602,9 @@
                   <small class="participant-meta">
                     @if (item.consent_confirmed_at) {
                       ยินยอมเมื่อ:
-                      {{ item.consent_confirmed_at | thaiDate: "dd/MM/yyyy HH:mm" }}
+                      {{
+                        item.consent_confirmed_at | thaiDate: "dd/MM/yyyy HH:mm"
+                      }}
                     } @else {
                       ยังไม่ระบุเวลา Consent
                     }
@@ -610,7 +614,7 @@
                     }
                   </small>
                 </div>
-                @if (item.state === "active") {
+                @if (canWithdrawParticipant(item)) {
                   <button
                     type="button"
                     class="btn-action-withdraw"
@@ -733,26 +737,11 @@
                       " files):"
                 }}</span
               >
-              <select
-                class="library-dropdown-select"
-                (change)="onSelectLibraryFile($event)"
-              >
-                <option value="">
-                  {{
-                    lang.currentLang() === "th"
-                      ? "-- คลิกเลือกไฟล์วิดีโอจากคลัง --"
-                      : "-- Select video from library --"
-                  }}
-                </option>
-                @for (file of availableMediaFiles(); track file) {
-                  <option
-                    [value]="file"
-                    [selected]="stimulus.file_path === file"
-                  >
-                    {{ file }}
-                  </option>
-                }
-              </select>
+              <app-select
+                [options]="libraryFileOptions()"
+                [value]="stimulus.file_path"
+                (valueChange)="$event ? onSelectAvailableFile($event) : null"
+              />
             </div>
           }
 
@@ -847,68 +836,19 @@
         </label>
         <label
           >{{ "dataset.target_quadrant_label" | translate
-          }}<select
-            id="target-quadrant"
+          }}<app-select
+            inputId="target-quadrant"
             name="quadrant"
-            required
+            [options]="quadrantOptions()"
             [(ngModel)]="stimulus.target_quadrant"
-          >
-            <option value="positive_low">
-              {{
-                lang.currentLang() === "th"
-                  ? "🟢 ผ่อนคลาย / สงบ"
-                  : "🟢 Relax / Calm"
-              }}
-            </option>
-            <option value="positive_high">
-              {{
-                lang.currentLang() === "th"
-                  ? "🟣 ตื่นเต้น / สนุกสนาน"
-                  : "🟣 Excited / Joy"
-              }}
-            </option>
-            <option value="negative_low">
-              {{
-                lang.currentLang() === "th"
-                  ? "🔵 เศร้า / หดหู่"
-                  : "🔵 Sad / Depressed"
-              }}
-            </option>
-            <option value="negative_high">
-              {{
-                lang.currentLang() === "th"
-                  ? "🔴 เครียด / ตกใจกลัว"
-                  : "🔴 Stress / Fear"
-              }}
-            </option>
-          </select></label
-        >
+        /></label>
         <label
           >{{ "dataset.approval_state_label" | translate
-          }}<select name="approval" [(ngModel)]="stimulus.approval_state">
-            <option value="draft">
-              {{
-                lang.currentLang() === "th"
-                  ? "🟡 แบบร่าง (ยังไม่นำไปสุ่ม)"
-                  : "🟡 Draft"
-              }}
-            </option>
-            <option value="approved">
-              {{
-                lang.currentLang() === "th"
-                  ? "🟢 อนุมัติแล้ว (พร้อมใช้งาน)"
-                  : "🟢 Approved"
-              }}
-            </option>
-            <option value="retired">
-              {{
-                lang.currentLang() === "th"
-                  ? "⚪ ปลดระวาง (ระงับการใช้งาน)"
-                  : "⚪ Retired"
-              }}
-            </option>
-          </select></label
-        >
+          }}<app-select
+            name="approval"
+            [options]="approvalOptions()"
+            [(ngModel)]="stimulus.approval_state"
+        /></label>
         <label
           >{{ "dataset.version_label" | translate
           }}<input
@@ -1015,28 +955,45 @@
       <form class="panel form-card" (ngSubmit)="createSession()">
         <h2>{{ "dataset.create_session" | translate }}</h2>
         <label
-          >{{ lang.currentLang() === "th" ? "เลือกผู้เข้าร่วมทดลอง" : "Select Participant" }}<select
+          >{{
+            lang.currentLang() === "th"
+              ? "เลือกผู้เข้าร่วมทดลอง"
+              : "Select Participant"
+          }}
+          <app-select
             name="participant"
-            required
+            [options]="participantOptions()"
+            [emptyText]="
+              lang.currentLang() === 'th'
+                ? 'ไม่มีผู้เข้าร่วมทดลองที่ยังไม่ได้บันทึก'
+                : 'No eligible participants remaining'
+            "
             [(ngModel)]="sessionParticipantId"
-          >
-            <option [ngValue]="null">{{ lang.currentLang() === "th" ? "-- เลือกผู้เข้าร่วมทดลอง --" : "-- Select Participant --" }}</option>
-            @for (item of activeParticipants(); track item.id) {
-              <option [ngValue]="item.id">{{ item.participant_code }}</option>
-            }
-          </select></label
-        >
+          />
+        </label>
         <label
-          >{{ lang.currentLang() === "th" ? "รหัสอุปกรณ์ Muse (ไม่บังคับ)" : "Muse Device ID (optional)" }}<input
+          >{{
+            lang.currentLang() === "th"
+              ? "รหัสอุปกรณ์ Muse (ไม่บังคับ)"
+              : "Muse Device ID (optional)"
+          }}<input
             name="device_id"
             [(ngModel)]="deviceId"
-            [placeholder]="lang.currentLang() === 'th' ? 'เช่น Muse-A9C7' : 'e.g. Muse-A9C7'"
+            [placeholder]="
+              lang.currentLang() === 'th' ? 'เช่น Muse-A9C7' : 'e.g. Muse-A9C7'
+            "
         /></label>
         <label
-          >{{ lang.currentLang() === "th" ? "ชื่ออุปกรณ์ที่แสดง (ไม่บังคับ)" : "Device Label (optional)" }}<input
+          >{{
+            lang.currentLang() === "th"
+              ? "ชื่ออุปกรณ์ที่แสดง (ไม่บังคับ)"
+              : "Device Label (optional)"
+          }}<input
             name="device_name"
             [(ngModel)]="deviceName"
-            [placeholder]="lang.currentLang() === 'th' ? 'เช่น Muse 2' : 'e.g. Muse 2'"
+            [placeholder]="
+              lang.currentLang() === 'th' ? 'เช่น Muse 2' : 'e.g. Muse 2'
+            "
         /></label>
         <button
           id="create-session"
@@ -1046,7 +1003,9 @@
         >
           {{
             sessionSubmitting()
-              ? (lang.currentLang() === "th" ? "กำลังสร้าง…" : "Creating…")
+              ? lang.currentLang() === "th"
+                ? "กำลังสร้าง…"
+                : "Creating…"
               : ("dataset.create_session" | translate)
           }}
         </button>
@@ -1055,13 +1014,27 @@
         <h2>{{ "dataset.sessions" | translate }}</h2>
         <div class="list">
           @if (sessionsLoading()) {
-            <p role="status">{{ lang.currentLang() === "th" ? "กำลังโหลดรอบการเก็บข้อมูล…" : "Loading sessions…" }}</p>
+            <p role="status">
+              {{
+                lang.currentLang() === "th"
+                  ? "กำลังโหลดรอบการเก็บข้อมูล…"
+                  : "Loading sessions…"
+              }}
+            </p>
           } @else {
             @for (item of sessions(); track item.id) {
               <div class="list-row">
                 <div class="session-info-col">
-                  <strong>{{ lang.currentLang() === "th" ? "รอบที่ #" + item.id : "Session #" + item.id }}</strong>
-                  <small>{{ lang.currentLang() === "th" ? "สถานะ: " + item.state : "State: " + item.state }}</small>
+                  <strong>{{
+                    lang.currentLang() === "th"
+                      ? "รอบที่ #" + item.id
+                      : "Session #" + item.id
+                  }}</strong>
+                  <small>{{
+                    lang.currentLang() === "th"
+                      ? "สถานะ: " + item.state
+                      : "State: " + item.state
+                  }}</small>
                 </div>
                 <div class="session-action-col">
                   <span class="badge state-badge">{{ item.state }}</span>
