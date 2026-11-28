@@ -1,123 +1,239 @@
 <main class="runner-shell">
   <header class="runner-header">
     <div>
-      <a routerLink="/admin/dataset-collection" class="back-link">← {{ 'runner.back' | translate }}</a>
-      <p class="eyebrow">{{ 'runner.eyebrow' | translate }}</p>
-      <h1>{{ 'runner.title' | translate }}</h1>
+      <a routerLink="/admin/dataset-collection" class="back-link"
+        >← {{ "runner.back" | translate }}</a
+      >
+      <p class="eyebrow">{{ "runner.eyebrow" | translate }}</p>
+      <h1>{{ "runner.title" | translate }}</h1>
       <p>Session {{ sessionId }} · {{ trialProgressLabel() }}</p>
     </div>
     <aside class="notice" data-testid="non-medical-notice">
-      {{ 'dataset.notice' | translate }}
+      {{ "dataset.notice" | translate }}
     </aside>
   </header>
 
-  <div class="connection" role="status" aria-live="polite">
-    <span class="status-dot" [class.online]="ws.isConnected()"></span>
-    {{ ws.isConnected() ? ('runner.live_connected' | translate) : ('runner.persisted_state' | translate) }}
-    · {{ 'runner.signal_quality' | translate }}
-    · {{ samplingRateLabel() }}
-    @if (museBt.state() === 'streaming') {
-      <span class="muse-live-badge">✓ Muse: {{ museBt.deviceName() ?? 'Connected' }}</span>
-    } @else {
-      <button class="reconnect-btn" type="button" (click)="scanMuse()"
-        [disabled]="busy() || museBt.state() === 'requesting' || museBt.state() === 'connecting' || !museBt.isSupported">
-        @if (museBt.state() === 'requesting' || museBt.state() === 'connecting') {
-          กำลังเชื่อมต่อ Muse 2…
-        } @else {
-          เชื่อมต่อ Muse 2
-        }
-      </button>
-    }
-  </div>
-  @if (ws.streamError()) { <div class="error" role="alert">{{ toThaiError(ws.streamError()) }}</div> }
-  @if (error()) { <div class="error" role="alert">{{ toThaiError(error()) }}</div> }
+  @if (stage() !== "completed" && stage() !== "failed") {
+    <div class="connection" role="status" aria-live="polite">
+      <span class="status-dot" [class.online]="ws.isConnected()"></span>
+      {{
+        ws.isConnected()
+          ? ("runner.live_connected" | translate)
+          : ("runner.persisted_state" | translate)
+      }}
+      · {{ "runner.signal_quality" | translate }} · {{ samplingRateLabel() }}
+      @if (museBt.state() === "streaming") {
+        <span class="muse-live-badge"
+          >✓ Muse: {{ museBt.deviceName() ?? "Connected" }}</span
+        >
+      } @else {
+        <button
+          class="reconnect-btn"
+          type="button"
+          (click)="scanMuse()"
+          [disabled]="
+            busy() ||
+            museBt.state() === 'requesting' ||
+            museBt.state() === 'connecting' ||
+            !museBt.isSupported
+          "
+        >
+          @if (
+            museBt.state() === "requesting" || museBt.state() === "connecting"
+          ) {
+            กำลังเชื่อมต่อ Muse 2…
+          } @else {
+            เชื่อมต่อ Muse 2
+          }
+        </button>
+      }
+    </div>
+  }
+  @if (ws.streamError()) {
+    <div class="error" role="alert">{{ toThaiError(ws.streamError()) }}</div>
+  }
+  @if (error()) {
+    <div class="error" role="alert">{{ toThaiError(error()) }}</div>
+  }
 
   <section class="progress-card" aria-label="Collection progress">
-    <div><span>{{ 'runner.progress' | translate }}</span><strong>{{ trialProgressLabel() }}</strong></div>
-    <progress [value]="runnerState()?.completed_trials ?? 0" max="12">{{ runnerState()?.completed_trials ?? 0 }} of 12</progress>
+    <div>
+      <span>{{ "runner.progress" | translate }}</span
+      ><strong>{{ trialProgressLabel() }}</strong>
+    </div>
+    <progress [value]="runnerState()?.completed_trials ?? 0" max="12">
+      {{ runnerState()?.completed_trials ?? 0 }} of 12
+    </progress>
   </section>
 
   @switch (stage()) {
-    @case ('device') {
+    @case ("device") {
       <section class="workspace" data-stage="device">
         <div>
-          <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
-          <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
-            @for (key of sensorKeys; track key) {
-              <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
-                <div class="sensor-pill-top">
-                  <span class="sensor-dot"></span>
-                  <span class="sensor-name">{{ key.toUpperCase() }}</span>
-                  <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
-                </div>
-                <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
-              </div>
-            }
-          </div>
-          <app-eeg-waveform [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" [isConnected]="ws.isConnected()" />
+          <app-horseshoe-sensor
+            [tp9]="sensorStatus('tp9')"
+            [af7]="sensorStatus('af7')"
+            [af8]="sensorStatus('af8')"
+            [tp10]="sensorStatus('tp10')"
+          />
+          <app-eeg-waveform
+            [tp9]="sensorStatus('tp9')"
+            [af7]="sensorStatus('af7')"
+            [af8]="sensorStatus('af8')"
+            [tp10]="sensorStatus('tp10')"
+            [isConnected]="ws.isConnected()"
+          />
         </div>
         <section class="action-card">
-          <p class="step">{{ lang.currentLang() === 'th' ? 'ขั้นตอนที่ 1' : 'Step 1' }}</p><h2>{{ 'runner.scan_select_muse' | translate }}</h2>
-          <p>{{ 'runner.scan_desc' | translate }}</p>
+          <p class="step">
+            {{ lang.currentLang() === "th" ? "ขั้นตอนที่ 1" : "Step 1" }}
+          </p>
+          <h2>{{ "runner.scan_select_muse" | translate }}</h2>
+          <p>{{ "runner.scan_desc" | translate }}</p>
           @if (!museBt.isSupported) {
-            <div class="error" role="alert">เบราว์เซอร์นี้ไม่รองรับ Web Bluetooth — กรุณาใช้ Chrome หรือ Edge</div>
+            <div class="error" role="alert">
+              เบราว์เซอร์นี้ไม่รองรับ Web Bluetooth — กรุณาใช้ Chrome หรือ Edge
+            </div>
           }
-          <button id="scan-muse" class="primary" type="button" (click)="scanMuse()"
-            [disabled]="busy() || museBt.state() === 'requesting' || museBt.state() === 'connecting' || (!museBt.isSupported && !muse)">
-            @if (museBt.state() === 'requesting' || museBt.state() === 'connecting') {
+          <button
+            id="scan-muse"
+            class="primary"
+            type="button"
+            (click)="scanMuse()"
+            [disabled]="
+              busy() ||
+              museBt.state() === 'requesting' ||
+              museBt.state() === 'connecting' ||
+              (!museBt.isSupported && !muse)
+            "
+          >
+            @if (
+              museBt.state() === "requesting" || museBt.state() === "connecting"
+            ) {
               กำลังเชื่อมต่อ Muse 2…
             } @else {
-              {{ 'session.scan_btn' | translate }}
+              {{ "session.scan_btn" | translate }}
             }
           </button>
           @if (muse?.scanStatus()?.devices?.length) {
             <div class="scanned-devices">
-              @for (device of muse?.scanStatus()?.devices ?? []; track device.address) {
-                <button type="button" class="device-select-btn" data-muse-device (click)="connectMuse(device)">{{ device.name }} ({{ device.address }})</button>
+              @for (
+                device of muse?.scanStatus()?.devices ?? [];
+                track device.address
+              ) {
+                <button
+                  type="button"
+                  class="device-select-btn"
+                  data-muse-device
+                  (click)="connectMuse(device)"
+                >
+                  {{ device.name }} ({{ device.address }})
+                </button>
               }
             </div>
           }
-          @if (museBt.error()) { <p class="error" role="alert">{{ museBt.error() }}</p> }
-          <p class="muse-connection" [attr.data-state]="museBt.state()">{{ museConnectionLabel() }}</p>
+          @if (museBt.error()) {
+            <p class="error" role="alert">{{ museBt.error() }}</p>
+          }
+          <p class="muse-connection" [attr.data-state]="museBt.state()">
+            {{ museConnectionLabel() }}
+          </p>
           @if (isDeviceReady() && (runnerState()?.total_trials ?? 0) === 0) {
-            <button id="prepare-schedule" class="primary" type="button" (click)="prepareSchedule()" [disabled]="busy()">
-              @if (busy()) { กำลังเตรียม Schedule… } @else { {{ 'runner.prepare_schedule_btn' | translate }} }
+            <button
+              id="prepare-schedule"
+              class="primary"
+              type="button"
+              (click)="prepareSchedule()"
+              [disabled]="busy()"
+            >
+              @if (busy()) {
+                กำลังเตรียม Schedule…
+              } @else {
+                {{ "runner.prepare_schedule_btn" | translate }}
+              }
             </button>
           }
           <fieldset class="contact-confirmations">
             <div class="contact-header">
-              <legend>{{ 'runner.admin_contact_confirm' | translate }}</legend>
-              <button type="button" class="confirm-all-btn" (click)="confirmAllContacts()" [disabled]="busy()">
-                ✓ {{ 'runner.confirm_all_contacts' | translate }}
+              <legend>{{ "runner.admin_contact_confirm" | translate }}</legend>
+              <button
+                type="button"
+                class="confirm-all-btn"
+                (click)="confirmAllContacts()"
+                [disabled]="busy()"
+              >
+                ✓ {{ "runner.confirm_all_contacts" | translate }}
               </button>
             </div>
-            <p>{{ 'runner.admin_contact_desc' | translate }}</p>
-            @for (key of sensorKeys; track key) {
-              <label><input data-contact-confirmation type="checkbox" [checked]="contacts()[key]" (change)="setContact(key, $any($event.target).checked)"><span>{{ key.toUpperCase() }} สัมผัสผิวแล้ว</span></label>
-            }
+            <p>{{ "runner.admin_contact_desc" | translate }}</p>
+            <div class="contact-grid">
+              @for (key of sensorKeys; track key) {
+                <label class="contact-check-pill" [class.checked]="contacts()[key]"
+                  ><input
+                    data-contact-confirmation
+                    type="checkbox"
+                    [checked]="contacts()[key]"
+                    (change)="setContact(key, $any($event.target).checked)"
+                  /><span>{{ key.toUpperCase() }} สัมผัสผิวแล้ว</span></label
+                >
+              }
+            </div>
           </fieldset>
           @if (runnerState()?.eyes_open_complete) {
             @if (!runnerState()?.eyes_closed_complete) {
-              <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy() || !canStartBaseline()">{{ 'runner.start_baseline_closed' | translate }}</button>
+              <button
+                class="primary"
+                type="button"
+                (click)="startBaseline('eyes_closed')"
+                [disabled]="busy() || !canStartBaseline()"
+              >
+                {{ "runner.start_baseline_closed" | translate }}
+              </button>
             } @else {
-              <button class="primary" type="button" (click)="stage.set('ready')">ไปยังขั้นตอนถัดไป (พร้อมเก็บ Trial)</button>
+              <button
+                class="primary"
+                type="button"
+                (click)="stage.set('ready')"
+              >
+                ไปยังขั้นตอนถัดไป (พร้อมเก็บ Trial)
+              </button>
             }
           } @else {
-            <button class="primary" type="button" (click)="startBaseline('eyes_open')" [disabled]="busy() || !canStartBaseline()">{{ 'runner.start_baseline_open' | translate }}</button>
+            <button
+              class="primary"
+              type="button"
+              (click)="startBaseline('eyes_open')"
+              [disabled]="busy() || !canStartBaseline()"
+            >
+              {{ "runner.start_baseline_open" | translate }}
+            </button>
           }
-          <p class="hint">{{ 'runner.clean_gate_hint' | translate }}</p>
-          <p class="hint">{{ 'runner.open_before_closed_hint' | translate }}</p>
+          <p class="hint">{{ "runner.clean_gate_hint" | translate }}</p>
+          <p class="hint">{{ "runner.open_before_closed_hint" | translate }}</p>
         </section>
-
       </section>
     }
-    @case ('eyes_open') {
-      <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
+    @case ("eyes_open") {
       <section class="focus-card" data-stage="eyes_open" aria-live="polite">
-        <p class="step">{{ lang.currentLang() === 'th' ? 'ค่าพื้นฐาน 1 จาก 2' : 'Baseline 1 of 2' }}</p><h2>ลืมตาและมองจุดกึ่งกลาง</h2>
+        <p class="step">
+          {{
+            lang.currentLang() === "th"
+              ? "ค่าพื้นฐาน 1 จาก 2"
+              : "Baseline 1 of 2"
+          }}
+        </p>
+        <h2>ลืมตาและมองจุดกึ่งกลาง</h2>
         <div class="fixation" aria-label="Fixation point">+</div>
-        <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
-        <p>{{ seconds(runnerState()?.wall_clock_seconds) }}{{ lang.currentLang() === 'th' ? ' วิ (รวม) · ' : 's wall · ' }}{{ seconds(runnerState()?.accepted_clean_seconds) }}{{ lang.currentLang() === 'th' ? ' วิ (คลื่นสะอาด)' : 's clean' }}</p>
+        <div class="target-grid">
+          <strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span
+          ><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span>
+        </div>
+        <p>
+          {{ seconds(runnerState()?.wall_clock_seconds)
+          }}{{ lang.currentLang() === "th" ? " วิ (รวม) · " : "s wall · "
+          }}{{ seconds(runnerState()?.accepted_clean_seconds)
+          }}{{ lang.currentLang() === "th" ? " วิ (คลื่นสะอาด)" : "s clean" }}
+        </p>
         <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
           @for (key of sensorKeys; track key) {
             <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
@@ -132,16 +248,37 @@
         </div>
       </section>
     }
-    @case ('eyes_closed') {
-      <app-horseshoe-sensor [tp9]="sensorStatus('tp9')" [af7]="sensorStatus('af7')" [af8]="sensorStatus('af8')" [tp10]="sensorStatus('tp10')" />
+    @case ("eyes_closed") {
       <section class="focus-card" data-stage="eyes_closed" aria-live="polite">
-        <p class="step">{{ lang.currentLang() === 'th' ? 'ค่าพื้นฐาน 2 จาก 2' : 'Baseline 2 of 2' }}</p><h2>หลับตาและอยู่นิ่ง</h2>
+        <p class="step">
+          {{
+            lang.currentLang() === "th"
+              ? "ค่าพื้นฐาน 2 จาก 2"
+              : "Baseline 2 of 2"
+          }}
+        </p>
+        <h2>หลับตาและอยู่นิ่ง</h2>
         <div class="fixation" aria-label="Fixation point">+</div>
-        <div class="target-grid"><strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span></div>
-        @if (runnerState()?.active_baseline === 'eyes_closed') {
-          <p>{{ seconds(runnerState()?.wall_clock_seconds) }}{{ lang.currentLang() === 'th' ? ' วิ (รวม) · ' : 's wall · ' }}{{ seconds(runnerState()?.accepted_clean_seconds) }}{{ lang.currentLang() === 'th' ? ' วิ (คลื่นสะอาด)' : 's clean' }}</p>
+        <div class="target-grid">
+          <strong>60 วินาที</strong><span>เวลาบันทึกทั้งหมด</span
+          ><strong>30 วินาที</strong><span>สัญญาณสะอาดขั้นต่ำ</span>
+        </div>
+        @if (runnerState()?.active_baseline === "eyes_closed") {
+          <p>
+            {{ seconds(runnerState()?.wall_clock_seconds)
+            }}{{ lang.currentLang() === "th" ? " วิ (รวม) · " : "s wall · "
+            }}{{ seconds(runnerState()?.accepted_clean_seconds)
+            }}{{ lang.currentLang() === "th" ? " วิ (คลื่นสะอาด)" : "s clean" }}
+          </p>
         } @else {
-          <button class="primary" type="button" (click)="startBaseline('eyes_closed')" [disabled]="busy() || !canStartBaseline()">{{ 'runner.start_baseline_closed' | translate }}</button>
+          <button
+            class="primary"
+            type="button"
+            (click)="startBaseline('eyes_closed')"
+            [disabled]="busy() || !canStartBaseline()"
+          >
+            {{ "runner.start_baseline_closed" | translate }}
+          </button>
         }
         <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
           @for (key of sensorKeys; track key) {
@@ -157,9 +294,13 @@
         </div>
       </section>
     }
-    @case ('ready') {
-      <section class="focus-card" data-stage="ready"><p class="step">พร้อมเก็บ Trial</p><h2>Trial {{ displayedTrialOrder() }} / 12</h2>
-        <p>คลิปถัดไป: {{ runnerState()?.next_stimulus_title ?? 'รอข้อมูลคลิป' }}</p>
+    @case ("ready") {
+      <section class="focus-card" data-stage="ready">
+        <p class="step">พร้อมเก็บ Trial</p>
+        <h2>Trial {{ displayedTrialOrder() }} / 12</h2>
+        <p>
+          คลิปถัดไป: {{ runnerState()?.next_stimulus_title ?? "รอข้อมูลคลิป" }}
+        </p>
         <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
           @for (key of sensorKeys; track key) {
             <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
@@ -172,24 +313,45 @@
             </div>
           }
         </div>
-        <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy() || !runnerState()?.next_trial_id">เริ่มช่วงพักก่อนคลิป</button>
+        <button
+          class="primary"
+          type="button"
+          (click)="startNextTrial()"
+          [disabled]="busy() || !runnerState()?.next_trial_id"
+        >
+          เริ่มช่วงพักก่อนคลิป
+        </button>
       </section>
     }
-    @case ('rest') {
+    @case ("rest") {
       <section class="media-layout" data-stage="rest">
         <div class="focus-card">
-          <p class="step">{{ lang.currentLang() === 'th' ? 'พักสายตา / มองจุดกึ่งกลาง' : 'Rest / Fixation' }}</p>
+          <p class="step">
+            {{
+              lang.currentLang() === "th"
+                ? "พักสายตา / มองจุดกึ่งกลาง"
+                : "Rest / Fixation"
+            }}
+          </p>
           <h2>มองจุดกึ่งกลางและอยู่นิ่ง</h2>
           <div class="fixation" aria-label="Fixation point">+</div>
-          <p>เป้าหมาย 10–15 วินาที · Backend: {{ seconds(runnerState()?.wall_clock_seconds) }}s</p>
+          <p>
+            เป้าหมาย 10–15 วินาที · Backend:
+            {{ seconds(runnerState()?.wall_clock_seconds) }}s
+          </p>
 
           <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
             @for (key of sensorKeys; track key) {
-              <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+              <div
+                class="sensor-pill"
+                [attr.data-state]="sensorQualityTone(key)"
+              >
                 <div class="sensor-pill-top">
                   <span class="sensor-dot"></span>
                   <span class="sensor-name">{{ key.toUpperCase() }}</span>
-                  <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+                  <span class="sensor-score">{{
+                    sensorQualityScore(key)
+                  }}</span>
                 </div>
                 <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
               </div>
@@ -198,8 +360,16 @@
 
           @if ((runnerState()?.wall_clock_seconds ?? 0) > 15) {
             <div class="rest-timeout-box" role="alert">
-              <p class="rest-timeout-msg">ช่วงพักเกิน 15 วินาทีแล้ว (สัญญาณอาจยังไม่นิ่งหรือไม่เขียวครบ 4 จุด)</p>
-              <button class="restart-rest-btn" type="button" (click)="restartRest()" [disabled]="busy()">
+              <p class="rest-timeout-msg">
+                ช่วงพักเกิน 15 วินาทีแล้ว (สัญญาณอาจยังไม่นิ่งหรือไม่เขียวครบ 4
+                จุด)
+              </p>
+              <button
+                class="restart-rest-btn"
+                type="button"
+                (click)="restartRest()"
+                [disabled]="busy()"
+              >
                 ↺ สัญญาณหลุด — เริ่มช่วงพัก 10–15 วิใหม่อีกครั้ง
               </button>
             </div>
@@ -208,24 +378,62 @@
         <ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
       </section>
     }
-    @case ('stimulus') {
-      <section class="media-layout" data-stage="stimulus"><ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
+    @case ("stimulus") {
+      <section class="media-layout" data-stage="stimulus">
+        <ng-container *ngTemplateOutlet="mediaPanel"></ng-container>
         <div class="stimulus-side">
-          <aside class="artifact-card"><h2>{{ lang.currentLang() === 'th' ? 'บันทึกเหตุการณ์รบกวน (Artifact)' : 'Artifact marker' }}</h2><label for="artifact-note">{{ lang.currentLang() === 'th' ? 'หมายเหตุ (ไม่บังคับ)' : 'Note (optional)' }}<input id="artifact-note" [(ngModel)]="artifactNote"></label>
-            <div class="artifact-grid">@for (item of artifacts; track item.type) { <button type="button" (click)="markArtifact(item.type)" [disabled]="busy()">{{ item.label }}</button> }</div>
+          <aside class="artifact-card">
+            <h2>
+              {{
+                lang.currentLang() === "th"
+                  ? "บันทึกเหตุการณ์รบกวน (Artifact)"
+                  : "Artifact marker"
+              }}
+            </h2>
+            <label for="artifact-note"
+              >{{
+                lang.currentLang() === "th"
+                  ? "หมายเหตุ (ไม่บังคับ)"
+                  : "Note (optional)"
+              }}<input id="artifact-note" [(ngModel)]="artifactNote"
+            /></label>
+            <div class="artifact-grid">
+              @for (item of artifacts; track item.type) {
+                <button
+                  type="button"
+                  (click)="markArtifact(item.type)"
+                  [disabled]="busy()"
+                >
+                  {{ item.label }}
+                </button>
+              }
+            </div>
             @if (artifactFeedback()) {
-              <div class="artifact-toast" role="status">{{ artifactFeedback() }}</div>
+              <div class="artifact-toast" role="status">
+                {{ artifactFeedback() }}
+              </div>
             }
           </aside>
           <div class="sensor-card" aria-label="สถานะเซนเซอร์ 4 จุด">
-            <div class="sensor-card-title">{{ lang.currentLang() === 'th' ? 'สถานะเซนเซอร์ 4 จุด' : 'Live EEG Sensors' }}</div>
+            <div class="sensor-card-title">
+              {{
+                lang.currentLang() === "th"
+                  ? "สถานะเซนเซอร์ 4 จุด"
+                  : "Live EEG Sensors"
+              }}
+            </div>
             <div class="sensor-status-strip">
               @for (key of sensorKeys; track key) {
-                <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+                <div
+                  class="sensor-pill"
+                  [attr.data-state]="sensorQualityTone(key)"
+                >
                   <div class="sensor-pill-top">
                     <span class="sensor-dot"></span>
                     <span class="sensor-name">{{ key.toUpperCase() }}</span>
-                    <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+                    <span class="sensor-score">{{
+                      sensorQualityScore(key)
+                    }}</span>
                   </div>
                   <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
                 </div>
@@ -235,59 +443,152 @@
         </div>
       </section>
     }
-    @case ('rating') {
+    @case ("rating") {
       <form class="rating-card" data-stage="rating" (ngSubmit)="submitRating()">
-        <p class="step">{{ lang.currentLang() === 'th' ? 'การประเมินตนเอง' : 'Self-rating' }}</p>
-        <h2>{{ lang.currentLang() === 'th' ? 'บันทึกความรู้สึกของผู้เข้าร่วม' : 'Record Participant Rating' }}</h2>
+        <p class="step">
+          {{ lang.currentLang() === "th" ? "การประเมินตนเอง" : "Self-rating" }}
+        </p>
+        <h2>
+          {{
+            lang.currentLang() === "th"
+              ? "บันทึกความรู้สึกของผู้เข้าร่วม"
+              : "Record Participant Rating"
+          }}
+        </h2>
         <label for="valence">
-          {{ lang.currentLang() === 'th' ? 'ความพึงพอใจ / ความรู้สึกบวก-ลบ (Valence 1–9)' : 'Valence — Pleasantness (1–9)' }}
+          {{
+            lang.currentLang() === "th"
+              ? "ความพึงพอใจ / ความรู้สึกบวก-ลบ (Valence 1–9)"
+              : "Valence — Pleasantness (1–9)"
+          }}
           <span class="scale-hint">
-            {{ lang.currentLang() === 'th' ? '1 = แย่มาก / เศร้า / เครียด · 5 = เฉยๆ (ก้ำกึ่ง) · 9 = ดีมาก / มีความสุข / สนุก' : '1 = Highly Unpleasant · 5 = Neutral · 9 = Highly Pleasant' }}
+            {{
+              lang.currentLang() === "th"
+                ? "1 = แย่มาก / เศร้า / เครียด · 5 = เฉยๆ (ก้ำกึ่ง) · 9 = ดีมาก / มีความสุข / สนุก"
+                : "1 = Highly Unpleasant · 5 = Neutral · 9 = Highly Pleasant"
+            }}
           </span>
-          <input id="valence" name="valence" type="number" min="1" max="9" required [(ngModel)]="valence">
+          <input
+            id="valence"
+            name="valence"
+            type="number"
+            min="1"
+            max="9"
+            required
+            [(ngModel)]="valence"
+          />
         </label>
         <label for="arousal">
-          {{ lang.currentLang() === 'th' ? 'ความเข้มข้น / ความเร้าของอารมณ์ (Arousal 1–9)' : 'Arousal — Activation Level (1–9)' }}
+          {{
+            lang.currentLang() === "th"
+              ? "ความเข้มข้น / ความเร้าของอารมณ์ (Arousal 1–9)"
+              : "Arousal — Activation Level (1–9)"
+          }}
           <span class="scale-hint">
-            {{ lang.currentLang() === 'th' ? '1 = สงบนิ่ง / ผ่อนคลาย / เฉื่อย · 5 = ปานกลาง · 9 = ตื่นเต้นมาก / เร้าใจ / ตึงเครียด' : '1 = Calm / Sleepy · 5 = Neutral · 9 = Highly Activated / Excited' }}
+            {{
+              lang.currentLang() === "th"
+                ? "1 = สงบนิ่ง / ผ่อนคลาย / เฉื่อย · 5 = ปานกลาง · 9 = ตื่นเต้นมาก / เร้าใจ / ตึงเครียด"
+                : "1 = Calm / Sleepy · 5 = Neutral · 9 = Highly Activated / Excited"
+            }}
           </span>
-          <input id="arousal" name="arousal" type="number" min="1" max="9" required [(ngModel)]="arousal">
+          <input
+            id="arousal"
+            name="arousal"
+            type="number"
+            min="1"
+            max="9"
+            required
+            [(ngModel)]="arousal"
+          />
         </label>
         <label for="confidence">
-          {{ lang.currentLang() === 'th' ? 'ความมั่นใจในการประเมินคะแนนข้างต้น (1–5)' : 'Confidence — Rating Certainty (1–5)' }}
+          {{
+            lang.currentLang() === "th"
+              ? "ความมั่นใจในการประเมินคะแนนข้างต้น (1–5)"
+              : "Confidence — Rating Certainty (1–5)"
+          }}
           <span class="scale-hint">
-            {{ lang.currentLang() === 'th' ? '1 = ไม่แน่ใจเลย · 3 = ค่อนข้างแน่ใจ · 5 = มั่นใจมากตรงกับความรู้สึกจริง' : '1 = Not Confident · 3 = Moderately Confident · 5 = Highly Confident' }}
+            {{
+              lang.currentLang() === "th"
+                ? "1 = ไม่แน่ใจเลย · 3 = ค่อนข้างแน่ใจ · 5 = มั่นใจมากตรงกับความรู้สึกจริง"
+                : "1 = Not Confident · 3 = Moderately Confident · 5 = Highly Confident"
+            }}
           </span>
-          <input id="confidence" name="confidence" type="number" min="1" max="5" required [(ngModel)]="confidence">
+          <input
+            id="confidence"
+            name="confidence"
+            type="number"
+            min="1"
+            max="5"
+            required
+            [(ngModel)]="confidence"
+          />
         </label>
-        <button class="primary" type="submit" [disabled]="busy() || !ratingsValid()">
-          {{ lang.currentLang() === 'th' ? 'บันทึกคะแนน' : 'Submit Rating' }}
+        <button
+          class="primary"
+          type="submit"
+          [disabled]="busy() || !ratingsValid()"
+        >
+          {{ lang.currentLang() === "th" ? "บันทึกคะแนน" : "Submit Rating" }}
         </button>
-
       </form>
     }
-    @case ('break') {
+    @case ("break") {
       <section class="focus-card" data-stage="break">
-        <p class="step">{{ lang.currentLang() === 'th' ? 'พักระหว่างรอบ' : 'Mid-session Break' }}</p>
-        <h2>{{ lang.currentLang() === 'th' ? 'ครบ 6 รอบทดสอบแล้ว' : 'Trial 6 Completed' }}</h2>
-        <p>{{ lang.currentLang() === 'th' ? 'พัก 3–5 นาที ตรวจความสบายและตำแหน่งสายคาด Muse ก่อนเริ่มรอบถัดไป' : 'Rest 3–5 minutes. Check headband comfort and placement before resuming.' }}</p>
-        <button class="primary" type="button" (click)="startNextTrial()" [disabled]="busy()">
-          {{ lang.currentLang() === 'th' ? 'เริ่มรอบที่ 7' : 'Start Trial 7' }}
+        <p class="step">
+          {{
+            lang.currentLang() === "th" ? "พักระหว่างรอบ" : "Mid-session Break"
+          }}
+        </p>
+        <h2>
+          {{
+            lang.currentLang() === "th"
+              ? "ครบ 6 รอบทดสอบแล้ว"
+              : "Trial 6 Completed"
+          }}
+        </h2>
+        <p>
+          {{
+            lang.currentLang() === "th"
+              ? "พัก 3–5 นาที ตรวจความสบายและตำแหน่งสายคาด Muse ก่อนเริ่มรอบถัดไป"
+              : "Rest 3–5 minutes. Check headband comfort and placement before resuming."
+          }}
+        </p>
+        <button
+          class="primary"
+          type="button"
+          (click)="startNextTrial()"
+          [disabled]="busy()"
+        >
+          {{ lang.currentLang() === "th" ? "เริ่มรอบที่ 7" : "Start Trial 7" }}
         </button>
       </section>
     }
-    @case ('completed') {
+    @case ("completed") {
       <section class="completed-report" data-stage="completed">
         <div class="completed-hero-card">
           <div class="completed-hero-text">
-            <span class="completed-tag">{{ lang.currentLang() === 'th' ? '✓ บันทึกครบถ้วน 100%' : '✓ 100% Completed' }}</span>
-            <h2>{{ lang.currentLang() === 'th' ? 'สรุปผลการเก็บข้อมูลรอบที่ #' + sessionId + ' (ครบ 12 รอบทดสอบ)' : 'Collection Session #' + sessionId + ' Summary (12 Trials)' }}</h2>
-            <p>{{ lang.currentLang() === 'th' ? 'บันทึกสัญญาณคลื่นสมองและผลประเมินอารมณ์ตนเองสำเร็จเรียบร้อย พร้อมสำหรับขั้นตอนตรวจสอบชุดข้อมูล' : 'Recorded EEG signals and self-assessment ratings successfully. Ready for dataset verification.' }}</p>
-          </div>
-          <div class="completed-hero-actions">
-            <a routerLink="/admin/dataset-collection" class="btn-primary-back">
-              ← {{ lang.currentLang() === 'th' ? 'กลับสู่หน้าหลักการเก็บข้อมูล' : 'Back to Dataset Collection' }}
-            </a>
+            <span class="completed-tag">{{
+              lang.currentLang() === "th"
+                ? "✓ บันทึกครบถ้วน 100%"
+                : "✓ 100% Completed"
+            }}</span>
+            <h2>
+              {{
+                lang.currentLang() === "th"
+                  ? "สรุปผลการเก็บข้อมูลรอบที่ #" +
+                    sessionId +
+                    " (ครบ 12 รอบทดสอบ)"
+                  : "Collection Session #" + sessionId + " Summary (12 Trials)"
+              }}
+            </h2>
+            <p>
+              {{
+                lang.currentLang() === "th"
+                  ? "บันทึกสัญญาณคลื่นสมองและผลประเมินอารมณ์ตนเองสำเร็จเรียบร้อย พร้อมสำหรับขั้นตอนตรวจสอบชุดข้อมูล"
+                  : "Recorded EEG signals and self-assessment ratings successfully. Ready for dataset verification."
+              }}
+            </p>
           </div>
         </div>
 
@@ -295,29 +596,82 @@
           <!-- KPI Metrics Row -->
           <div class="completed-kpis">
             <article class="kpi-box">
-              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'ผู้เข้าร่วมการทดลอง' : 'Participant' }}</span>
-              <strong class="kpi-value text-purple">{{ detail.participant_code }}</strong>
-              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? 'รหัสประจำตัว' : 'Participant Code' }}</small>
+              <span class="kpi-title">{{
+                lang.currentLang() === "th"
+                  ? "ผู้เข้าร่วมการทดลอง"
+                  : "Participant"
+              }}</span>
+              <strong class="kpi-value text-purple">{{
+                detail.participant_code
+              }}</strong>
+              <small class="kpi-desc">{{
+                lang.currentLang() === "th"
+                  ? "รหัสประจำตัว"
+                  : "Participant Code"
+              }}</small>
             </article>
             <article class="kpi-box">
-              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'รอบที่บันทึกสำเร็จ' : 'Completed Trials' }}</span>
-              <strong class="kpi-value text-green">{{ detail.completed_trials }} / {{ detail.total_trials }}</strong>
-              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? '12 / 12 รอบ (100%)' : '12 / 12 Trials (100%)' }}</small>
+              <span class="kpi-title">{{
+                lang.currentLang() === "th"
+                  ? "รอบที่บันทึกสำเร็จ"
+                  : "Completed Trials"
+              }}</span>
+              <strong class="kpi-value text-green"
+                >{{ detail.completed_trials }} /
+                {{ detail.total_trials }}</strong
+              >
+              <small class="kpi-desc">{{
+                lang.currentLang() === "th"
+                  ? "12 / 12 รอบ (100%)"
+                  : "12 / 12 Trials (100%)"
+              }}</small>
             </article>
             <article class="kpi-box">
-              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'ขนาดไฟล์คลื่นสมองรวม' : 'Total Raw EEG' }}</span>
-              <strong class="kpi-value text-cyan">{{ formatBytes(detail.total_eeg_bytes) }}</strong>
-              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? '12 ไฟล์คลื่นสมองดิบ (.csv)' : '12 Raw EEG CSV Files' }}</small>
+              <span class="kpi-title">{{
+                lang.currentLang() === "th"
+                  ? "ขนาดไฟล์คลื่นสมองรวม"
+                  : "Total Raw EEG"
+              }}</span>
+              <strong class="kpi-value text-cyan">{{
+                formatBytes(detail.total_eeg_bytes)
+              }}</strong>
+              <small class="kpi-desc">{{
+                lang.currentLang() === "th"
+                  ? "12 ไฟล์คลื่นสมองดิบ (.csv)"
+                  : "12 Raw EEG CSV Files"
+              }}</small>
             </article>
             <article class="kpi-box">
-              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'ระดับความพึงพอใจเฉลี่ย' : 'Average Valence' }}</span>
-              <strong class="kpi-value text-amber">{{ detail.avg_valence ?? '-' }} <span class="kpi-unit">/ 9</span></strong>
-              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? 'ความรู้สึกทางอารมณ์' : 'Emotional Valence' }}</small>
+              <span class="kpi-title">{{
+                lang.currentLang() === "th"
+                  ? "ระดับความพึงพอใจเฉลี่ย"
+                  : "Average Valence"
+              }}</span>
+              <strong class="kpi-value text-amber"
+                >{{ detail.avg_valence ?? "-" }}
+                <span class="kpi-unit">/ 9</span></strong
+              >
+              <small class="kpi-desc">{{
+                lang.currentLang() === "th"
+                  ? "ความรู้สึกทางอารมณ์"
+                  : "Emotional Valence"
+              }}</small>
             </article>
             <article class="kpi-box">
-              <span class="kpi-title">{{ lang.currentLang() === 'th' ? 'ระดับความตื่นตัวเฉลี่ย' : 'Average Arousal' }}</span>
-              <strong class="kpi-value text-pink">{{ detail.avg_arousal ?? '-' }} <span class="kpi-unit">/ 9</span></strong>
-              <small class="kpi-desc">{{ lang.currentLang() === 'th' ? 'การถูกกระตุ้น' : 'Physiological Arousal' }}</small>
+              <span class="kpi-title">{{
+                lang.currentLang() === "th"
+                  ? "ระดับความตื่นตัวเฉลี่ย"
+                  : "Average Arousal"
+              }}</span>
+              <strong class="kpi-value text-pink"
+                >{{ detail.avg_arousal ?? "-" }}
+                <span class="kpi-unit">/ 9</span></strong
+              >
+              <small class="kpi-desc">{{
+                lang.currentLang() === "th"
+                  ? "การถูกกระตุ้น"
+                  : "Physiological Arousal"
+              }}</small>
             </article>
           </div>
 
@@ -325,52 +679,189 @@
           <div class="emotion-map-card">
             <div class="map-header">
               <div>
-                <h3>{{ lang.currentLang() === 'th' ? 'แผนผังพล็อตอารมณ์ 2 มิติ' : '2D Emotion Space Map' }}</h3>
-                <p>{{ lang.currentLang() === 'th' ? 'ตำแหน่งการประเมินของผู้เข้าร่วม ' + detail.participant_code + ' ทั้ง 12 รอบ' : 'Assessment coordinates of participant ' + detail.participant_code + ' across 12 trials' }}</p>
+                <h3>
+                  {{
+                    lang.currentLang() === "th"
+                      ? "แผนผังพล็อตอารมณ์ 2 มิติ"
+                      : "2D Emotion Space Map"
+                  }}
+                </h3>
+                <p>
+                  {{
+                    lang.currentLang() === "th"
+                      ? "ตำแหน่งการประเมินของผู้เข้าร่วม " +
+                        detail.participant_code +
+                        " ทั้ง 12 รอบ"
+                      : "Assessment coordinates of participant " +
+                        detail.participant_code +
+                        " across 12 trials"
+                  }}
+                </p>
               </div>
               <div class="map-legend">
-                <span class="legend-chip legend-hvha">{{ lang.currentLang() === 'th' ? 'ตื่นเต้น / สนุกสนาน' : 'HVHA · Excited' }}</span>
-                <span class="legend-chip legend-hvla">{{ lang.currentLang() === 'th' ? 'ผ่อนคลาย / สงบ' : 'HVLA · Relax' }}</span>
-                <span class="legend-chip legend-lvha">{{ lang.currentLang() === 'th' ? 'เครียด / ตกใจกลัว' : 'LVHA · Stress' }}</span>
-                <span class="legend-chip legend-lvla">{{ lang.currentLang() === 'th' ? 'เศร้า / หดหู่' : 'LVLA · Sad' }}</span>
+                <span class="legend-chip legend-hvha">{{
+                  lang.currentLang() === "th"
+                    ? "ตื่นเต้น / สนุกสนาน"
+                    : "HVHA · Excited"
+                }}</span>
+                <span class="legend-chip legend-hvla">{{
+                  lang.currentLang() === "th"
+                    ? "ผ่อนคลาย / สงบ"
+                    : "HVLA · Relax"
+                }}</span>
+                <span class="legend-chip legend-lvha">{{
+                  lang.currentLang() === "th"
+                    ? "เครียด / ตกใจกลัว"
+                    : "LVHA · Stress"
+                }}</span>
+                <span class="legend-chip legend-lvla">{{
+                  lang.currentLang() === "th" ? "เศร้า / หดหู่" : "LVLA · Sad"
+                }}</span>
               </div>
             </div>
 
             <div class="svg-map-wrapper">
-              <svg viewBox="0 0 500 360" class="emotion-svg" aria-label="Valence Arousal Coordinate Map">
+              <svg
+                viewBox="0 0 500 360"
+                class="emotion-svg"
+                aria-label="Valence Arousal Coordinate Map"
+              >
                 <!-- 4 Quadrants Background Areas -->
-                <rect x="50" y="30" width="200" height="150" class="svg-quad-lvha" />
-                <rect x="250" y="30" width="200" height="150" class="svg-quad-hvha" />
-                <rect x="50" y="180" width="200" height="150" class="svg-quad-lvla" />
-                <rect x="250" y="180" width="200" height="150" class="svg-quad-hvla" />
+                <rect
+                  x="50"
+                  y="30"
+                  width="200"
+                  height="150"
+                  class="svg-quad-lvha"
+                />
+                <rect
+                  x="250"
+                  y="30"
+                  width="200"
+                  height="150"
+                  class="svg-quad-hvha"
+                />
+                <rect
+                  x="50"
+                  y="180"
+                  width="200"
+                  height="150"
+                  class="svg-quad-lvla"
+                />
+                <rect
+                  x="250"
+                  y="180"
+                  width="200"
+                  height="150"
+                  class="svg-quad-hvla"
+                />
 
                 <!-- Quadrant Corner Watermarks -->
-                <text x="65" y="55" class="svg-watermark">{{ lang.currentLang() === 'th' ? 'เครียด / ตกใจกลัว' : 'LVHA (Stress/Fear)' }}</text>
-                <text x="435" y="55" text-anchor="end" class="svg-watermark">{{ lang.currentLang() === 'th' ? 'ตื่นเต้น / สนุกสนาน' : 'HVHA (Excited/Joy)' }}</text>
-                <text x="65" y="315" class="svg-watermark">{{ lang.currentLang() === 'th' ? 'เศร้า / หดหู่' : 'LVLA (Sad/Depressed)' }}</text>
-                <text x="435" y="315" text-anchor="end" class="svg-watermark">{{ lang.currentLang() === 'th' ? 'ผ่อนคลาย / สงบ' : 'HVLA (Relax/Peace)' }}</text>
+                <text x="65" y="55" class="svg-watermark">
+                  {{
+                    lang.currentLang() === "th"
+                      ? "เครียด / ตกใจกลัว"
+                      : "LVHA (Stress/Fear)"
+                  }}
+                </text>
+                <text x="435" y="55" text-anchor="end" class="svg-watermark">
+                  {{
+                    lang.currentLang() === "th"
+                      ? "ตื่นเต้น / สนุกสนาน"
+                      : "HVHA (Excited/Joy)"
+                  }}
+                </text>
+                <text x="65" y="315" class="svg-watermark">
+                  {{
+                    lang.currentLang() === "th"
+                      ? "เศร้า / หดหู่"
+                      : "LVLA (Sad/Depressed)"
+                  }}
+                </text>
+                <text x="435" y="315" text-anchor="end" class="svg-watermark">
+                  {{
+                    lang.currentLang() === "th"
+                      ? "ผ่อนคลาย / สงบ"
+                      : "HVLA (Relax/Peace)"
+                  }}
+                </text>
 
                 <!-- Center Crosshair Axes -->
-                <line x1="50" y1="180" x2="450" y2="180" class="svg-axis-line" />
-                <line x1="250" y1="30" x2="250" y2="330" class="svg-axis-line" />
+                <line
+                  x1="50"
+                  y1="180"
+                  x2="450"
+                  y2="180"
+                  class="svg-axis-line"
+                />
+                <line
+                  x1="250"
+                  y1="30"
+                  x2="250"
+                  y2="330"
+                  class="svg-axis-line"
+                />
 
                 <!-- Axis Labels -->
-                <text x="50" y="198" class="svg-axis-label">{{ lang.currentLang() === 'th' ? 'ไม่ดี (1)' : 'Valence 1 (Unpleasant)' }}</text>
-                <text x="450" y="198" text-anchor="end" class="svg-axis-label">{{ lang.currentLang() === 'th' ? 'ดีมาก (9)' : 'Valence 9 (Pleasant)' }}</text>
-                <text x="250" y="22" text-anchor="middle" class="svg-axis-label">{{ lang.currentLang() === 'th' ? 'ตื่นตัวสูง (9)' : 'Arousal 9 (High)' }}</text>
-                <text x="250" y="348" text-anchor="middle" class="svg-axis-label">{{ lang.currentLang() === 'th' ? 'สงบ/ง่วง (1)' : 'Arousal 1 (Low)' }}</text>
+                <text x="50" y="198" class="svg-axis-label">
+                  {{
+                    lang.currentLang() === "th"
+                      ? "ไม่ดี (1)"
+                      : "Valence 1 (Unpleasant)"
+                  }}
+                </text>
+                <text x="450" y="198" text-anchor="end" class="svg-axis-label">
+                  {{
+                    lang.currentLang() === "th"
+                      ? "ดีมาก (9)"
+                      : "Valence 9 (Pleasant)"
+                  }}
+                </text>
+                <text
+                  x="250"
+                  y="22"
+                  text-anchor="middle"
+                  class="svg-axis-label"
+                >
+                  {{
+                    lang.currentLang() === "th"
+                      ? "ตื่นตัวสูง (9)"
+                      : "Arousal 9 (High)"
+                  }}
+                </text>
+                <text
+                  x="250"
+                  y="348"
+                  text-anchor="middle"
+                  class="svg-axis-label"
+                >
+                  {{
+                    lang.currentLang() === "th"
+                      ? "สงบ/ง่วง (1)"
+                      : "Arousal 1 (Low)"
+                  }}
+                </text>
 
                 <!-- 12 Trial Data Points -->
                 @for (item of detail.items; track item.id) {
-                  @if (item.valence_rating != null && item.arousal_rating != null) {
+                  @if (
+                    item.valence_rating != null && item.arousal_rating != null
+                  ) {
                     <g class="svg-point-group">
                       <circle
                         [attr.cx]="calcSvgX(item.valence_rating)"
                         [attr.cy]="calcSvgY(item.arousal_rating)"
                         r="14"
-                        class="svg-point-circle point-{{ item.target_quadrant }}"
+                        class="svg-point-circle point-{{
+                          item.target_quadrant
+                        }}"
                       >
-                        <title>Trial #{{ item.randomized_order }}: {{ item.stimulus_title }} (V: {{ item.valence_rating }}, A: {{ item.arousal_rating }}, C: {{ item.confidence }})</title>
+                        <title>
+                          Trial #{{ item.randomized_order }}:
+                          {{ item.stimulus_title }} (V:
+                          {{ item.valence_rating }}, A:
+                          {{ item.arousal_rating }}, C: {{ item.confidence }})
+                        </title>
                       </circle>
                       <text
                         [attr.x]="calcSvgX(item.valence_rating)"
@@ -390,57 +881,211 @@
           <!-- Trials Breakdown Table -->
           <div class="trials-detail-card">
             <div class="detail-card-head">
-              <h3>{{ lang.currentLang() === 'th' ? 'ตารางรายละเอียดข้อมูลแต่ละรอบ' : 'Trial Breakdown Table' }}</h3>
-              <span class="detail-count-tag">{{ lang.currentLang() === 'th' ? 'ทั้งหมด 12 รอบ' : 'All 12 Trials' }}</span>
+              <h3>
+                {{
+                  lang.currentLang() === "th"
+                    ? "ตารางรายละเอียดข้อมูลแต่ละรอบ"
+                    : "Trial Breakdown Table"
+                }}
+              </h3>
+              <div class="detail-head-actions">
+                <button
+                  type="button"
+                  class="btn-review-accept"
+                  [disabled]="reviewingAll()"
+                  (click)="reviewAllTrials('accepted')"
+                >
+                  ✓
+                  {{
+                    lang.currentLang() === "th"
+                      ? "อนุมัติทั้งหมด"
+                      : "Approve All"
+                  }}
+                </button>
+                <button
+                  type="button"
+                  class="btn-review-reject"
+                  [disabled]="reviewingAll()"
+                  (click)="reviewAllTrials('rejected')"
+                >
+                  ✕
+                  {{
+                    lang.currentLang() === "th" ? "ปฏิเสธทั้งหมด" : "Reject All"
+                  }}
+                </button>
+                <span class="detail-count-tag">{{
+                  lang.currentLang() === "th"
+                    ? "ทั้งหมด " + detail.items.length + " รอบ"
+                    : "All " + detail.items.length + " Trials"
+                }}</span>
+              </div>
             </div>
             <div class="table-container">
               <table class="detail-table">
                 <thead>
                   <tr>
-                    <th>{{ lang.currentLang() === 'th' ? 'รอบที่' : 'Trial' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'สื่อกระตุ้น' : 'Stimulus' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'เป้าหมายอารมณ์' : 'Target Quadrant' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'ระดับความรู้สึก (1–9)' : 'Valence (1–9)' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'ระดับความตื่นตัว (1–9)' : 'Arousal (1–9)' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'ความมั่นใจ (1–5)' : 'Confidence (1–5)' }}</th>
-                    <th>{{ lang.currentLang() === 'th' ? 'ไฟล์คลื่นสมอง' : 'EEG File' }}</th>
-                    <th class="col-status-header">{{ lang.currentLang() === 'th' ? 'สถานะ' : 'Status' }}</th>
+                    <th>
+                      {{ lang.currentLang() === "th" ? "รอบที่" : "Trial" }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th" ? "สื่อกระตุ้น" : "Stimulus"
+                      }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th"
+                          ? "เป้าหมายอารมณ์"
+                          : "Target Quadrant"
+                      }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th"
+                          ? "ระดับความรู้สึก (1–9)"
+                          : "Valence (1–9)"
+                      }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th"
+                          ? "ระดับความตื่นตัว (1–9)"
+                          : "Arousal (1–9)"
+                      }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th"
+                          ? "ความมั่นใจ (1–5)"
+                          : "Confidence (1–5)"
+                      }}
+                    </th>
+                    <th>
+                      {{
+                        lang.currentLang() === "th"
+                          ? "ไฟล์คลื่นสมอง"
+                          : "EEG File"
+                      }}
+                    </th>
+                    <th class="col-status-header">
+                      {{ lang.currentLang() === "th" ? "สถานะ" : "Status" }}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (trial of detail.items; track trial.id) {
                     <tr>
                       <td class="col-trial-num">
-                        <span class="trial-bubble">#{{ trial.randomized_order }}</span>
+                        <span class="trial-bubble"
+                          >#{{ trial.randomized_order }}</span
+                        >
                       </td>
                       <td class="col-stimulus">
-                        <div class="stimulus-title-text">{{ trial.stimulus_title }}</div>
-                        <div class="stimulus-sub-text">{{ trial.duration_seconds?.toFixed(1) }}s · {{ trial.target_quadrant }}</div>
+                        <div class="stimulus-title-text">
+                          {{ trial.stimulus_title }}
+                        </div>
+                        <div class="stimulus-sub-text">
+                          {{ trial.duration_seconds?.toFixed(1) }}s ·
+                          {{ trial.target_quadrant }}
+                        </div>
                       </td>
                       <td>
-                        <span class="badge {{ quadrantBadgeClass(trial.target_quadrant) }}">
+                        <span
+                          class="badge {{
+                            quadrantBadgeClass(trial.target_quadrant)
+                          }}"
+                        >
                           {{ quadrantLabel(trial.target_quadrant) }}
                         </span>
                       </td>
                       <td>
-                        <span class="score-chip tone-{{ valenceTone(trial.valence_rating) }}">
-                          {{ trial.valence_rating ?? '-' }}
+                        <span
+                          class="score-chip tone-{{
+                            valenceTone(trial.valence_rating)
+                          }}"
+                        >
+                          {{ trial.valence_rating ?? "-" }}
                         </span>
                       </td>
                       <td>
-                        <span class="score-chip tone-{{ arousalTone(trial.arousal_rating) }}">
-                          {{ trial.arousal_rating ?? '-' }}
+                        <span
+                          class="score-chip tone-{{
+                            arousalTone(trial.arousal_rating)
+                          }}"
+                        >
+                          {{ trial.arousal_rating ?? "-" }}
                         </span>
                       </td>
                       <td>
-                        <span class="conf-badge">★ {{ trial.confidence ?? '-' }} / 5</span>
+                        <span class="conf-badge"
+                          >★ {{ trial.confidence ?? "-" }} / 5</span
+                        >
                       </td>
                       <td class="col-file">
-                        <code class="file-code">{{ trial.eeg_file_path?.split('\\')?.pop() ?? trial.eeg_file_path ?? '-' }}</code>
-                        <span class="file-size-tag">{{ formatBytes(trial.raw_size_bytes) }}</span>
+                        @if (trial.eeg_file_path) {
+                          <button
+                            type="button"
+                            class="btn-csv-preview"
+                            (click)="openWaveformPreview(trial)"
+                          >
+                            📈
+                            {{
+                              trial.eeg_file_path
+                                .split("\\")
+                                .pop()
+                                ?.split("/")
+                                ?.pop() ?? trial.eeg_file_path
+                            }}
+                          </button>
+                        } @else {
+                          <code class="file-code">-</code>
+                        }
+                        <span class="file-size-tag">{{
+                          formatBytes(trial.raw_size_bytes)
+                        }}</span>
                       </td>
                       <td class="col-status-cell">
-                        <span class="status-verified-badge">{{ lang.currentLang() === 'th' ? '✓ บันทึกสำเร็จ' : '✓ Verified' }}</span>
+                        <div class="review-actions-cell">
+                          <span
+                            class="review-badge review-{{
+                              trial.review_state || 'pending'
+                            }}"
+                          >
+                            {{
+                              reviewBadgeLabel(trial.review_state || "pending")
+                            }}
+                          </span>
+                          <div class="review-btn-group">
+                            <button
+                              type="button"
+                              class="btn-review-accept"
+                              [class.active]="trial.review_state === 'accepted'"
+                              [disabled]="reviewingTrialId() === trial.id"
+                              (click)="reviewTrial(trial, 'accepted')"
+                            >
+                              ✓
+                              {{
+                                lang.currentLang() === "th"
+                                  ? "อนุมัติ"
+                                  : "Approve"
+                              }}
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-review-reject"
+                              [class.active]="trial.review_state === 'rejected'"
+                              [disabled]="reviewingTrialId() === trial.id"
+                              (click)="reviewTrial(trial, 'rejected')"
+                            >
+                              ✕
+                              {{
+                                lang.currentLang() === "th"
+                                  ? "ปฏิเสธ"
+                                  : "Reject"
+                              }}
+                            </button>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   }
@@ -451,41 +1096,129 @@
         } @else if (sessionTrialsLoading()) {
           <div class="loading-state-card">
             <div class="loading-spinner"></div>
-            <p>{{ lang.currentLang() === 'th' ? 'กำลังโหลดข้อมูลสรุปการทดสอบทั้ง 12 รอบ…' : 'Loading summary report for all 12 trials…' }}</p>
+            <p>
+              {{
+                lang.currentLang() === "th"
+                  ? "กำลังโหลดข้อมูลสรุปการทดสอบทั้ง 12 รอบ…"
+                  : "Loading summary report for all 12 trials…"
+              }}
+            </p>
           </div>
         }
       </section>
     }
-    @case ('interrupted') { <section class="focus-card warning" data-stage="interrupted"><h2>Session ถูกขัดจังหวะ</h2><p>{{ runnerState()?.interruption_reason }}</p><p>เริ่ม Trial {{ displayedTrialOrder() }} ใหม่ในลำดับเดิม โดยไม่สุ่ม Schedule ใหม่</p><button class="primary" type="button" (click)="resume()" [disabled]="busy()">{{ lang.currentLang() === 'th' ? 'ดำเนินการต่อตามลำดับเดิม' : 'Resume same order' }}</button></section> }
-    @case ('failed') { <section class="focus-card danger" data-stage="failed"><h2>ไม่สามารถดำเนิน Session ต่อได้</h2><p>ตรวจอุปกรณ์และสถานะไฟล์ก่อนกลับมาลองใหม่</p></section> }
+    @case ("interrupted") {
+      <section class="focus-card warning" data-stage="interrupted">
+        <h2>Session ถูกขัดจังหวะ</h2>
+        <p>{{ runnerState()?.interruption_reason }}</p>
+        <p>
+          เริ่ม Trial {{ displayedTrialOrder() }} ใหม่ในลำดับเดิม โดยไม่สุ่ม
+          Schedule ใหม่
+        </p>
+        <button
+          class="primary"
+          type="button"
+          (click)="resume()"
+          [disabled]="busy()"
+        >
+          {{
+            lang.currentLang() === "th"
+              ? "ดำเนินการต่อตามลำดับเดิม"
+              : "Resume same order"
+          }}
+        </button>
+      </section>
+    }
+    @case ("failed") {
+      <section class="focus-card danger" data-stage="failed">
+        <h2>ไม่สามารถดำเนิน Session ต่อได้</h2>
+        <p>ตรวจอุปกรณ์และสถานะไฟล์ก่อนกลับมาลองใหม่</p>
+      </section>
+    }
   }
 
-  @if (canEmergencyStop()) { <button class="emergency" type="button" (click)="emergencyStop()" [disabled]="busy()">{{ lang.currentLang() === 'th' ? 'หยุดฉุกเฉิน' : 'Emergency stop' }}</button> }
+  @if (canEmergencyStop()) {
+    <button
+      class="emergency"
+      type="button"
+      (click)="emergencyStop()"
+      [disabled]="busy()"
+    >
+      {{ lang.currentLang() === "th" ? "หยุดฉุกเฉิน" : "Emergency stop" }}
+    </button>
+  }
 
   <ng-template #mediaPanel>
     <section class="media-card">
-      <div><p class="step">{{ lang.currentLang() === 'th' ? 'สื่อกระตุ้นที่อนุมัติแล้ว' : 'Approved stimulus' }}</p><h2>{{ runnerState()?.current_stimulus_title }}</h2></div>
+      <div>
+        <p class="step">
+          {{
+            lang.currentLang() === "th"
+              ? "สื่อกระตุ้นที่อนุมัติแล้ว"
+              : "Approved stimulus"
+          }}
+        </p>
+        <h2>{{ runnerState()?.current_stimulus_title }}</h2>
+      </div>
       @if (mediaError()) {
         <div class="error" role="alert">
           โหลดคลิปไม่สำเร็จ — จะยังไม่เริ่มบันทึก stimulus
-          <button type="button" class="retry-btn" (click)="retryMediaDownload()">ลองโหลดคลิปใหม่อีกครั้ง</button>
+          <button
+            type="button"
+            class="retry-btn"
+            (click)="retryMediaDownload()"
+          >
+            ลองโหลดคลิปใหม่อีกครั้ง
+          </button>
         </div>
       }
       @if (stimulusStartError()) {
         <div class="error" role="alert">
           {{ toThaiError(stimulusStartError()) }}
-          <button type="button" class="retry-btn" (click)="retryStimulusStart()">ลองเริ่มคลิปใหม่อีกครั้ง</button>
+          <button
+            type="button"
+            class="retry-btn"
+            (click)="retryStimulusStart()"
+          >
+            ลองเริ่มคลิปใหม่อีกครั้ง
+          </button>
         </div>
       }
-      @if (finishRetryAvailable()) { <button type="button" (click)="retryFinish()" [disabled]="busy()">ลองยืนยันจบคลิปอีกครั้ง</button> }
+      @if (finishRetryAvailable()) {
+        <button type="button" (click)="retryFinish()" [disabled]="busy()">
+          ลองยืนยันจบคลิปอีกครั้ง
+        </button>
+      }
       @if (mediaUrl(); as source) {
         <div class="video-shell">
-          <video #media [controls]="canControlMedia()" preload="auto" [src]="source" playsinline (playing)="onPlaying(media)" (ended)="onEnded()" (error)="onMediaError(media)" (loadedmetadata)="onVideoReady(media)" (canplay)="onVideoReady(media)" aria-label="Approved entertainment stimulus"></video>
+          <video
+            #media
+            [controls]="canControlMedia()"
+            preload="auto"
+            [src]="source"
+            playsinline
+            (playing)="onPlaying(media)"
+            (ended)="onEnded()"
+            (error)="onMediaError(media)"
+            (loadedmetadata)="onVideoReady(media)"
+            (canplay)="onVideoReady(media)"
+            aria-label="Approved entertainment stimulus"
+          ></video>
           @if (!canControlMedia()) {
-            <div class="media-lock" role="status">รอ Backend ยืนยันช่วง Rest และสัญญาณทั้ง 4 จุด</div>
-          } @else if (runnerState()?.trial_state === 'rest' && runnerState()?.stimulus_start_ready) {
+            <div class="media-lock" role="status">
+              รอ Backend ยืนยันช่วง Rest และสัญญาณทั้ง 4 จุด
+            </div>
+          } @else if (
+            runnerState()?.trial_state === "rest" &&
+            runnerState()?.stimulus_start_ready
+          ) {
             <div class="stimulus-ready-banner">
-              <button class="stimulus-start-btn" type="button" (click)="triggerStimulusStart(media, true)" [disabled]="busy() || stimulusStarting()">
+              <button
+                class="stimulus-start-btn"
+                type="button"
+                (click)="triggerStimulusStart(media, true)"
+                [disabled]="busy() || stimulusStarting()"
+              >
                 @if (stimulusStarting()) {
                   <span class="btn-spinner"></span> กำลังเริ่มคลิป…
                 } @else {
@@ -501,9 +1234,224 @@
             </div>
           }
         </div>
+      } @else if (!mediaError()) {
+        <p role="status">กำลังโหลดคลิปที่ผ่านการอนุมัติ…</p>
       }
-      @else if (!mediaError()) { <p role="status">กำลังโหลดคลิปที่ผ่านการอนุมัติ…</p> }
     </section>
   </ng-template>
-</main>
 
+  @if (previewTrial(); as target) {
+    <div class="waveform-modal-backdrop" (click)="closeWaveformPreview()">
+      <div
+        class="waveform-modal-card"
+        role="dialog"
+        aria-modal="true"
+        (click)="$event.stopPropagation()"
+      >
+        <header class="waveform-modal-head">
+          <div>
+            <h3>
+              {{
+                lang.currentLang() === "th"
+                  ? "ตัวอย่างคลื่นสมองจากไฟล์ CSV · รอบที่ #" +
+                    target.randomized_order
+                  : "EEG Waveform Preview · Trial #" + target.randomized_order
+              }}
+            </h3>
+            <p class="waveform-modal-sub">
+              {{ target.stimulus_title }} ·
+              {{ quadrantLabel(target.target_quadrant) }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="waveform-close-btn"
+            (click)="closeWaveformPreview()"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </header>
+
+        @if (waveformLoading()) {
+          <div class="loading-state-card">
+            <div class="loading-spinner"></div>
+            <p>
+              {{
+                lang.currentLang() === "th"
+                  ? "กำลังอ่านไฟล์คลื่นสมอง…"
+                  : "Loading EEG CSV waveform…"
+              }}
+            </p>
+          </div>
+        } @else if (waveformError()) {
+          <div class="error" role="alert">{{ waveformError() }}</div>
+        } @else {
+          @if (waveformData(); as wf) {
+            <div class="waveform-meta-strip">
+              <span>📄 {{ wf.file_name }}</span>
+              <span>⏱️ {{ wf.duration_seconds }}s</span>
+              <span>⚡ {{ wf.sample_rate_hz }} Hz</span>
+              <span>📊 {{ wf.total_samples | number }} samples</span>
+            </div>
+
+            @if (wf.band_powers; as bp) {
+              <div class="band-power-card">
+                <div class="band-power-head-row">
+                  <div class="band-power-title">
+                    {{
+                      lang.currentLang() === "th"
+                        ? "สัดส่วนคลื่น Alpha vs Beta (หน้าผาก AF7/AF8 · ตัดช่วงกะพริบตาแล้ว)"
+                        : "Frontal Alpha vs Beta Balance (AF7/AF8 · Artifact-filtered)"
+                    }}
+                  </div>
+                  <span class="band-ratio-pill">
+                    Beta/Alpha: {{ bp.beta_alpha_ratio }} · {{ bp.clean_epochs }}/{{ bp.total_epochs }} epochs
+                  </span>
+                </div>
+                <div class="band-power-grid">
+                  <div class="band-bar-item">
+                    <div class="band-bar-head">
+                      <span
+                        >Alpha (8–12 Hz) ·
+                        {{
+                          lang.currentLang() === "th"
+                            ? "ผ่อนคลาย / สงบ"
+                            : "Calm / Relaxed"
+                        }}</span
+                      ><strong>{{ bp.alpha }}%</strong>
+                    </div>
+                    <div class="band-bar-track">
+                      <div
+                        class="band-bar-fill band-alpha"
+                        [style.width.%]="bp.alpha"
+                      ></div>
+                    </div>
+                  </div>
+                  <div class="band-bar-item">
+                    <div class="band-bar-head">
+                      <span
+                        >Beta (13–30 Hz) ·
+                        {{
+                          lang.currentLang() === "th"
+                            ? "ตื่นตัว / คิด / เครียด"
+                            : "Active / Aroused"
+                        }}</span
+                      ><strong>{{ bp.beta }}%</strong>
+                    </div>
+                    <div class="band-bar-track">
+                      <div
+                        class="band-bar-fill band-beta"
+                        [style.width.%]="bp.beta"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            } @else if (wf.sample_rate_hz > 0 && wf.sample_rate_hz < 25) {
+              <div class="band-power-note">
+                {{
+                  lang.currentLang() === "th"
+                    ? "ℹ️ ไฟล์นี้บันทึกที่ " +
+                      wf.sample_rate_hz +
+                      " Hz (ชุดก่อนอัปเกรด) จึงไม่สามารถคำนวณย่าน Alpha/Beta เต็มรูปแบบได้"
+                    : "ℹ️ Recorded at " +
+                      wf.sample_rate_hz +
+                      " Hz (legacy), full Alpha/Beta spectrum unavailable"
+                }}
+              </div>
+            }
+
+            <div class="waveform-channels-grid">
+              @for (ch of sensorKeys; track ch) {
+                <div class="waveform-channel-box">
+                  <div class="waveform-channel-head">
+                    <div>
+                      <strong>{{ ch.toUpperCase() }}</strong>
+                      <span class="waveform-channel-role">{{
+                        channelRoleHint(ch)
+                      }}</span>
+                    </div>
+                    <span>
+                      ±{{ wf.channel_peak_uv?.[ch] ?? 0 }} µV ·
+                      {{ lang.currentLang() === "th" ? "คุณภาพ: " : "Quality: "
+                      }}{{ formatQualityPercent(wf.quality_avg[ch]) }}%
+                    </span>
+                  </div>
+                  <svg
+                    class="waveform-svg"
+                    viewBox="0 0 600 80"
+                    preserveAspectRatio="none"
+                  >
+                    <line
+                      x1="0"
+                      y1="40"
+                      x2="600"
+                      y2="40"
+                      class="waveform-midline"
+                    />
+                    <path
+                      [attr.d]="buildWaveformPath(ch)"
+                      [class]="'waveform-line ch-' + ch"
+                    />
+                  </svg>
+                  <div class="waveform-time-axis">
+                    <span>0s</span>
+                    <span
+                      >{{ wf.duration_seconds / 2 | number: "1.1-1" }}s</span
+                    >
+                    <span>{{ wf.duration_seconds }}s</span>
+                  </div>
+                </div>
+              }
+            </div>
+
+            <p class="waveform-legend-note">
+              {{
+                lang.currentLang() === "th"
+                  ? "หมายเหตุ: เส้นประกลาง = ค่ากลาง (µV) · แกนตั้งขึ้น/ลง (+ / −) คือการแกว่งของศักย์ไฟฟ้า (µV) ไม่ใช่ค่าอารมณ์บวก/ลบ"
+                  : "Note: Center dashed line = baseline (µV) · Vertical (+/-) shows voltage oscillation (µV), not positive/negative emotion"
+              }}
+            </p>
+          }
+        }
+
+        <footer class="waveform-modal-foot">
+          <span
+            class="review-badge review-{{ target.review_state || 'pending' }}"
+          >
+            {{ reviewBadgeLabel(target.review_state || "pending") }}
+          </span>
+          <div class="review-btn-group">
+            <button
+              type="button"
+              class="btn-review-accept"
+              [class.active]="target.review_state === 'accepted'"
+              [disabled]="reviewingTrialId() === target.id"
+              (click)="reviewTrial(target, 'accepted')"
+            >
+              ✓
+              {{
+                lang.currentLang() === "th"
+                  ? "อนุมัติข้อมูลนี้"
+                  : "Approve Trial"
+              }}
+            </button>
+            <button
+              type="button"
+              class="btn-review-reject"
+              [class.active]="target.review_state === 'rejected'"
+              [disabled]="reviewingTrialId() === target.id"
+              (click)="reviewTrial(target, 'rejected')"
+            >
+              ✕
+              {{
+                lang.currentLang() === "th" ? "ปฏิเสธข้อมูลนี้" : "Reject Trial"
+              }}
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  }
+</main>

@@ -56,7 +56,7 @@ class CollectionConnectionManager:
         # Stores the last _WEB_BT_BUFFER_SIZE averaged samples as numpy arrays [tp9,af7,af8,tp10].
         # muse-js delivers ~21 averaged samples/sec (12 raw samples per electrode packet at 256 Hz).
         # 64 samples ≈ 3 seconds of history → sensor quality transitions in ~3 s, not ~12 s.
-        self._web_bt_buffers: dict[int, deque] = defaultdict(lambda: deque(maxlen=64))
+        self._web_bt_buffers: dict[int, deque] = defaultdict(lambda: deque(maxlen=256))
         # Debounce: per-session, per-channel asymmetric hysteresis.
         # streak: int per channel.  +2 per 'good' packet, -1 per 'poor' packet.
         # Crosses +GOOD_THRESH  → show green.  Crosses -POOR_THRESH → show orange.
@@ -327,71 +327,101 @@ class CollectionConnectionManager:
         tp10: float,
         timestamp: float,
     ) -> None:
-        """
-        Accept a single EEG sample from the browser via Web Bluetooth (muse-js)
-        and route it through the collection state machine.
-
-        Maintains a per-session rolling window of the last 64 averaged samples and
-        uses estimate_sensor_state() to compute real contact quality from EEG
-        amplitude and variance.  Quality states are debounced via
-        _apply_quality_debounce() to prevent horseshoe flickering caused by
-        natural EEG bursts (alpha waves, blinks).
-        """
-        # ── 1. Append to per-session rolling buffer ──────────────────────────
-        buf = self._web_bt_buffers[session_id]
-        buf.append([tp9, af7, af8, tp10])
-        self._last_web_bt_sample_at[session_id] = time.monotonic()
-
-        # ── 2. Build samples matrix for quality estimation ────────────────────
-        matrix = np.array(buf, dtype=float)   # shape: (N, 4)
-
-        # Channel order: 0=TP9, 1=AF7, 2=AF8, 3=TP10 (same as LSL path)
-        _CHANNELS = ("tp9", "af7", "af8", "tp10")
-        raw_sensors = {
-            ch: estimate_sensor_state(matrix, idx, timestamp, timestamp)
-            for idx, ch in enumerate(_CHANNELS)
-        }
-
-        # ── 3. Debounce: smooth out per-packet quality flickers ───────────────
-        sensors = self._apply_quality_debounce(session_id, raw_sensors)
-
-        # ── 4. Derive quality scores for EEGSample (0-100 scale) ─────────────
-        def _qscore(ch: str) -> float:
-            return raw_sensors[ch].quality_score   # use raw score for file metadata
-
-        # Guarantee strictly monotonic timestamp for the raw EEG writer
-        last_ts = self._last_web_bt_timestamp.get(session_id, 0.0)
-        if timestamp <= last_ts:
-            timestamp = last_ts + 0.001
-        self._last_web_bt_timestamp[session_id] = timestamp
-
-        sample = EEGSample(
-            timestamp=timestamp,
-            tp9=tp9, af7=af7, af8=af8, tp10=tp10,
-            tp9_quality=_qscore("tp9"), af7_quality=_qscore("af7"),
-            af8_quality=_qscore("af8"), tp10_quality=_qscore("tp10"),
+        """Accept a single EEG sample from Web Bluetooth by delegating to batch ingestion."""
+        await self.ingest_web_bluetooth_batch(
+            session_id,
+            [{"tp9": tp9, "af7": af7, "af8": af8, "tp10": tp10, "timestamp": timestamp}],
         )
 
-        # ── 5. Create adapter object for _accept_sample_unlocked ─────────────
-        class _WebBtSample:
-            """Minimal adapter bridging Web Bluetooth data to the collection pipeline."""
-            def __init__(self):
-                self.sample = sample
-                self.sensors = sensors
-                self.sensor_timestamps = {ch: timestamp for ch in _CHANNELS}
-                self.sampling_rate_hz = 256.0
-                self.sampling_rate_ok = True
-                self.capture_eligible = True
-                self.source_sequence = None
+    async def ingest_web_bluetooth_batch(
+        self,
+        session_id: int,
+        samples: list[dict],
+    ) -> None:
+        """
+        Accept a batch of EEG samples (~12 samples per 256 Hz BLE packet) from the
+        browser via Web Bluetooth (muse-js) and route them through the collection state machine.
+        """
+        if not samples:
+            return
 
-        incoming = _WebBtSample()
+        buf = self._web_bt_buffers[session_id]
+        parsed: list[tuple[float, float, float, float, float]] = []
+        for item in samples:
+            if not isinstance(item, dict):
+                continue
+            tp9 = float(item.get("tp9", 0.0))
+            af7 = float(item.get("af7", 0.0))
+            af8 = float(item.get("af8", 0.0))
+            tp10 = float(item.get("tp10", 0.0))
+            ts = float(item.get("timestamp", 0.0))
+            buf.append([tp9, af7, af8, tp10])
+            parsed.append((tp9, af7, af8, tp10, ts))
+
+        if not parsed:
+            return
+
+        self._last_web_bt_sample_at[session_id] = time.monotonic()
+        matrix = np.array(buf, dtype=float)
+        _CHANNELS = ("tp9", "af7", "af8", "tp10")
+        last_ts_in_batch = parsed[-1][4]
+        raw_sensors = {
+            ch: estimate_sensor_state(matrix, idx, last_ts_in_batch, last_ts_in_batch)
+            for idx, ch in enumerate(_CHANNELS)
+        }
+        sensors = self._apply_quality_debounce(session_id, raw_sensors)
+        q_scores = {ch: raw_sensors[ch].quality_score for ch in _CHANNELS}
+
         try:
             def _step(runner: CollectionStateMachine):
                 before = runner.state()
-                after, captured = self._accept_sample_unlocked(runner, incoming)
-                return before, after, captured
+                quality_state = runner.observe_quality(
+                    sensors,
+                    sampling_rate_hz=256.0,
+                    sampling_rate_ok=True,
+                )
+                capture_active = before.active_baseline is not None or before.trial_state in {
+                    TrialState.rest,
+                    TrialState.stimulus,
+                    TrialState.rating,
+                }
+                if not capture_active:
+                    return before, quality_state
 
-            before, state, _ = self.run_active(session_id, _step)
+                for tp9, af7, af8, tp10, ts in parsed:
+                    last_ts = self._last_web_bt_timestamp.get(session_id, 0.0)
+                    if ts <= last_ts:
+                        ts = last_ts + (1.0 / 256.0)
+                    self._last_web_bt_timestamp[session_id] = ts
+                    eeg_sample = EEGSample(
+                        timestamp=ts,
+                        tp9=tp9,
+                        af7=af7,
+                        af8=af8,
+                        tp10=tp10,
+                        tp9_quality=q_scores["tp9"],
+                        af7_quality=q_scores["af7"],
+                        af8_quality=q_scores["af8"],
+                        tp10_quality=q_scores["tp10"],
+                    )
+                    runner.accept_sample(
+                        eeg_sample,
+                        sensor_timestamps={ch: ts for ch in _CHANNELS},
+                        sampling_rate_ok=quality_state.sampling_rate_ok,
+                        return_state=False,
+                    )
+
+                after = runner.state()
+                settings = get_settings()
+                if (
+                    after.state is CollectionSessionState.baseline
+                    and after.wall_clock_seconds >= settings.collection_baseline_wall_seconds
+                    and after.accepted_clean_seconds >= settings.collection_baseline_min_clean_seconds
+                ):
+                    after = runner.finish_baseline()
+                return before, after
+
+            before, state = self.run_active(session_id, _step)
             now_mono = time.monotonic()
             last_bc = self._last_web_bt_broadcast_at.get(session_id, 0.0)
             state_changed = (
@@ -400,9 +430,6 @@ class CollectionConnectionManager:
                 or state.active_baseline != before.active_baseline
                 or state.completed_trials != before.completed_trials
             )
-            # Throttle WebSocket broadcast to ~4 Hz (interval >= 250ms) to prevent
-            # main-thread UI congestion and DB session contention, while still
-            # broadcasting immediately on any discrete phase change.
             if state_changed or (now_mono - last_bc) >= 0.25:
                 self._last_web_bt_broadcast_at[session_id] = now_mono
                 await self.broadcast(session_id, state)

@@ -91,21 +91,22 @@ async def generate_comic_story(
 สไตล์ภาพ: {art_style} — {art_style_desc}
 
 กฎสำคัญ:
-- ช่องที่ 1-3: ดำเนินเรื่อง
-- ช่องที่ 4: จบแบบ punch line หรือ twist ที่สอดคล้องกับอารมณ์ "{emotion}"
+- ช่องที่ 1-3: ดำเนินเรื่องตามโครงเรื่องจริงอย่างชัดเจน (ห้ามแต่งเรื่องหลุดจากโครงเรื่องที่ผู้ใช้พิมพ์)
+- ช่องที่ 4: จบเรื่องหรือหักมุมให้ตรงกับโครงเรื่องและสอดคล้องกับอารมณ์ "{emotion}"
 - บทพูดสั้น กระชับ ไม่เกิน 2 ประโยค/ช่อง
-- คำอธิบายฉาก (scene_description) ต้องเป็นภาษาอังกฤษแบบคีย์เวิร์ดสั้นกระชับ 25-40 คำ (เพื่อให้ Stable Diffusion 1.5 อ่านเข้าใจแม่นยำ) โดยเรียงลำดับ: [ตัวละครหลัก + character_tags] -> [การกระทำ สัตว์เลี้ยง/คู่หู และวัตถุสำคัญของฉากนั้นๆ] -> [ฉากหลังและแสง]
-- ใส่คำว่า "solo" เฉพาะฉากที่มีตัวละครคนเดียว (ห้ามใส่ "solo" ในฉากที่มีสัตว์ เช่น แมว/หมา หรือตัวละครอื่นอยู่ด้วย ให้ระบุชัด เช่น "1boy holding a small black cat" เพื่อไม่ให้ภาพกลืนกัน)
-- คุมโทนสีและบรรยากาศให้ต่อเนื่องกันทั้ง 4 ช่อง ไม่เปลี่ยนโทนสีกระโดดไปมา
-- หากมีข้อมูลตัวละคร ให้สรุป character_tags เป็นภาษาอังกฤษสั้นๆ (เช่น 1boy, short black hair, brown eyes, red hoodie) โดยรักษาสีผม ทรงผม และชุดให้ตรงกันทุกช่อง
+- คำอธิบายฉาก (scene_description) ต้องเป็นภาษาอังกฤษแบบคีย์เวิร์ดสั้นกระชับ 20-32 คำ (ไม่เกินขีดจำกัด CLIP 77 tokens) โดยเรียงลำดับ:
+  [1. มุมกล้อง/ระยะภาพ เช่น wide shot, full body, medium shot, from behind] -> [2. character_tags] -> [3. ท่าทาง การกระทำ สิ่งของ/สัตว์/ป้ายสำคัญในฉาก] -> [4. สถานที่และฉากหลังที่ชัดเจน เช่น village street, bedroom, forest] -> [5. แสงและบรรยากาศ]
+- ห้ามใช้ฉากหลังเรียบๆ หรือนามธรรม (ห้ามทำเป็นภาพพอร์ตเทรตซูมแค่หน้าทุกช่อง) ต้องระบุฉากหลังและท่าทางให้เปลี่ยนไปตามเหตุการณ์จริงในแต่ละช่อง
+- ถ้าในฉากมีสัตว์ (เช่น สุนัข ลูกหมา แมว) หรือสิ่งสำคัญ ให้ใส่คำสำคัญและเน้นน้ำหนักแบบ Stable Diffusion เช่น (cute small puppy:1.35) หรือ (large fierce dog protecting boy:1.35) ไว้ช่วงต้นต่อจากมุมกล้อง และห้ามใส่คำว่า "solo" ในฉากนั้นเด็ดขาด (ใส่ "solo" เฉพาะฉากที่มีตัวละครคนเดียวเท่านั้น)
+- หากมีข้อมูลตัวละคร ให้สรุป character_tags เป็นภาษาอังกฤษสั้นๆ (เช่น 1boy, short black hair, blue eyes, white shirt) และคงชุด/สีผมให้ตรงกันทุกช่อง
 
 ตอบกลับเป็น JSON เท่านั้น ในรูปแบบ:
 {{
-  "character_tags": "English visual tags for the main character (e.g. 1boy, short black hair, brown eyes, school uniform) or empty string if none",
+  "character_tags": "English visual tags for the main character (e.g. 1boy, short black hair, blue eyes, white shirt) or empty string if none",
   "panels": [
     {{
       "panel": 1,
-      "scene_description": "character_tags, key action and companion/object in English, consistent background, {art_style_desc}, {emotion_info['color_tone']}, {emotion_info['atmosphere']}",
+      "scene_description": "wide shot, full body, character_tags, walking on a village street, houses and trees in background, {art_style_desc}, {emotion_info['color_tone']}",
       "dialogue": "Thai dialogue or caption"
     }},
     {{

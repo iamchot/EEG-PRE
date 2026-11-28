@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     collection_sampling_tolerance_hz: int = 8
     collection_baseline_wall_seconds: int = 60
     collection_baseline_min_clean_seconds: int = 30
-    # collection_rest_min_seconds: int = 0
-    collection_rest_min_seconds: int = 10
+    collection_rest_min_seconds: int = 0
+    # collection_rest_min_seconds: int = 10
     collection_rest_max_seconds: int = 15
     collection_stimulus_finish_grace_seconds: float = Field(default=5.0, ge=0, le=10)
 

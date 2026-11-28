@@ -14,7 +14,7 @@
   </button>
 
   @if (isOpen()) {
-    <div class="custom-select-menu" role="listbox">
+    <div class="custom-select-menu" [class.open-up]="openUp()" role="listbox">
       @for (opt of options; track opt.value) {
         <button
           type="button"

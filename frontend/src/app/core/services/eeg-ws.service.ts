@@ -153,6 +153,14 @@ export class EegWsService {
     });
   }
 
+  sendEegBatch(samples: WebBtSensorRaw[]): void {
+    if (!samples.length) return;
+    this.send({
+      cmd: 'eeg_batch',
+      samples,
+    });
+  }
+
   private _scheduleReconnect(sessionId: string) {
     this.reconnectTimer = setTimeout(() => this.connect(sessionId), 3000);
   }

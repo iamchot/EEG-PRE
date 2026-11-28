@@ -1,12 +1,12 @@
 <section class="waveform-panel" aria-label="Live EEG Waveform Visualizer">
   <header class="waveform-header">
     <div class="waveform-title-group">
-      <p class="waveform-kicker">Real-time Stream</p>
+      <p class="waveform-kicker">{{ lang.currentLang() === 'th' ? 'สตรีมแบบเรียลไทม์' : 'Real-time Stream' }}</p>
       <h3 class="waveform-title">
-        <span>EEG Waveform Oscilloscope</span>
+        <span>{{ lang.currentLang() === 'th' ? 'กราฟคลื่นสมองแบบเรียลไทม์ (EEG)' : 'EEG Waveform Oscilloscope' }}</span>
         <span class="live-badge" [class.connected]="isConnected()">
           <span class="pulse-dot"></span>
-          {{ isConnected() ? 'Live 256 Hz' : 'Offline' }}
+          {{ isConnected() ? (lang.currentLang() === 'th' ? 'สด 256 Hz' : 'Live 256 Hz') : (lang.currentLang() === 'th' ? 'ออฟไลน์' : 'Offline') }}
         </span>
       </h3>
     </div>
@@ -26,7 +26,7 @@
   </div>
 
   <footer class="waveform-footer">
-    <span>Sampling Rate: 256 Hz · 4 Channels (TP9, AF7, AF8, TP10)</span>
+    <span>{{ lang.currentLang() === 'th' ? 'อัตราการสุ่มสัญญาณ: 256 Hz · 4 ช่องสัญญาณ (TP9, AF7, AF8, TP10)' : 'Sampling Rate: 256 Hz · 4 Channels (TP9, AF7, AF8, TP10)' }}</span>
     @if (hasArtifact()) {
       <span class="artifact-notice" role="status">
         <span class="artifact-icon">[!]</span> {{ lang.currentLang() === 'th' ? 'ตรวจพบสิ่งรบกวนสัญญาณ' : 'Motion / Blink Artifact detected' }}

@@ -103,6 +103,9 @@ class CollectionSessionResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+    accepted_reviews: int = 0
+    rejected_reviews: int = 0
+    pending_reviews: int = 0
 
 
 class CollectionSessionListResponse(BaseModel):

@@ -1,9 +1,12 @@
 import asyncio
+import csv
 from datetime import datetime, timezone
 import hashlib
 import logging
 import mimetypes
 from pathlib import Path
+
+import numpy as np
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
@@ -88,7 +91,11 @@ class MuseConnectRequest(BaseModel):
 def collection_overview(admin: AdminUser, db: Session = Depends(get_db)):
     total_participants = db.scalar(select(func.count(DatasetParticipant.id))) or 0
     total_sessions = db.scalar(select(func.count(CollectionSession.id))) or 0
-    total_trials = db.scalar(select(func.count(CollectionTrial.id))) or 0
+    total_trials = db.scalar(
+        select(func.count(CollectionTrial.id))
+        .join(CollectionSession, CollectionTrial.session_id == CollectionSession.id)
+        .where(CollectionSession.state != CollectionSessionState.withdrawn)
+    ) or 0
 
     completed_trials = db.scalar(
         select(func.count(CollectionTrial.id)).where(CollectionTrial.state == TrialState.completed)
@@ -410,7 +417,31 @@ def list_sessions(
     limit: int = Query(default=50, ge=1, le=100),
 ):
     query = select(CollectionSession).order_by(CollectionSession.id).offset(skip).limit(limit)
-    return CollectionSessionListResponse(items=list(db.scalars(query)))
+    sessions = list(db.scalars(query))
+    session_ids = [s.id for s in sessions]
+    review_map: dict[int, dict[str, int]] = {}
+    if session_ids:
+        rows = db.execute(
+            select(CollectionTrial.session_id, CollectionTrial.review_state, func.count(CollectionTrial.id))
+            .where(
+                CollectionTrial.session_id.in_(session_ids),
+                CollectionTrial.state == TrialState.completed,
+            )
+            .group_by(CollectionTrial.session_id, CollectionTrial.review_state)
+        ).all()
+        for sid, r_state, cnt in rows:
+            if r_state is not None:
+                review_map.setdefault(sid, {})[r_state.value] = cnt
+
+    items = []
+    for s in sessions:
+        counts = review_map.get(s.id, {})
+        item = CollectionSessionResponse.model_validate(s)
+        item.accepted_reviews = counts.get("accepted", 0)
+        item.rejected_reviews = counts.get("rejected", 0)
+        item.pending_reviews = counts.get("pending", 0)
+        items.append(item)
+    return CollectionSessionListResponse(items=items)
 
 
 @router.post("/sessions", response_model=CollectionSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -496,6 +527,201 @@ def session_trials_detail(session_id: int, admin: AdminUser, db: Session = Depen
         avg_arousal=avg_a,
         items=items,
     )
+
+
+class TrialReviewUpdateRequest(BaseModel):
+    review_state: ReviewState
+
+
+@router.patch("/trials/{trial_id}/review")
+def update_trial_review(
+    trial_id: int,
+    body: TrialReviewUpdateRequest,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    trial = db.get(CollectionTrial, trial_id)
+    if trial is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trial not found")
+    if trial.state != TrialState.completed:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only completed trials can be reviewed")
+
+    trial.review_state = body.review_state
+    db.commit()
+    db.refresh(trial)
+    return {"id": trial.id, "review_state": trial.review_state.value}
+
+
+@router.patch("/sessions/{session_id}/review-all")
+def review_all_session_trials(
+    session_id: int,
+    body: TrialReviewUpdateRequest,
+    admin: AdminUser,
+    db: Session = Depends(get_db),
+):
+    session = db.get(CollectionSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection session not found")
+
+    trials = list(
+        db.scalars(
+            select(CollectionTrial).where(
+                CollectionTrial.session_id == session_id,
+                CollectionTrial.state == TrialState.completed,
+            )
+        )
+    )
+    for trial in trials:
+        trial.review_state = body.review_state
+    db.commit()
+    return {
+        "session_id": session_id,
+        "updated_count": len(trials),
+        "review_state": body.review_state.value,
+    }
+
+
+@router.get("/trials/{trial_id}/eeg-waveform")
+def get_trial_eeg_waveform(
+    trial_id: int,
+    admin: AdminUser,
+    max_points: int = Query(default=320, ge=50, le=1000),
+    db: Session = Depends(get_db),
+):
+    trial = db.get(CollectionTrial, trial_id)
+    if trial is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trial not found")
+    if not trial.eeg_file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No EEG file recorded for this trial")
+
+    raw_root = Path(get_settings().collection_raw_dir).resolve()
+    candidate = Path(trial.eeg_file_path)
+    if not candidate.is_absolute():
+        candidate = (raw_root / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+
+    if not candidate.is_relative_to(raw_root):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid EEG file path")
+    if not candidate.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="EEG CSV file not found on disk")
+
+    rows: list[tuple[float, float, float, float, float]] = []
+    q_sums = {"tp9": 0.0, "af7": 0.0, "af8": 0.0, "tp10": 0.0}
+
+    with candidate.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            try:
+                ts = float(row.get("timestamp") or 0.0)
+                tp9 = float(row.get("tp9") or 0.0)
+                af7 = float(row.get("af7") or 0.0)
+                af8 = float(row.get("af8") or 0.0)
+                tp10 = float(row.get("tp10") or 0.0)
+                q_sums["tp9"] += float(row.get("tp9_quality") or 0.0)
+                q_sums["af7"] += float(row.get("af7_quality") or 0.0)
+                q_sums["af8"] += float(row.get("af8_quality") or 0.0)
+                q_sums["tp10"] += float(row.get("tp10_quality") or 0.0)
+            except ValueError:
+                continue
+            rows.append((ts, tp9, af7, af8, tp10))
+
+    total_samples = len(rows)
+    if total_samples == 0:
+        return {
+            "trial_id": trial.id,
+            "file_name": candidate.name,
+            "total_samples": 0,
+            "duration_seconds": 0.0,
+            "sample_rate_hz": 0.0,
+            "quality_avg": {"tp9": 0.0, "af7": 0.0, "af8": 0.0, "tp10": 0.0},
+            "points": [],
+        }
+
+    valid_ts = [r[0] for r in rows if r[0] > 0]
+    if len(valid_ts) >= 2:
+        # Sum reasonable inter-sample deltas (handles occasional 0 or clock jumps)
+        deltas = [b - a for a, b in zip(valid_ts, valid_ts[1:]) if 0 < (b - a) < 5.0]
+        duration = sum(deltas) if deltas else max(0.0, valid_ts[-1] - valid_ts[0])
+    else:
+        duration = 0.0
+    if duration <= 0 or duration > 3600:
+        duration = 0.0
+    t0 = valid_ts[0] if valid_ts else 0.0
+    sample_rate = round(total_samples / duration, 1) if duration > 0 else 0.0
+    step = max(1, total_samples // max_points)
+    sampled = rows[::step][:max_points]
+
+    arr = np.array([[r[1], r[2], r[3], r[4]] for r in rows], dtype=float)
+    channel_names = ("tp9", "af7", "af8", "tp10")
+    channel_peak_uv: dict[str, float] = {}
+    for idx, name in enumerate(channel_names):
+        col = arr[:, idx]
+        centered = col - float(np.median(col))
+        channel_peak_uv[name] = round(float(np.max(np.abs(centered))), 1)
+
+    band_powers = None
+    if sample_rate >= 25.0 and total_samples >= 128:
+        # Compute frontal (AF7 + AF8) Alpha (8-12 Hz) vs Beta (13-30 Hz) on clean 2s epochs
+        frontal = 0.5 * (arr[:, 1] + arr[:, 2])
+        epoch_len = max(64, int(round(sample_rate * 2.0)))
+        num_epochs = len(frontal) // epoch_len
+        alpha_sum = 0.0
+        beta_sum = 0.0
+        clean_epochs = 0
+        fallback_alpha = 0.0
+        fallback_beta = 0.0
+
+        for idx in range(num_epochs):
+            seg = frontal[idx * epoch_len : (idx + 1) * epoch_len]
+            seg_centered = seg - float(np.median(seg))
+            window = np.hanning(len(seg_centered))
+            spectrum = np.abs(np.fft.rfft(seg_centered * window)) ** 2
+            freqs = np.fft.rfftfreq(len(seg_centered), d=1.0 / sample_rate)
+            a_val = float(np.sum(spectrum[(freqs >= 8.0) & (freqs < 12.0)]))
+            b_val = float(np.sum(spectrum[(freqs >= 13.0) & (freqs <= 30.0)]))
+            fallback_alpha += a_val
+            fallback_beta += b_val
+            if float(np.max(np.abs(seg_centered))) <= 150.0:
+                alpha_sum += a_val
+                beta_sum += b_val
+                clean_epochs += 1
+
+        used_alpha = alpha_sum if clean_epochs > 0 else fallback_alpha
+        used_beta = beta_sum if clean_epochs > 0 else fallback_beta
+        ab_total = used_alpha + used_beta
+        if ab_total > 0:
+            alpha_pct = round((used_alpha / ab_total) * 100.0, 1)
+            beta_pct = round(100.0 - alpha_pct, 1)
+            ratio = round(used_beta / used_alpha, 2) if used_alpha > 0 else 0.0
+            band_powers = {
+                "alpha": alpha_pct,
+                "beta": beta_pct,
+                "beta_alpha_ratio": ratio,
+                "clean_epochs": clean_epochs,
+                "total_epochs": num_epochs,
+            }
+
+    return {
+        "trial_id": trial.id,
+        "file_name": candidate.name,
+        "total_samples": total_samples,
+        "duration_seconds": round(duration, 2),
+        "sample_rate_hz": sample_rate,
+        "quality_avg": {k: round(v / total_samples, 3) for k, v in q_sums.items()},
+        "channel_peak_uv": channel_peak_uv,
+        "band_powers": band_powers,
+        "points": [
+            {
+                "t": round(r[0] - t0, 3),
+                "tp9": round(r[1], 2),
+                "af7": round(r[2], 2),
+                "af8": round(r[3], 2),
+                "tp10": round(r[4], 2),
+            }
+            for r in sampled
+        ],
+    }
 
 
 def _collection_session(db: Session, session_id: int) -> CollectionSession:
@@ -858,7 +1084,14 @@ async def collection_websocket(
                 # receive_json failed (disconnect or parse error) — exit loop
                 break
             cmd = data.get("cmd", "") if isinstance(data, dict) else ""
-            if cmd == "eeg_sample_admin":
+            if cmd == "eeg_batch_admin":
+                samples = data.get("samples", []) if isinstance(data, dict) else []
+                if isinstance(samples, list) and samples:
+                    try:
+                        await collection_manager.ingest_web_bluetooth_batch(session_id, samples)
+                    except Exception as exc:
+                        log.warning("eeg_batch_admin error for session %s: %s", session_id, exc)
+            elif cmd == "eeg_sample_admin":
                 # EEG sample forwarded from Web Bluetooth (muse-js) — Admin runner path.
                 # Routes into CollectionConnectionManager.ingest_web_bluetooth_sample()
                 # which feeds the collection state machine directly (no LSL bridge needed).

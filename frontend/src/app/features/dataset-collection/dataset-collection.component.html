@@ -70,6 +70,9 @@
               <small class="stat-card-sub">
                 {{ stats.sessions_by_state?.["completed"] ?? 0 }} สำเร็จ ·
                 {{ stats.sessions_by_state?.["ready"] ?? 0 }} พร้อมเริ่ม
+                @if ((stats.sessions_by_state?.["withdrawn"] ?? 0) > 0) {
+                  · {{ stats.sessions_by_state?.["withdrawn"] }} ถอนตัว
+                }
               </small>
             </article>
 
@@ -423,11 +426,53 @@
                 }}
               </h3>
               <span class="sessions-total-badge"
-                >{{ sessions().length }}
+                >{{ filteredSessions().length }} / {{ sessions().length }}
                 {{
                   lang.currentLang() === "th" ? "รอบในระบบ" : "sessions"
                 }}</span
               >
+            </div>
+            <div class="sessions-filter-bar">
+              <div class="filter-field">
+                <span class="filter-label">{{
+                  lang.currentLang() === 'th' ? 'ค้นหา' : 'Search'
+                }}</span>
+                <input
+                  type="search"
+                  class="sessions-search-input"
+                  [ngModel]="sessionSearch()"
+                  (ngModelChange)="onSessionSearchChange($event)"
+                  [placeholder]="
+                    lang.currentLang() === 'th'
+                      ? 'ค้นหา P001, Session #6'
+                      : 'Search P001, Session #6'
+                  "
+                />
+              </div>
+              <div class="filter-field">
+                <span class="filter-label">{{
+                  lang.currentLang() === 'th'
+                    ? 'การตรวจสอบ (QA)'
+                    : 'Admin Review (QA)'
+                }}</span>
+                <app-select
+                  class="sessions-filter-select"
+                  [options]="qaFilterOptions()"
+                  [value]="sessionQaFilter()"
+                  (valueChange)="onQaFilterChange($event)"
+                />
+              </div>
+              <div class="filter-field">
+                <span class="filter-label">{{
+                  lang.currentLang() === 'th' ? 'สถานะรอบ' : 'Session State'
+                }}</span>
+                <app-select
+                  class="sessions-filter-select"
+                  [options]="stateFilterOptions()"
+                  [value]="sessionStateFilter()"
+                  (valueChange)="onStateFilterChange($event)"
+                />
+              </div>
             </div>
             <div class="table-responsive">
               <table class="recent-sessions-table">
@@ -460,13 +505,20 @@
                     </th>
                     <th>
                       {{
+                        lang.currentLang() === "th"
+                          ? "การตรวจสอบ (QA)"
+                          : "Admin Review"
+                      }}
+                    </th>
+                    <th>
+                      {{
                         lang.currentLang() === "th" ? "การดำเนินการ" : "Actions"
                       }}
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (sess of sessions(); track sess.id) {
+                  @for (sess of paginatedSessions(); track sess.id) {
                     <tr>
                       <td>
                         <strong>Session #{{ sess.id }}</strong>
@@ -491,6 +543,13 @@
                         <span class="badge state-badge-{{ sess.state }}">{{
                           sess.state
                         }}</span>
+                      </td>
+                      <td>
+                        @if (sessionReviewStatus(sess); as qa) {
+                          <span class="qa-badge qa-{{ qa.tone }}">{{
+                            qa.label
+                          }}</span>
+                        }
                       </td>
                       <td>
                         @if (sess.state === "completed") {
@@ -530,10 +589,46 @@
                         }
                       </td>
                     </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="7" class="sessions-empty-cell">
+                        {{
+                          lang.currentLang() === "th"
+                            ? "ไม่พบรอบการเก็บข้อมูลที่ตรงกับเงื่อนไข"
+                            : "No sessions match the selected filters"
+                        }}
+                      </td>
+                    </tr>
                   }
                 </tbody>
               </table>
             </div>
+            @if (totalSessionsPages() > 1) {
+              <div
+                class="table-pagination-bar"
+                aria-label="Recent sessions pagination"
+              >
+                <button
+                  type="button"
+                  class="table-page-btn"
+                  [disabled]="sessionsPage() <= 1"
+                  (click)="prevSessionsPage()"
+                >
+                  ‹ {{ lang.currentLang() === "th" ? "ก่อนหน้า" : "Prev" }}
+                </button>
+                <span class="table-page-info">
+                  {{ sessionsPage() }} / {{ totalSessionsPages() }}
+                </span>
+                <button
+                  type="button"
+                  class="table-page-btn"
+                  [disabled]="sessionsPage() >= totalSessionsPages()"
+                  (click)="nextSessionsPage()"
+                >
+                  {{ lang.currentLang() === "th" ? "ถัดไป" : "Next" }} ›
+                </button>
+              </div>
+            }
           </div>
         } @else {
           <p>Overview data is unavailable</p>

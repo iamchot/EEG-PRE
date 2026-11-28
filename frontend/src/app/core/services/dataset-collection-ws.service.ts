@@ -170,6 +170,14 @@ export class DatasetCollectionWsService implements OnDestroy {
       timestamp: sample.timestamp,
     });
   }
+
+  sendEegBatch(samples: { tp9: number; af7: number; af8: number; tp10: number; timestamp: number }[]): void {
+    if (!samples.length) return;
+    this.sendRaw({
+      cmd: 'eeg_batch_admin',
+      samples,
+    });
+  }
 }
 
 

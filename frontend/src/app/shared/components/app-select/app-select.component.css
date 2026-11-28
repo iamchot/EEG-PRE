@@ -65,8 +65,10 @@
   left: 0;
   right: 0;
   z-index: 60;
-  max-height: 240px;
+  max-height: 220px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 10px;
@@ -77,6 +79,11 @@
   gap: 2px;
   scrollbar-width: thin;
   scrollbar-color: #475569 #0f172a;
+}
+
+.custom-select-menu.open-up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 .custom-select-option {

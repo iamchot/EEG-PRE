@@ -110,6 +110,9 @@ export interface CollectionSession {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  accepted_reviews?: number;
+  rejected_reviews?: number;
+  pending_reviews?: number;
 }
 
 export interface ParticipantCreate { consent_confirmed_at: string; }
@@ -189,6 +192,37 @@ export interface CollectionRunnerState {
   eyes_open_complete?: boolean;
   eyes_closed_complete?: boolean;
   quality_source: 'derived_eeg_window';
+}
+
+export interface TrialReviewResponse {
+  id: number;
+  review_state: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface TrialEegWaveformPoint {
+  t: number;
+  tp9: number;
+  af7: number;
+  af8: number;
+  tp10: number;
+}
+
+export interface TrialEegWaveformResponse {
+  trial_id: number;
+  file_name: string;
+  total_samples: number;
+  duration_seconds: number;
+  sample_rate_hz: number;
+  quality_avg: Record<'tp9' | 'af7' | 'af8' | 'tp10', number>;
+  channel_peak_uv?: Record<'tp9' | 'af7' | 'af8' | 'tp10', number>;
+  band_powers?: {
+    alpha: number;
+    beta: number;
+    beta_alpha_ratio: number;
+    clean_epochs: number;
+    total_epochs: number;
+  } | null;
+  points: TrialEegWaveformPoint[];
 }
 
 export interface CollectionList<T> { items: T[]; }
@@ -320,6 +354,28 @@ export class DatasetCollectionService {
 
   getSessionTrials(sessionId: number): Observable<SessionTrialsDetail> {
     return this.http.get<SessionTrialsDetail>(`${this.baseUrl}/sessions/${sessionId}/trials`);
+  }
+
+  reviewTrial(trialId: number, reviewState: 'pending' | 'accepted' | 'rejected'): Observable<TrialReviewResponse> {
+    return this.http.patch<TrialReviewResponse>(`${this.baseUrl}/trials/${trialId}/review`, {
+      review_state: reviewState,
+    });
+  }
+
+  reviewAllTrialsInSession(
+    sessionId: number,
+    reviewState: 'pending' | 'accepted' | 'rejected',
+  ): Observable<{ session_id: number; updated_count: number; review_state: string }> {
+    return this.http.patch<{ session_id: number; updated_count: number; review_state: string }>(
+      `${this.baseUrl}/sessions/${sessionId}/review-all`,
+      { review_state: reviewState },
+    );
+  }
+
+  getTrialEegWaveform(trialId: number, maxPoints = 320): Observable<TrialEegWaveformResponse> {
+    return this.http.get<TrialEegWaveformResponse>(`${this.baseUrl}/trials/${trialId}/eeg-waveform`, {
+      params: new HttpParams().set('max_points', maxPoints),
+    });
   }
 
   getStimulusMedia(stimulusId: number): Observable<Blob> {

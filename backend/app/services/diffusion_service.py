@@ -22,7 +22,7 @@ settings = get_settings()
 
 
 # ─── Default ComfyUI workflow template ────────────────────────────────────────
-# Uses KSampler (dpmpp_2m + karras, 18 steps, 512x640) tuned for Counterfeit-V3.0.
+# Uses KSampler (dpmpp_2m + karras, 18 steps, 512x512) tuned for Counterfeit-V3.0.
 _BASE_WORKFLOW: dict = {
     "3": {
         "class_type": "KSampler",
@@ -45,13 +45,13 @@ _BASE_WORKFLOW: dict = {
     },
     "5": {
         "class_type": "EmptyLatentImage",
-        "inputs": {"width": 512, "height": 640, "batch_size": 1},
+        "inputs": {"width": 512, "height": 512, "batch_size": 1},
     },
     "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["4", 1]}},
     "7": {
         "class_type": "CLIPTextEncode",
         "inputs": {
-            "text": "worst quality, low quality, blurry, bad anatomy, bad hands, extra fingers, missing fingers, text, watermark, logo, ugly, deformed, 2boys, 2girls, multiple boys, multiple girls, multiple people, extra person, duplicate, clone, multiple views, split screen",
+            "text": "worst quality, low quality, blurry, bad anatomy, bad hands, extra fingers, missing fingers, watermark, signature, logo, ugly, deformed, 2boys, 2girls, multiple boys, multiple girls, multiple people, extra person, duplicate, clone, multiple views, split screen",
             "clip": ["4", 1],
         },
     },

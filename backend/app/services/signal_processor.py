@@ -357,26 +357,29 @@ def estimate_sensor_state(
         return SensorQuality(state="unknown", quality_score=0.0, timestamp=now)
 
     std = float(np.std(ch_data))
-    peak = float(np.max(np.abs(ch_data)))
+    centered = ch_data - float(np.median(ch_data))
+    peak = float(np.max(np.abs(centered)))
+    p98_peak = float(np.percentile(np.abs(centered), 98))
 
     if len(ch_data) < 16:
         # Small batch fallback: evaluate peak and non-zero amplitude
-        if std < ARTIFACT_FLATLINE_STD or peak > ARTIFACT_AMPLITUDE_UV or peak == 0.0:
+        if std < ARTIFACT_FLATLINE_STD or peak > ARTIFACT_AMPLITUDE_UV or float(np.max(np.abs(ch_data))) == 0.0:
             return SensorQuality(state="poor", quality_score=10.0, timestamp=now)
 
-    # Temporal channels (0: TP9, 3: TP10) have wider impedance tolerance behind ears
+    # Temporal channels (0: TP9, 3: TP10) behind the ears naturally exhibit wider
+    # 256 Hz raw variance (50Hz/EMG) than frontal AF7/AF8 channels.
     is_tp = channel_idx in (0, 3)
-    max_peak = 250.0 if is_tp else 200.0
+    max_peak = 350.0 if is_tp else 260.0
     min_std = 0.8 if is_tp else 1.0
-    max_std = 95.0 if is_tp else 80.0
+    max_std = 130.0 if is_tp else 95.0
 
-    if std < min_std or std > max_std or peak > max_peak or peak == 0.0:
-        quality = 15.0 if (std > 0 and peak < 300) else 0.0
+    if std < min_std or std > max_std or p98_peak > max_peak or float(np.max(np.abs(ch_data))) == 0.0:
+        quality = 15.0 if (std > 0 and p98_peak < 450.0) else 0.0
         return SensorQuality(state="poor", quality_score=quality, timestamp=now)
 
-    target_std = 20.0 if is_tp else 30.0
-    score = 100.0 - min(abs(std - target_std) * 1.0, 60.0)
-    penalty = min(max(peak - 120.0, 0.0) / 8.0, 25.0)
+    target_std = 35.0 if is_tp else 30.0
+    score = 100.0 - min(abs(std - target_std) * 0.75, 55.0)
+    penalty = min(max(p98_peak - 150.0, 0.0) / 10.0, 20.0)
     quality = max(0.0, min(100.0, score - penalty))
 
     state = "good" if quality >= 35.0 else "poor"

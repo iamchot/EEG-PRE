@@ -161,6 +161,8 @@ def start_baseline(
 @router.post("/{session_id}/start-recording")
 def start_recording(session_id: int, current_user: StandardUser, db: Session = Depends(get_db)):
     machine = _owned_session_machine(session_id, current_user, db)
+    if machine.state.phase == Phase.RECORDING:
+        return {"status": "ok", "phase": machine.state.phase.value}
     if machine.state.phase != Phase.READY:
         raise HTTPException(status_code=400, detail="Not in READY state")
     machine.start_recording()
@@ -275,7 +277,13 @@ def reset_recording(session_id: int, current_user: StandardUser, db: Session = D
     Equivalent to 'remeasure' — clears accepted seconds and transitions to READY.
     """
     machine = _owned_session_machine(session_id, current_user, db)
-    if machine.state.phase not in (Phase.RECORDING, Phase.PAUSED_SIGNAL_QUALITY, Phase.READY):
+    if machine.state.phase not in (
+        Phase.RECORDING,
+        Phase.PAUSED_SIGNAL_QUALITY,
+        Phase.READY,
+        Phase.EMOTION_CONFIRMATION,
+        Phase.TIMEOUT,
+    ):
         raise HTTPException(status_code=400, detail="Not in a resettable recording phase")
     machine.remeasure()
     return {"status": "ok", "phase": machine.state.phase.value}
@@ -392,6 +400,39 @@ async def eeg_websocket(
                     machine.confirm_device(data.get("device_name", ""), data.get("device_id", ""))
                     machine.mark_connected()
                     await eeg_manager.broadcast(key, machine.to_ws_dict())
+                elif cmd == "eeg_batch":
+                    raw_samples = data.get("samples", []) if isinstance(data, dict) else []
+                    if isinstance(raw_samples, list) and raw_samples:
+                        batch_rows: list[list[float]] = []
+                        batch_ts: list[float] = []
+                        for item in raw_samples:
+                            if not isinstance(item, dict):
+                                continue
+                            row = [
+                                float(item.get("tp9", 0.0)),
+                                float(item.get("af7", 0.0)),
+                                float(item.get("af8", 0.0)),
+                                float(item.get("tp10", 0.0)),
+                            ]
+                            _web_bt_buffers[key].append(row)
+                            batch_rows.append(row)
+                            batch_ts.append(float(item.get("timestamp", 0.0)))
+                        if batch_rows:
+                            buf_matrix = np.array(_web_bt_buffers[key], dtype=float)
+                            now_mono = time.monotonic()
+                            raw_sensor_qualities = {
+                                ch: estimate_sensor_state(buf_matrix, idx, now_mono, now_mono)
+                                for idx, ch in enumerate(("tp9", "af7", "af8", "tp10"))
+                            }
+                            debounced_qualities = _apply_session_quality_debounce(key, raw_sensor_qualities)
+                            machine.ingest_samples(
+                                np.array(batch_rows, dtype=float),
+                                np.array(batch_ts, dtype=float),
+                                sensor_qualities=debounced_qualities,
+                            )
+                            if machine.state.phase != phase_before or (now_mono - last_broadcast_time) >= 0.25:
+                                last_broadcast_time = now_mono
+                                await eeg_manager.broadcast(key, machine.to_ws_dict())
                 elif cmd == "eeg_sample":
                     tp9 = float(data.get("tp9", 0.0))
                     af7 = float(data.get("af7", 0.0))
@@ -424,6 +465,9 @@ async def eeg_websocket(
                     await eeg_manager.broadcast(key, machine.to_ws_dict())
                 elif cmd == "start_recording":
                     machine.start_recording()
+                    await eeg_manager.broadcast(key, machine.to_ws_dict())
+                elif cmd in ("remeasure", "reset_recording"):
+                    machine.remeasure()
                     await eeg_manager.broadcast(key, machine.to_ws_dict())
                 elif cmd == "cancel":
                     machine.cancel()

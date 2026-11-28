@@ -164,10 +164,14 @@ export class EegSessionComponent implements OnInit, OnDestroy {
     this.connecting.set(true);
     this.connectError.set('');
     try {
-      const deviceName = await this.museBt.connect((sample) => {
-        // Stream raw EEG samples to backend via existing WebSocket
-        this.eegWs.sendEegSample(sample);
-      });
+      const deviceName = await this.museBt.connect(
+        (sample) => {
+          this.eegWs.sendEegSample(sample);
+        },
+        (batch) => {
+          this.eegWs.sendEegBatch(batch);
+        },
+      );
       await this.ensureSession();
       // Notify backend of device identity
       this.eegWs.sendCommand('confirm_device', {
@@ -245,6 +249,11 @@ export class EegSessionComponent implements OnInit, OnDestroy {
   remeasure() {
     this.generateError.set('');
     this.confirmedEmotion.set('');
+    if (this.sessionId()) {
+      this.http.post(`${environment.apiUrl}/sessions/${this.sessionId()}/reset-recording`, {}).subscribe({
+        error: () => {},
+      });
+    }
     this.eegWs.sendCommand('remeasure');
   }
   restart() {

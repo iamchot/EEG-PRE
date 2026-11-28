@@ -11,6 +11,7 @@ import {
   DatasetCollectionService,
   SessionTrialsDetail,
   SessionTrialItem,
+  TrialEegWaveformResponse,
 } from '../../core/services/dataset-collection.service';
 import { DatasetCollectionWsService } from '../../core/services/dataset-collection-ws.service';
 import { SensorStatus } from '../../core/services/eeg-ws.service';
@@ -45,6 +46,12 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   readonly devicePersisted = signal(false);
   readonly sessionTrialsDetail = signal<SessionTrialsDetail | null>(null);
   readonly sessionTrialsLoading = signal(false);
+  readonly reviewingTrialId = signal<number | null>(null);
+  readonly reviewingAll = signal(false);
+  readonly previewTrial = signal<SessionTrialItem | null>(null);
+  readonly waveformLoading = signal(false);
+  readonly waveformError = signal('');
+  readonly waveformData = signal<TrialEegWaveformResponse | null>(null);
   readonly contacts = signal<Record<SensorKey, boolean>>({ tp9: false, af7: false, af8: false, tp10: false });
   readonly sensorKeys: SensorKey[] = ['tp9', 'af7', 'af8', 'tp10'];
   readonly artifacts = [
@@ -107,7 +114,10 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     if (!Number.isSafeInteger(this.sessionId) || this.sessionId <= 0) { this.error.set('Session ID ไม่ถูกต้อง'); this.stage.set('failed'); return; }
     // If Muse 2 is already streaming via Web Bluetooth, route samples immediately to this session's WS
     if (this.museBt.state() === 'streaming') {
-      this.museBt.setOnSample(sample => this.ws.sendEegSample(sample));
+      this.museBt.setOnSample(
+        (sample) => this.ws.sendEegSample(sample),
+        (batch) => this.ws.sendEegBatch(batch),
+      );
       this.devicePersisted.set(true);
     }
     this.initialSubscription = this.api.getRunnerState(this.sessionId).subscribe({
@@ -128,12 +138,13 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     }
     this.runnerState.set(state);
     const newStage = this.resolveStage(state);
-    this.stage.set(newStage);
     const stimulusId = state.current_stimulus_id;
     if (stimulusId && (state.trial_state === 'rest' || state.trial_state === 'stimulus')) {
+      this.stage.set(newStage);
       this.loadMedia(stimulusId);
     } else {
       this.releaseMedia();
+      this.stage.set(newStage);
     }
     if (state.trial_state === 'rest'
       && state.stimulus_start_ready
@@ -273,10 +284,14 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
     const sessionId = this.sessionId;
     this.busy.set(true);
     this.error.set('');
-    this.museBt.connect((sample) => {
-      // Stream EEG to Admin runner WS — backend routes into collection state machine
-      this.ws.sendEegSample(sample);
-    }).then((deviceName) => {
+    this.museBt.connect(
+      (sample) => {
+        this.ws.sendEegSample(sample);
+      },
+      (batch) => {
+        this.ws.sendEegBatch(batch);
+      },
+    ).then((deviceName) => {
       this.busy.set(false);
       this.devicePersisted.set(true);
       if (this.runnerState()?.state === 'preparation') {
@@ -597,10 +612,12 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   private playStimulusVideo(video?: HTMLVideoElement): void {
     const state = this.runnerState();
     if (state && state.trial_state !== 'stimulus') return;
-    const target = video ?? this.activeVideo ?? document.querySelector<HTMLVideoElement>('.video-shell video');
+    const connectedActive = this.activeVideo && this.activeVideo.isConnected ? this.activeVideo : null;
+    const target = video ?? document.querySelector<HTMLVideoElement>('.video-shell video') ?? connectedActive;
     if (!target) return;
     this.activeVideo = target;
     if (this.playbackStarted && !target.paused) return;
+    target.muted = false;
     const playPromise = target.play();
     if (playPromise !== undefined) {
       playPromise
@@ -625,19 +642,22 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   }
 
   private stopAllMedia(except?: HTMLVideoElement): void {
-    if (this.activeVideo && this.activeVideo !== except) {
+    const teardown = (v: HTMLVideoElement) => {
       try {
-        this.activeVideo.pause();
-        this.activeVideo.currentTime = 0;
+        v.pause();
+        v.muted = true;
+        v.currentTime = 0;
+        v.removeAttribute('src');
+        v.load();
       } catch {}
+    };
+    if (this.activeVideo && this.activeVideo !== except) {
+      teardown(this.activeVideo);
     }
     if (typeof document !== 'undefined' && document.querySelectorAll) {
       document.querySelectorAll<HTMLVideoElement>('video').forEach(v => {
         if (v !== except) {
-          try {
-            v.pause();
-            v.currentTime = 0;
-          } catch {}
+          teardown(v);
         }
       });
     }
@@ -645,6 +665,7 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
 
   private releaseMedia(): void {
     this.stopAllMedia();
+    this.activeVideo = null;
     this.mediaSubscription?.unsubscribe(); this.mediaSubscription = undefined;
     const url = this.mediaUrl(); if (url) URL.revokeObjectURL(url);
     this.mediaUrl.set(null); this.mediaReady.set(false); this.mediaError.set(false); this.mediaStimulusId = null;
@@ -694,6 +715,129 @@ export class DatasetCollectionRunnerComponent implements OnInit, OnDestroy {
   }
 
   readonly toThaiError = toThaiError;
+
+  reviewTrial(trial: SessionTrialItem, reviewState: 'accepted' | 'rejected' | 'pending'): void {
+    if (this.reviewingTrialId() !== null) return;
+    this.reviewingTrialId.set(trial.id);
+    this.api.reviewTrial(trial.id, reviewState).subscribe({
+      next: (res) => {
+        this.reviewingTrialId.set(null);
+        this.sessionTrialsDetail.update((detail) =>
+          detail
+            ? {
+                ...detail,
+                items: detail.items.map((item) =>
+                  item.id === res.id ? { ...item, review_state: res.review_state } : item
+                ),
+              }
+            : detail
+        );
+        if (this.previewTrial()?.id === res.id) {
+          this.previewTrial.update((cur) => (cur ? { ...cur, review_state: res.review_state } : cur));
+        }
+      },
+      error: (err) => {
+        this.reviewingTrialId.set(null);
+        this.fail(err);
+      },
+    });
+  }
+
+  reviewAllTrials(reviewState: 'accepted' | 'rejected'): void {
+    if (this.reviewingAll() || this.reviewingTrialId() !== null) return;
+    this.reviewingAll.set(true);
+    this.api.reviewAllTrialsInSession(this.sessionId, reviewState).subscribe({
+      next: () => {
+        this.reviewingAll.set(false);
+        this.sessionTrialsDetail.update((detail) =>
+          detail
+            ? {
+                ...detail,
+                items: detail.items.map((item) =>
+                  item.state === 'completed' ? { ...item, review_state: reviewState } : item
+                ),
+              }
+            : detail
+        );
+        if (this.previewTrial()?.state === 'completed') {
+          this.previewTrial.update((cur) => (cur ? { ...cur, review_state: reviewState } : cur));
+        }
+      },
+      error: (err) => {
+        this.reviewingAll.set(false);
+        this.fail(err);
+      },
+    });
+  }
+
+  openWaveformPreview(trial: SessionTrialItem): void {
+    if (!trial.eeg_file_path) return;
+    this.previewTrial.set(trial);
+    this.waveformData.set(null);
+    this.waveformError.set('');
+    this.waveformLoading.set(true);
+    this.api.getTrialEegWaveform(trial.id).subscribe({
+      next: (res) => {
+        this.waveformLoading.set(false);
+        this.waveformData.set(res);
+      },
+      error: (err) => {
+        this.waveformLoading.set(false);
+        this.waveformError.set(toThaiError(err));
+      },
+    });
+  }
+
+  closeWaveformPreview(): void {
+    this.previewTrial.set(null);
+    this.waveformData.set(null);
+    this.waveformError.set('');
+  }
+
+  buildWaveformPath(channel: 'tp9' | 'af7' | 'af8' | 'tp10'): string {
+    const points = this.waveformData()?.points ?? [];
+    if (points.length === 0) return '';
+    const values = points.map((p) => p[channel]);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min || 1;
+    const width = 600;
+    const height = 80;
+    const pad = 6;
+    return points
+      .map((p, idx) => {
+        const x = points.length === 1 ? width / 2 : (idx / (points.length - 1)) * width;
+        const norm = (p[channel] - min) / span;
+        const y = height - pad - norm * (height - pad * 2);
+        return `${idx === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(' ');
+  }
+
+  formatQualityPercent(val: number): number {
+    if (!Number.isFinite(val) || val <= 0) return 0;
+    return val <= 1 ? Math.round(val * 100) : Math.round(Math.min(100, val));
+  }
+
+  channelRoleHint(ch: SensorKey): string {
+    const isTh = this.lang.currentLang() === 'th';
+    if (ch === 'af7' || ch === 'af8') {
+      return isTh ? 'หน้าผาก · วิเคราะห์อารมณ์' : 'Frontal · Emotion & Arousal';
+    }
+    return isTh ? 'หลังหู · ตรวจการสัมผัส' : 'Temporal · Contact & Noise';
+  }
+
+  reviewBadgeLabel(state: string): string {
+    const isTh = this.lang.currentLang() === 'th';
+    switch (state) {
+      case 'accepted':
+        return isTh ? '✓ อนุมัติแล้ว' : '✓ Accepted';
+      case 'rejected':
+        return isTh ? '✕ ปฏิเสธ' : '✕ Rejected';
+      default:
+        return isTh ? '⏳ รอตรวจสอบ' : '⏳ Pending';
+    }
+  }
 
   private run(request: ReturnType<DatasetCollectionService['getRunnerState']>, onError?: () => void, onSuccess?: () => void): void {
     if (this.busy()) {

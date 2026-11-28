@@ -51,6 +51,7 @@ export class AppSelectComponent implements ControlValueAccessor {
   @Output() valueChange = new EventEmitter<any>();
 
   readonly isOpen = signal(false);
+  readonly openUp = signal(false);
   readonly currentValue = signal<unknown>(null);
 
   private onChange: (val: unknown) => void = () => {};
@@ -75,7 +76,14 @@ export class AppSelectComponent implements ControlValueAccessor {
   toggle(event: Event): void {
     event.stopPropagation();
     if (this.disabled) return;
-    this.isOpen.update((open) => !open);
+    const nextOpen = !this.isOpen();
+    if (nextOpen && typeof window !== 'undefined') {
+      const rect = this.hostEl.nativeElement.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      this.openUp.set(spaceBelow < 240 && spaceAbove > spaceBelow);
+    }
+    this.isOpen.set(nextOpen);
   }
 
   selectOption(val: unknown): void {

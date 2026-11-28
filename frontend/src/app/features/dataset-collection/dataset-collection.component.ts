@@ -1,5 +1,13 @@
 import { CommonModule } from '@angular/common';
-import { Component, ElementRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -16,15 +24,28 @@ import { SensorStatus } from '../../core/services/eeg-ws.service';
 
 type CollectionTab = 'overview' | 'participants' | 'stimuli' | 'sessions';
 
-import { LanguageService, toThaiError } from '../../core/services/language.service';
+import {
+  LanguageService,
+  toThaiError,
+} from '../../core/services/language.service';
 import { TranslatePipe } from '../../core/pipes/translate.pipe';
 import { ThaiDatePipe } from '../../core/pipes/thai-date.pipe';
-import { AppSelectComponent, AppSelectOption } from '../../shared/components/app-select/app-select.component';
+import {
+  AppSelectComponent,
+  AppSelectOption,
+} from '../../shared/components/app-select/app-select.component';
 
 @Component({
   selector: 'app-dataset-collection',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TranslatePipe, ThaiDatePipe, AppSelectComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterLink,
+    TranslatePipe,
+    ThaiDatePipe,
+    AppSelectComponent,
+  ],
   templateUrl: './dataset-collection.component.html',
   styleUrl: './dataset-collection.component.css',
 })
@@ -37,19 +58,131 @@ export class DatasetCollectionComponent implements OnInit {
   readonly tabs = computed(() => {
     this.lang.currentLang();
     return [
-      { key: 'overview' as CollectionTab, label: this.lang.t('dataset.tab_overview') },
-      { key: 'participants' as CollectionTab, label: this.lang.t('dataset.tab_participants') },
-      { key: 'stimuli' as CollectionTab, label: this.lang.t('dataset.tab_stimuli') },
-      { key: 'sessions' as CollectionTab, label: this.lang.t('dataset.tab_sessions') },
+      {
+        key: 'overview' as CollectionTab,
+        label: this.lang.t('dataset.tab_overview'),
+      },
+      {
+        key: 'participants' as CollectionTab,
+        label: this.lang.t('dataset.tab_participants'),
+      },
+      {
+        key: 'stimuli' as CollectionTab,
+        label: this.lang.t('dataset.tab_stimuli'),
+      },
+      {
+        key: 'sessions' as CollectionTab,
+        label: this.lang.t('dataset.tab_sessions'),
+      },
     ];
   });
-  readonly quadrants: EmotionQuadrant[] = ['positive_low', 'positive_high', 'negative_low', 'negative_high'];
+  readonly quadrants: EmotionQuadrant[] = [
+    'positive_low',
+    'positive_high',
+    'negative_low',
+    'negative_high',
+  ];
   readonly activeTab = signal<CollectionTab>('overview');
   readonly overview = signal<CollectionOverview | null>(null);
   readonly overviewLoading = signal(true);
   readonly participants = signal<DatasetParticipant[]>([]);
   readonly stimuli = signal<EmotionStimulus[]>([]);
   readonly sessions = signal<CollectionSession[]>([]);
+  readonly sessionSearch = signal('');
+  readonly sessionQaFilter = signal<
+    'all' | 'pending' | 'approved' | 'rejected'
+  >('all');
+  readonly sessionStateFilter = signal<
+    'all' | 'completed' | 'active' | 'withdrawn'
+  >('all');
+  readonly sessionsPageSize = 5;
+  readonly sessionsPage = signal(1);
+
+  readonly qaFilterOptions = computed<AppSelectOption<string>[]>(() => {
+    const isTh = this.lang.currentLang() === 'th';
+    return [
+      { value: 'all', label: isTh ? 'ทั้งหมด' : 'All' },
+      { value: 'pending', label: isTh ? 'รอตรวจสอบ' : 'Pending QA' },
+      {
+        value: 'approved',
+        label: isTh ? 'อนุมัติ / ตรวจแล้ว' : 'Approved / Reviewed',
+      },
+      { value: 'rejected', label: isTh ? 'ปฏิเสธทั้งหมด' : 'Rejected' },
+    ];
+  });
+
+  readonly stateFilterOptions = computed<AppSelectOption<string>[]>(() => {
+    const isTh = this.lang.currentLang() === 'th';
+    return [
+      { value: 'all', label: isTh ? 'ทั้งหมด' : 'All' },
+      { value: 'completed', label: isTh ? 'สำเร็จ' : 'Completed' },
+      {
+        value: 'active',
+        label: isTh ? 'กำลังเก็บ / พร้อมเริ่ม' : 'Active / Ready',
+      },
+      { value: 'withdrawn', label: isTh ? 'ถอนตัว' : 'Withdrawn' },
+    ];
+  });
+
+  readonly filteredSessions = computed(() => {
+    const q = this.sessionSearch().trim().toLowerCase();
+    const qa = this.sessionQaFilter();
+    const st = this.sessionStateFilter();
+
+    return this.sessions().filter((sess) => {
+      if (q) {
+        const pCode = this.getParticipantCode(
+          sess.participant_id,
+        ).toLowerCase();
+        const sessLabel = `session #${sess.id}`.toLowerCase();
+        const device = (sess.device_name ?? sess.device_id ?? '').toLowerCase();
+        if (
+          !pCode.includes(q) &&
+          !sessLabel.includes(q) &&
+          !String(sess.id).includes(q) &&
+          !device.includes(q)
+        ) {
+          return false;
+        }
+      }
+
+      if (st === 'completed' && sess.state !== 'completed') return false;
+      if (st === 'withdrawn' && sess.state !== 'withdrawn') return false;
+      if (
+        st === 'active' &&
+        (sess.state === 'completed' ||
+          sess.state === 'withdrawn' ||
+          sess.state === 'failed')
+      ) {
+        return false;
+      }
+
+      if (qa !== 'all') {
+        const qaStatus = this.sessionReviewStatus(sess).tone;
+        if (
+          qa === 'pending' &&
+          qaStatus !== 'pending' &&
+          qaStatus !== 'partial'
+        )
+          return false;
+        if (qa === 'approved' && qaStatus !== 'done') return false;
+        if (qa === 'rejected' && qaStatus !== 'rejected') return false;
+      }
+
+      return true;
+    });
+  });
+
+  readonly totalSessionsPages = computed(() =>
+    Math.max(
+      1,
+      Math.ceil(this.filteredSessions().length / this.sessionsPageSize),
+    ),
+  );
+  readonly paginatedSessions = computed(() => {
+    const start = (this.sessionsPage() - 1) * this.sessionsPageSize;
+    return this.filteredSessions().slice(start, start + this.sessionsPageSize);
+  });
   readonly participantsLoading = signal(true);
   readonly stimuliLoading = signal(true);
   readonly sessionsLoading = signal(true);
@@ -69,46 +202,94 @@ export class DatasetCollectionComponent implements OnInit {
   readonly participantDropdownOpen = signal(false);
   private readonly hostEl = inject(ElementRef<HTMLElement>);
 
-  readonly participantOptions = computed<AppSelectOption<number | null>[]>(() => {
-    const isTh = this.lang.currentLang() === 'th';
-    return [
-      { value: null, label: isTh ? '-- เลือกผู้เข้าร่วมทดลอง --' : '-- Select Participant --' },
-      ...this.activeParticipants().map((item) => ({
-        value: item.id,
-        label: item.participant_code,
-      })),
-    ];
-  });
+  readonly participantOptions = computed<AppSelectOption<number | null>[]>(
+    () => {
+      const isTh = this.lang.currentLang() === 'th';
+      return [
+        {
+          value: null,
+          label: isTh
+            ? '-- เลือกผู้เข้าร่วมทดลอง --'
+            : '-- Select Participant --',
+        },
+        ...this.activeParticipants().map((item) => ({
+          value: item.id,
+          label: item.participant_code,
+        })),
+      ];
+    },
+  );
 
   readonly libraryFileOptions = computed<AppSelectOption<string>[]>(() => {
     const isTh = this.lang.currentLang() === 'th';
     return [
-      { value: '', label: isTh ? '-- คลิกเลือกไฟล์วิดีโอจากคลัง --' : '-- Select video from library --' },
-      ...this.availableMediaFiles().map((file) => ({ value: file, label: file })),
+      {
+        value: '',
+        label: isTh
+          ? '-- คลิกเลือกไฟล์วิดีโอจากคลัง --'
+          : '-- Select video from library --',
+      },
+      ...this.availableMediaFiles().map((file) => ({
+        value: file,
+        label: file,
+      })),
     ];
   });
 
-  readonly quadrantOptions = computed<AppSelectOption<EmotionQuadrant>[]>(() => {
-    const isTh = this.lang.currentLang() === 'th';
-    return [
-      { value: 'positive_low', label: isTh ? '🟢 ผ่อนคลาย / สงบ' : '🟢 Relax / Calm' },
-      { value: 'positive_high', label: isTh ? '🟣 ตื่นเต้น / สนุกสนาน' : '🟣 Excited / Joy' },
-      { value: 'negative_low', label: isTh ? '🔵 เศร้า / หดหู่' : '🔵 Sad / Depressed' },
-      { value: 'negative_high', label: isTh ? '🔴 เครียด / ตกใจกลัว' : '🔴 Stress / Fear' },
-    ];
-  });
+  readonly quadrantOptions = computed<AppSelectOption<EmotionQuadrant>[]>(
+    () => {
+      const isTh = this.lang.currentLang() === 'th';
+      return [
+        {
+          value: 'positive_low',
+          label: isTh ? '🟢 ผ่อนคลาย / สงบ' : '🟢 Relax / Calm',
+        },
+        {
+          value: 'positive_high',
+          label: isTh ? '🟣 ตื่นเต้น / สนุกสนาน' : '🟣 Excited / Joy',
+        },
+        {
+          value: 'negative_low',
+          label: isTh ? '🔵 เศร้า / หดหู่' : '🔵 Sad / Depressed',
+        },
+        {
+          value: 'negative_high',
+          label: isTh ? '🔴 เครียด / ตกใจกลัว' : '🔴 Stress / Fear',
+        },
+      ];
+    },
+  );
 
-  readonly approvalOptions = computed<AppSelectOption<StimulusApprovalState>[]>(() => {
-    const isTh = this.lang.currentLang() === 'th';
-    return [
-      { value: 'draft', label: isTh ? '🟡 แบบร่าง (ยังไม่นำไปสุ่ม)' : '🟡 Draft' },
-      { value: 'approved', label: isTh ? '🟢 อนุมัติแล้ว (พร้อมใช้งาน)' : '🟢 Approved' },
-      { value: 'retired', label: isTh ? '⚪ ปลดระวาง (ระงับการใช้งาน)' : '⚪ Retired' },
-    ];
-  });
+  readonly approvalOptions = computed<AppSelectOption<StimulusApprovalState>[]>(
+    () => {
+      const isTh = this.lang.currentLang() === 'th';
+      return [
+        {
+          value: 'draft',
+          label: isTh ? '🟡 แบบร่าง (ยังไม่นำไปสุ่ม)' : '🟡 Draft',
+        },
+        {
+          value: 'approved',
+          label: isTh ? '🟢 อนุมัติแล้ว (พร้อมใช้งาน)' : '🟢 Approved',
+        },
+        {
+          value: 'retired',
+          label: isTh ? '⚪ ปลดระวาง (ระงับการใช้งาน)' : '⚪ Retired',
+        },
+      ];
+    },
+  );
 
   consentConfirmed = false;
-  stimulus = { title: '', file_path: '', checksum: '', duration_seconds: 45, target_quadrant: 'positive_low' as EmotionQuadrant, approval_state: 'draft' as StimulusApprovalState, stimulus_set_version: 'v1' };
+  stimulus = {
+    title: '',
+    file_path: '',
+    checksum: '',
+    duration_seconds: 45,
+    target_quadrant: 'positive_low' as EmotionQuadrant,
+    approval_state: 'draft' as StimulusApprovalState,
+    stimulus_set_version: 'v1',
+  };
   sessionParticipantId: number | null = null;
   deviceId = '';
   deviceName = '';
@@ -120,13 +301,92 @@ export class DatasetCollectionComponent implements OnInit {
     this.loadSessions();
     this.loadAvailableMedia();
   }
-  switchTab(tab: CollectionTab): void { this.activeTab.set(tab); }
+  switchTab(tab: CollectionTab): void {
+    this.activeTab.set(tab);
+  }
+  onSessionSearchChange(value: string): void {
+    this.sessionSearch.set(value);
+    this.sessionsPage.set(1);
+  }
+  onQaFilterChange(value: 'all' | 'pending' | 'approved' | 'rejected'): void {
+    this.sessionQaFilter.set(value);
+    this.sessionsPage.set(1);
+  }
+  onStateFilterChange(
+    value: 'all' | 'completed' | 'active' | 'withdrawn',
+  ): void {
+    this.sessionStateFilter.set(value);
+    this.sessionsPage.set(1);
+  }
+  prevSessionsPage(): void {
+    this.sessionsPage.update((p) => Math.max(1, p - 1));
+  }
+  nextSessionsPage(): void {
+    this.sessionsPage.update((p) => Math.min(this.totalSessionsPages(), p + 1));
+  }
+
+  sessionReviewStatus(sess: CollectionSession): {
+    tone: 'done' | 'rejected' | 'partial' | 'pending' | 'na';
+    label: string;
+  } {
+    const isTh = this.lang.currentLang() === 'th';
+    if (
+      sess.state === 'withdrawn' ||
+      sess.state === 'failed' ||
+      sess.completed_trials === 0
+    ) {
+      return { tone: 'na', label: '-' };
+    }
+    const accepted = sess.accepted_reviews ?? 0;
+    const rejected = sess.rejected_reviews ?? 0;
+    const pending =
+      sess.pending_reviews ??
+      Math.max(0, sess.completed_trials - accepted - rejected);
+    const reviewed = accepted + rejected;
+    if (reviewed === 0) {
+      return {
+        tone: 'pending',
+        label: isTh ? '⏳ รอตรวจสอบ' : '⏳ Pending QA',
+      };
+    }
+    if (pending === 0) {
+      if (rejected === sess.completed_trials) {
+        return {
+          tone: 'rejected',
+          label: isTh
+            ? `✕ ปฏิเสธทั้งหมด (${rejected})`
+            : `✕ All Rejected (${rejected})`,
+        };
+      }
+      if (accepted === sess.completed_trials) {
+        return {
+          tone: 'done',
+          label: isTh
+            ? `✓ อนุมัติครบ (${accepted})`
+            : `✓ All Approved (${accepted})`,
+        };
+      }
+      return {
+        tone: 'done',
+        label: isTh
+          ? `✓ ตรวจครบ (✓${accepted} / ✕${rejected})`
+          : `✓ Reviewed (${accepted}/${rejected})`,
+      };
+    }
+    return {
+      tone: 'partial',
+      label: isTh
+        ? `กำลังตรวจ (${reviewed}/${sess.completed_trials})`
+        : `In QA (${reviewed}/${sess.completed_trials})`,
+    };
+  }
   onTabKeydown(event: KeyboardEvent, current: CollectionTab): void {
     const tabsList = this.tabs();
     const index = tabsList.findIndex((tab) => tab.key === current);
     let next = index;
     if (event.key === 'ArrowRight') next = (index + 1) % tabsList.length;
-    else if (event.key === 'ArrowLeft') next = (index - 1 + tabsList.length) % tabsList.length;
+    else if (event.key === 'ArrowLeft')
+      next = (index - 1 + tabsList.length) % tabsList.length;
     else if (event.key === 'Home') next = 0;
     else if (event.key === 'End') next = tabsList.length - 1;
     else return;
@@ -137,18 +397,24 @@ export class DatasetCollectionComponent implements OnInit {
   }
   hasCompletedSession(participantId: number): boolean {
     return this.sessions().some(
-      (sess) => sess.participant_id === participantId && sess.state === 'completed'
+      (sess) =>
+        sess.participant_id === participantId && sess.state === 'completed',
     );
   }
 
   activeParticipants(): DatasetParticipant[] {
     return this.participants().filter(
-      (item) => item.state === 'active' && !this.hasCompletedSession(item.id)
+      (item) => item.state === 'active' && !this.hasCompletedSession(item.id),
     );
   }
 
   hasActiveParticipant(): boolean {
-    return this.sessionParticipantId !== null && this.activeParticipants().some((item) => item.id === this.sessionParticipantId);
+    return (
+      this.sessionParticipantId !== null &&
+      this.activeParticipants().some(
+        (item) => item.id === this.sessionParticipantId,
+      )
+    );
   }
 
   toggleParticipantDropdown(event: Event): void {
@@ -162,31 +428,83 @@ export class DatasetCollectionComponent implements OnInit {
   }
 
   selectedParticipantLabel(): string {
-    const selected = this.activeParticipants().find((item) => item.id === this.sessionParticipantId);
+    const selected = this.activeParticipants().find(
+      (item) => item.id === this.sessionParticipantId,
+    );
     if (selected) return selected.participant_code;
-    return this.lang.currentLang() === 'th' ? '-- เลือกผู้เข้าร่วมทดลอง --' : '-- Select Participant --';
+    return this.lang.currentLang() === 'th'
+      ? '-- เลือกผู้เข้าร่วมทดลอง --'
+      : '-- Select Participant --';
   }
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: Event): void {
     const target = event.target as HTMLElement | null;
-    if (!target || !this.hostEl.nativeElement.querySelector('.custom-select-wrapper')?.contains(target)) {
+    if (
+      !target ||
+      !this.hostEl.nativeElement
+        .querySelector('.custom-select-wrapper')
+        ?.contains(target)
+    ) {
       this.participantDropdownOpen.set(false);
     }
   }
-  isStimulusDurationValid(): boolean { return this.stimulus.duration_seconds >= 45 && this.stimulus.duration_seconds <= 60; }
-  isStimulusReady(): boolean { return !!(this.stimulus.title.trim() && this.stimulus.file_path.trim() && this.stimulus.checksum.length === 64 && this.stimulus.stimulus_set_version.trim() && this.isStimulusDurationValid()); }
+  isStimulusDurationValid(): boolean {
+    return (
+      this.stimulus.duration_seconds >= 45 &&
+      this.stimulus.duration_seconds <= 60
+    );
+  }
+  isStimulusReady(): boolean {
+    return !!(
+      this.stimulus.title.trim() &&
+      this.stimulus.file_path.trim() &&
+      this.stimulus.checksum.length === 64 &&
+      this.stimulus.stimulus_set_version.trim() &&
+      this.isStimulusDurationValid()
+    );
+  }
   sessionActionLabel(item: CollectionSession): string | null {
     if (item.state === 'completed') return 'ดูสรุปผล';
-    const participant = this.participants().find((p) => p.id === item.participant_id);
+    const participant = this.participants().find(
+      (p) => p.id === item.participant_id,
+    );
     if (participant?.state === 'withdrawn') return null;
-    return ['preparation', 'baseline', 'ready', 'in_progress', 'interrupted'].includes(item.state) ? 'เริ่ม / ดำเนินการต่อ' : null;
+    return [
+      'preparation',
+      'baseline',
+      'ready',
+      'in_progress',
+      'interrupted',
+    ].includes(item.state)
+      ? 'เริ่ม / ดำเนินการต่อ'
+      : null;
   }
 
-  readonly sampleTp9: SensorStatus = { state: 'good', quality_score: 96, timestamp: Date.now(), sequence: 1 };
-  readonly sampleAf7: SensorStatus = { state: 'good', quality_score: 98, timestamp: Date.now(), sequence: 1 };
-  readonly sampleAf8: SensorStatus = { state: 'good', quality_score: 95, timestamp: Date.now(), sequence: 1 };
-  readonly sampleTp10: SensorStatus = { state: 'good', quality_score: 94, timestamp: Date.now(), sequence: 1 };
+  readonly sampleTp9: SensorStatus = {
+    state: 'good',
+    quality_score: 96,
+    timestamp: Date.now(),
+    sequence: 1,
+  };
+  readonly sampleAf7: SensorStatus = {
+    state: 'good',
+    quality_score: 98,
+    timestamp: Date.now(),
+    sequence: 1,
+  };
+  readonly sampleAf8: SensorStatus = {
+    state: 'good',
+    quality_score: 95,
+    timestamp: Date.now(),
+    sequence: 1,
+  };
+  readonly sampleTp10: SensorStatus = {
+    state: 'good',
+    quality_score: 94,
+    timestamp: Date.now(),
+    sequence: 1,
+  };
 
   formatBytes(bytes?: number | null): string {
     if (!bytes || bytes <= 0) return '0 B';
@@ -207,36 +525,53 @@ export class DatasetCollectionComponent implements OnInit {
   quadrantTitle(key: string): string {
     const isTh = this.lang.currentLang() === 'th';
     switch (key) {
-      case 'positive_high': return isTh ? 'ตื่นเต้น / สนุกสนาน' : 'Excited / Joy';
-      case 'positive_low': return isTh ? 'ผ่อนคลาย / สงบ' : 'Relax / Calm';
-      case 'negative_high': return isTh ? 'เครียด / ตกใจกลัว' : 'Stress / Fear';
-      case 'negative_low': return isTh ? 'เศร้า / หดหู่' : 'Sad / Depressed';
-      default: return key;
+      case 'positive_high':
+        return isTh ? 'ตื่นเต้น / สนุกสนาน' : 'Excited / Joy';
+      case 'positive_low':
+        return isTh ? 'ผ่อนคลาย / สงบ' : 'Relax / Calm';
+      case 'negative_high':
+        return isTh ? 'เครียด / ตกใจกลัว' : 'Stress / Fear';
+      case 'negative_low':
+        return isTh ? 'เศร้า / หดหู่' : 'Sad / Depressed';
+      default:
+        return key;
     }
   }
 
   quadrantBadgeClass(key: string): string {
     switch (key) {
-      case 'positive_high': return 'badge-hvha';
-      case 'positive_low': return 'badge-hvla';
-      case 'negative_high': return 'badge-lvha';
-      case 'negative_low': return 'badge-lvla';
-      default: return '';
+      case 'positive_high':
+        return 'badge-hvha';
+      case 'positive_low':
+        return 'badge-hvla';
+      case 'negative_high':
+        return 'badge-lvha';
+      case 'negative_low':
+        return 'badge-lvla';
+      default:
+        return '';
     }
   }
 
   getParticipantCode(participantId: number): string {
-    const p = this.participants().find(item => item.id === participantId);
+    const p = this.participants().find((item) => item.id === participantId);
     return p ? p.participant_code : `ID #${participantId}`;
   }
 
   registerParticipant(): void {
     if (!this.consentConfirmed || this.participantSubmitting()) return;
-    this.participantSubmitting.set(true); this.error.set('');
-    this.api.createParticipant({ consent_confirmed_at: new Date().toISOString() }).subscribe({
-      next: (item) => { this.participants.update((items) => [item, ...items]); this.consentConfirmed = false; this.participantSubmitting.set(false); },
-      error: (err) => this.fail(err, this.participantSubmitting),
-    });
+    this.participantSubmitting.set(true);
+    this.error.set('');
+    this.api
+      .createParticipant({ consent_confirmed_at: new Date().toISOString() })
+      .subscribe({
+        next: (item) => {
+          this.participants.update((items) => [item, ...items]);
+          this.consentConfirmed = false;
+          this.participantSubmitting.set(false);
+        },
+        error: (err) => this.fail(err, this.participantSubmitting),
+      });
   }
 
   registerStimulus(): void {
@@ -246,21 +581,23 @@ export class DatasetCollectionComponent implements OnInit {
 
     const pending = this.pendingUploadFile();
     if (pending) {
-      this.api.uploadAndCreateStimulus(pending, { ...this.stimulus }).subscribe({
-        next: (item) => {
-          this.stimuli.update((items) => [item, ...items]);
-          this.stimulusSubmitting.set(false);
-          this.resetStimulusForm();
-          this.loadAvailableMedia();
-          this.inspectSuccess.set(
-            this.lang.currentLang() === 'th'
-              ? 'บันทึกไฟล์และลงทะเบียนสื่อกระตุ้นสำเร็จ'
-              : 'Stimulus video persisted and registered successfully'
-          );
-          setTimeout(() => this.inspectSuccess.set(''), 4000);
-        },
-        error: (err) => this.fail(err, this.stimulusSubmitting),
-      });
+      this.api
+        .uploadAndCreateStimulus(pending, { ...this.stimulus })
+        .subscribe({
+          next: (item) => {
+            this.stimuli.update((items) => [item, ...items]);
+            this.stimulusSubmitting.set(false);
+            this.resetStimulusForm();
+            this.loadAvailableMedia();
+            this.inspectSuccess.set(
+              this.lang.currentLang() === 'th'
+                ? 'บันทึกไฟล์และลงทะเบียนสื่อกระตุ้นสำเร็จ'
+                : 'Stimulus video persisted and registered successfully',
+            );
+            setTimeout(() => this.inspectSuccess.set(''), 4000);
+          },
+          error: (err) => this.fail(err, this.stimulusSubmitting),
+        });
     } else {
       this.api.createStimulus({ ...this.stimulus }).subscribe({
         next: (item) => {
@@ -270,7 +607,7 @@ export class DatasetCollectionComponent implements OnInit {
           this.inspectSuccess.set(
             this.lang.currentLang() === 'th'
               ? 'ลงทะเบียนสื่อกระตุ้นสำเร็จ'
-              : 'Stimulus registered successfully'
+              : 'Stimulus registered successfully',
           );
           setTimeout(() => this.inspectSuccess.set(''), 4000);
         },
@@ -302,16 +639,34 @@ export class DatasetCollectionComponent implements OnInit {
   }
 
   createSession(): void {
-    if (!this.hasActiveParticipant() || this.sessionParticipantId === null || this.sessionSubmitting()) return;
-    this.sessionSubmitting.set(true); this.error.set('');
-    this.api.createSession({ participant_id: this.sessionParticipantId, device_id: this.deviceId.trim() || null, device_name: this.deviceName.trim() || null }).subscribe({
-      next: (item) => { this.sessions.update((items) => [item, ...items]); this.sessionSubmitting.set(false); },
-      error: (err) => this.fail(err, this.sessionSubmitting),
-    });
+    if (
+      !this.hasActiveParticipant() ||
+      this.sessionParticipantId === null ||
+      this.sessionSubmitting()
+    )
+      return;
+    this.sessionSubmitting.set(true);
+    this.error.set('');
+    this.api
+      .createSession({
+        participant_id: this.sessionParticipantId,
+        device_id: this.deviceId.trim() || null,
+        device_name: this.deviceName.trim() || null,
+      })
+      .subscribe({
+        next: (item) => {
+          this.sessions.update((items) => [item, ...items]);
+          this.sessionSubmitting.set(false);
+        },
+        error: (err) => this.fail(err, this.sessionSubmitting),
+      });
   }
 
   canWithdrawParticipant(participant: DatasetParticipant): boolean {
-    return participant.state === 'active' && !this.hasCompletedSession(participant.id);
+    return (
+      participant.state === 'active' &&
+      !this.hasCompletedSession(participant.id)
+    );
   }
 
   openWithdrawModal(p: DatasetParticipant): void {
@@ -330,14 +685,22 @@ export class DatasetCollectionComponent implements OnInit {
     this.error.set('');
     this.api.withdrawParticipant(p.id).subscribe({
       next: (updated) => {
-        this.participants.update(list => list.map(item => item.id === updated.id ? updated : item));
-        this.sessions.update(list =>
-          list.map(sess =>
+        this.participants.update((list) =>
+          list.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        this.sessions.update((list) =>
+          list.map((sess) =>
             sess.participant_id === updated.id &&
-            ['preparation', 'baseline', 'ready', 'in_progress', 'interrupted'].includes(sess.state)
+            [
+              'preparation',
+              'baseline',
+              'ready',
+              'in_progress',
+              'interrupted',
+            ].includes(sess.state)
               ? { ...sess, state: 'withdrawn' }
-              : sess
-          )
+              : sess,
+          ),
         );
         this.participantWithdrawing.set(false);
         this.participantToWithdraw.set(null);
@@ -368,14 +731,23 @@ export class DatasetCollectionComponent implements OnInit {
         this.stimulus.checksum = res.checksum;
         this.stimulus.duration_seconds = res.duration_seconds;
         if (res.suggested_quadrant) {
-          this.stimulus.target_quadrant = res.suggested_quadrant as EmotionQuadrant;
+          this.stimulus.target_quadrant =
+            res.suggested_quadrant as EmotionQuadrant;
         }
         if (!this.stimulus.title.trim()) {
-          const base = path.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Stimulus';
-          const capitalized = base.charAt(0).toUpperCase() + base.slice(1).replace(/([0-9]+)/g, ' $1');
+          const base =
+            path
+              .split('/')
+              .pop()
+              ?.replace(/\.[^/.]+$/, '') || 'Stimulus';
+          const capitalized =
+            base.charAt(0).toUpperCase() +
+            base.slice(1).replace(/([0-9]+)/g, ' $1');
           this.stimulus.title = capitalized;
         }
-        this.inspectSuccess.set(`อ่านข้อมูลสำเร็จ: ความยาว ${res.duration_seconds}s, Checksum คำนวณเรียบร้อย`);
+        this.inspectSuccess.set(
+          `อ่านข้อมูลสำเร็จ: ความยาว ${res.duration_seconds}s, Checksum คำนวณเรียบร้อย`,
+        );
         setTimeout(() => this.inspectSuccess.set(''), 4000);
       },
       error: (err) => {
@@ -419,9 +791,17 @@ export class DatasetCollectionComponent implements OnInit {
       const lower = file.name.toLowerCase();
       if (lower.includes('relax') || lower.includes('calm')) {
         this.stimulus.target_quadrant = 'positive_low';
-      } else if (lower.includes('excit') || lower.includes('happy') || lower.includes('joy')) {
+      } else if (
+        lower.includes('excit') ||
+        lower.includes('happy') ||
+        lower.includes('joy')
+      ) {
         this.stimulus.target_quadrant = 'positive_high';
-      } else if (lower.includes('stress') || lower.includes('fear') || lower.includes('anger')) {
+      } else if (
+        lower.includes('stress') ||
+        lower.includes('fear') ||
+        lower.includes('anger')
+      ) {
         this.stimulus.target_quadrant = 'negative_high';
       } else if (lower.includes('sad') || lower.includes('depress')) {
         this.stimulus.target_quadrant = 'negative_low';
@@ -431,7 +811,9 @@ export class DatasetCollectionComponent implements OnInit {
 
       if (!this.stimulus.title.trim()) {
         const base = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ');
-        const capitalized = base.charAt(0).toUpperCase() + base.slice(1).replace(/([0-9]+)/g, ' $1');
+        const capitalized =
+          base.charAt(0).toUpperCase() +
+          base.slice(1).replace(/([0-9]+)/g, ' $1');
         this.stimulus.title = capitalized;
       }
 
@@ -440,13 +822,13 @@ export class DatasetCollectionComponent implements OnInit {
         this.inspectError.set(
           isTh
             ? `ความยาววิดีโอคือ ${duration} วินาที (มาตรฐานต้องอยู่ระหว่าง 45–60 วินาที)`
-            : `Video duration is ${duration}s (required range: 45–60 seconds)`
+            : `Video duration is ${duration}s (required range: 45–60 seconds)`,
         );
       } else {
         this.inspectSuccess.set(
           isTh
             ? `เตรียมไฟล์เรียบร้อย: ความยาว ${duration} วินาที คำนวณรหัสตรวจสอบแล้ว (ไฟล์จะบันทึกเข้าเซิร์ฟเวอร์จริงเมื่อกดลงทะเบียน)`
-            : `File ready: Duration ${duration}s, SHA-256 computed. File will be persisted upon registration.`
+            : `File ready: Duration ${duration}s, SHA-256 computed. File will be persisted upon registration.`,
         );
       }
       input.value = '';
@@ -466,7 +848,9 @@ export class DatasetCollectionComponent implements OnInit {
           if (crypto?.subtle) {
             const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
             const hashArray = Array.from(new Uint8Array(hashBuffer));
-            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            const hashHex = hashArray
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join('');
             resolve(hashHex);
           } else {
             resolve('a'.repeat(64));
@@ -502,13 +886,18 @@ export class DatasetCollectionComponent implements OnInit {
     });
   }
 
-  updateStimulusApproval(stimulus: EmotionStimulus, newState: StimulusApprovalState): void {
+  updateStimulusApproval(
+    stimulus: EmotionStimulus,
+    newState: StimulusApprovalState,
+  ): void {
     if (this.updatingStimulusId() !== null) return;
     this.updatingStimulusId.set(stimulus.id);
     this.error.set('');
     this.api.updateStimulusApproval(stimulus.id, newState).subscribe({
       next: (updated) => {
-        this.stimuli.update(list => list.map(item => item.id === updated.id ? updated : item));
+        this.stimuli.update((list) =>
+          list.map((item) => (item.id === updated.id ? updated : item)),
+        );
         this.updatingStimulusId.set(null);
       },
       error: (err) => {
@@ -521,13 +910,55 @@ export class DatasetCollectionComponent implements OnInit {
   private loadOverview(): void {
     this.overviewLoading.set(true);
     this.api.getOverview().subscribe({
-      next: (value) => { this.overview.set(value); this.overviewLoading.set(false); },
-      error: (err) => { this.overviewLoading.set(false); this.fail(err); },
+      next: (value) => {
+        this.overview.set(value);
+        this.overviewLoading.set(false);
+      },
+      error: (err) => {
+        this.overviewLoading.set(false);
+        this.fail(err);
+      },
     });
   }
-  private loadParticipants(): void { this.participantsLoading.set(true); this.api.listParticipants().subscribe({ next: (value) => { this.participants.set(value.items); this.participantsLoading.set(false); }, error: (err) => { this.participantsLoading.set(false); this.fail(err); } }); }
-  private loadStimuli(): void { this.stimuliLoading.set(true); this.api.listStimuli().subscribe({ next: (value) => { this.stimuli.set(value.items); this.stimuliLoading.set(false); }, error: (err) => { this.stimuliLoading.set(false); this.fail(err); } }); }
-  private loadSessions(): void { this.sessionsLoading.set(true); this.api.listSessions().subscribe({ next: (value) => { this.sessions.set(value.items); this.sessionsLoading.set(false); }, error: (err) => { this.sessionsLoading.set(false); this.fail(err); } }); }
+  private loadParticipants(): void {
+    this.participantsLoading.set(true);
+    this.api.listParticipants().subscribe({
+      next: (value) => {
+        this.participants.set(value.items);
+        this.participantsLoading.set(false);
+      },
+      error: (err) => {
+        this.participantsLoading.set(false);
+        this.fail(err);
+      },
+    });
+  }
+  private loadStimuli(): void {
+    this.stimuliLoading.set(true);
+    this.api.listStimuli().subscribe({
+      next: (value) => {
+        this.stimuli.set(value.items);
+        this.stimuliLoading.set(false);
+      },
+      error: (err) => {
+        this.stimuliLoading.set(false);
+        this.fail(err);
+      },
+    });
+  }
+  private loadSessions(): void {
+    this.sessionsLoading.set(true);
+    this.api.listSessions().subscribe({
+      next: (value) => {
+        this.sessions.set(value.items);
+        this.sessionsLoading.set(false);
+      },
+      error: (err) => {
+        this.sessionsLoading.set(false);
+        this.fail(err);
+      },
+    });
+  }
   private fail(err: unknown, busy?: { set(value: boolean): void }): void {
     busy?.set(false);
     this.error.set(toThaiError(err));

@@ -1,22 +1,45 @@
 <main class="session-shell">
   <header class="session-header">
     <div>
-      <p class="section-kicker">{{ 'session.kicker' | translate }}</p>
-      <h1>{{ 'session.connect_title' | translate }}</h1>
-      <p>{{ 'session.connect_subtitle' | translate }}</p>
+      <p class="section-kicker">{{ "session.kicker" | translate }}</p>
+      <h1>{{ "session.connect_title" | translate }}</h1>
+      <p>{{ "session.connect_subtitle" | translate }}</p>
     </div>
-    <div class="service-status" [class.online]="connectionStatus().state === 'connected'" [class.connected]="connectionStatus().state === 'connected'" role="status">
+    <div
+      class="service-status"
+      [class.online]="connectionStatus().state === 'connected'"
+      [class.connected]="connectionStatus().state === 'connected'"
+      role="status"
+    >
       <span class="status-dot" aria-hidden="true"></span>
-      {{ connectionStatus().state === 'connected' ? ('session.muse_connected' | translate) : ('session.muse_setup' | translate) }}
+      {{
+        connectionStatus().state === "connected"
+          ? ("session.muse_connected" | translate)
+          : ("session.muse_setup" | translate)
+      }}
     </div>
   </header>
 
   <nav class="stepper" aria-label="Steps">
     @for (step of steps(); track step.key; let i = $index) {
-      <div class="step" [class.active]="activeStepKey() === step.key" [class.done]="stepDone(step.key)">
+      <div
+        class="step"
+        [class.active]="activeStepKey() === step.key"
+        [class.done]="stepDone(step.key)"
+      >
         <span class="step-index">
           @if (stepDone(step.key)) {
-            <svg class="step-check" viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              class="step-check"
+              viewBox="0 0 14 14"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <polyline points="2.5 7 5.5 10 11.5 3.5"></polyline>
             </svg>
           } @else {
@@ -38,55 +61,69 @@
 
     <article class="stage-panel" aria-live="polite">
       @switch (stage()) {
-        @case ('device') {
-          <div class="device-state"
+        @case ("device") {
+          <div
+            class="device-state"
             [class.idle]="btState() === 'idle'"
             [class.busy]="isConnecting()"
             [class.failed]="btState() === 'failed'"
           >
-          <p class="section-kicker">{{ 'session.step1_kicker' | translate }}</p>
-          <h2>{{ 'session.connect_h2' | translate }}</h2>
-          <p>{{ 'session.connect_desc' | translate }}</p>
+            <p class="section-kicker">
+              {{ "session.step1_kicker" | translate }}
+            </p>
+            <h2>{{ "session.connect_h2" | translate }}</h2>
+            <p>{{ "session.connect_desc" | translate }}</p>
 
-          @if (!museBt.isSupported) {
-            <div class="inline-message warning">
-              {{ 'session.no_bt' | translate }}
-            </div>
-          }
-          @if (isConnecting()) {
-            <div class="device-status busy" role="status">
-              <span class="spinner" aria-hidden="true"></span>
-              <strong>{{ 'session.connecting_msg' | translate }}</strong>
-              <span>{{ 'session.connecting_hint' | translate }}</span>
-            </div>
-          } @else {
-            <button id="btn-scan" class="btn primary-action" (click)="scanDevices()"
-              [disabled]="!museBt.isSupported || isConnecting()">
-              {{ 'session.scan_btn' | translate }}
-            </button>
-          }
-          @if (connectError()) {
-            <div class="device-status failed" role="alert">{{ connectError() }}</div>
-          }
+            @if (!museBt.isSupported) {
+              <div class="inline-message warning">
+                {{ "session.no_bt" | translate }}
+              </div>
+            }
+            @if (isConnecting()) {
+              <div class="device-status busy" role="status">
+                <span class="spinner" aria-hidden="true"></span>
+                <strong>{{ "session.connecting_msg" | translate }}</strong>
+                <span>{{ "session.connecting_hint" | translate }}</span>
+              </div>
+            } @else {
+              <button
+                id="btn-scan"
+                class="btn primary-action"
+                (click)="scanDevices()"
+                [disabled]="!museBt.isSupported || isConnecting()"
+              >
+                {{ "session.scan_btn" | translate }}
+              </button>
+            }
+            @if (connectError()) {
+              <div class="device-status failed" role="alert">
+                {{ connectError() }}
+              </div>
+            }
           </div>
         }
 
-        @case ('prepare') {
-          <p class="section-kicker">{{ 'session.step2' | translate }}</p>
-          <h2>{{ 'session.fitting_guide' | translate }}</h2>
-          <p>{{ 'session.fitting_desc' | translate }}</p>
+        @case ("prepare") {
+          <p class="section-kicker">{{ "session.step2" | translate }}</p>
+          <h2>{{ "session.fitting_guide" | translate }}</h2>
+          <p>{{ "session.fitting_desc" | translate }}</p>
           <ol class="fitting-list">
-            <li><span>1</span>{{ 'session.fit_tip1' | translate }}</li>
-            <li><span>2</span>{{ 'session.fit_tip2' | translate }}</li>
-            <li><span>3</span>{{ 'session.fit_tip3' | translate }}</li>
+            <li><span>1</span>{{ "session.fit_tip1" | translate }}</li>
+            <li><span>2</span>{{ "session.fit_tip2" | translate }}</li>
+            <li><span>3</span>{{ "session.fit_tip3" | translate }}</li>
           </ol>
           <div class="sensor-status-strip" aria-label="สถานะเซนเซอร์ 4 จุด">
             @for (key of sensorKeys; track key) {
-              <div class="sensor-pill" [attr.data-state]="sensorQualityTone(key)">
+              <div
+                class="sensor-pill"
+                [attr.data-state]="sensorQualityTone(key)"
+              >
                 <div class="sensor-pill-top">
                   <span class="sensor-dot"></span>
                   <span class="sensor-name">{{ key.toUpperCase() }}</span>
-                  <span class="sensor-score">{{ sensorQualityScore(key) }}</span>
+                  <span class="sensor-score">{{
+                    sensorQualityScore(key)
+                  }}</span>
                 </div>
                 <span class="sensor-desc">{{ sensorQualityLabel(key) }}</span>
               </div>
@@ -99,177 +136,310 @@
             [tp10]="eegWs.sensors().tp10"
             [isConnected]="eegWs.isConnected()"
           />
-          <button id="btn-baseline" class="btn primary-action" (click)="startBaseline()" [disabled]="!eegWs.allSensorsGood()">
-            {{ eegWs.allSensorsGood() ? ('session.start_baseline' | translate) : ('session.waiting_sensors' | translate) }}
+          <button
+            id="btn-baseline"
+            class="btn primary-action"
+            (click)="startBaseline()"
+            [disabled]="!eegWs.allSensorsGood()"
+          >
+            {{
+              eegWs.allSensorsGood()
+                ? ("session.start_baseline" | translate)
+                : ("session.waiting_sensors" | translate)
+            }}
           </button>
         }
 
-        @case ('baseline') {
+        @case ("baseline") {
           <div class="baseline-stage-card">
             <span class="eyebrow">
-              {{ eegWs.baselineSubphase() === 'eyes_open'
-                  ? ('session.baseline_eyes_open_eyebrow' | translate)
-                  : ('session.baseline_eyes_closed_eyebrow' | translate) }}
+              {{
+                eegWs.baselineSubphase() === "eyes_open"
+                  ? ("session.baseline_eyes_open_eyebrow" | translate)
+                  : ("session.baseline_eyes_closed_eyebrow" | translate)
+              }}
             </span>
             <h2>
-              {{ eegWs.baselineSubphase() === 'eyes_open'
-                  ? ('session.baseline_eyes_open_title' | translate)
-                  : ('session.baseline_eyes_closed_title' | translate) }}
+              {{
+                eegWs.baselineSubphase() === "eyes_open"
+                  ? ("session.baseline_eyes_open_title" | translate)
+                  : ("session.baseline_eyes_closed_title" | translate)
+              }}
             </h2>
             <p>
-              {{ eegWs.baselineSubphase() === 'eyes_open'
-                  ? ('session.baseline_eyes_open_desc' | translate)
-                  : ('session.baseline_eyes_closed_desc' | translate) }}
+              {{
+                eegWs.baselineSubphase() === "eyes_open"
+                  ? ("session.baseline_eyes_open_desc" | translate)
+                  : ("session.baseline_eyes_closed_desc" | translate)
+              }}
             </p>
 
-            @if (eegWs.baselineSubphase() === 'eyes_open') {
-              <div class="fixation-cross-wrap" [attr.aria-label]="'session.baseline_fixation_label' | translate">
+            @if (eegWs.baselineSubphase() === "eyes_open") {
+              <div
+                class="fixation-cross-wrap"
+                [attr.aria-label]="
+                  'session.baseline_fixation_label' | translate
+                "
+              >
                 <span class="fixation-cross" aria-hidden="true">+</span>
               </div>
             }
 
             <div class="baseline-kpis">
               <div class="timer-block">
-                @if (eegWs.baselineWallSeconds() >= 60 && eegWs.baselineCleanSeconds() < 30) {
-                  <strong>{{ Math.max(0, 120 - eegWs.baselineWallSeconds()) | number:'1.0-0' }}</strong>
-                  <span>{{ lang.currentLang() === 'th' ? 'วินาทีสำรอง (รอคลื่นสะอาด)' : 'Extra sec (waiting clean EEG)' }}</span>
+                @if (
+                  eegWs.baselineWallSeconds() >= 60 &&
+                  eegWs.baselineCleanSeconds() < 30
+                ) {
+                  <strong>{{
+                    Math.max(0, 120 - eegWs.baselineWallSeconds())
+                      | number: "1.0-0"
+                  }}</strong>
+                  <span>{{
+                    lang.currentLang() === "th"
+                      ? "วินาทีสำรอง (รอคลื่นสะอาด)"
+                      : "Extra sec (waiting clean EEG)"
+                  }}</span>
                 } @else {
-                  <strong>{{ Math.max(0, 60 - eegWs.baselineWallSeconds()) | number:'1.0-0' }}</strong>
-                  <span>{{ 'session.baseline_wall_left' | translate }}</span>
+                  <strong>{{
+                    Math.max(0, 60 - eegWs.baselineWallSeconds())
+                      | number: "1.0-0"
+                  }}</strong>
+                  <span>{{ "session.baseline_wall_left" | translate }}</span>
                 }
               </div>
               <div class="timer-block clean-kpi">
                 <strong [class.target-met]="eegWs.baselineCleanSeconds() >= 30">
-                  {{ eegWs.baselineCleanSeconds() | number:'1.0-0' }} / 30
+                  {{ eegWs.baselineCleanSeconds() | number: "1.0-0" }} / 30
                 </strong>
-                <span>{{ 'session.baseline_clean_goal' | translate }}</span>
+                <span>{{ "session.baseline_clean_goal" | translate }}</span>
               </div>
             </div>
 
             <div class="baseline-progress-wrap">
               <div class="baseline-progress-label">
-                <span>{{ 'session.baseline_clean_progress' | translate }}</span>
-                <span>{{ Math.min(100, (eegWs.baselineCleanSeconds() / 30) * 100) | number:'1.0-0' }}%</span>
+                <span>{{ "session.baseline_clean_progress" | translate }}</span>
+                <span
+                  >{{
+                    Math.min(100, (eegWs.baselineCleanSeconds() / 30) * 100)
+                      | number: "1.0-0"
+                  }}%</span
+                >
               </div>
-              <progress class="session-progress" max="30" [value]="Math.min(30, eegWs.baselineCleanSeconds())">{{ eegWs.baselineCleanSeconds() }} / 30</progress>
+              <progress
+                class="session-progress"
+                max="30"
+                [value]="Math.min(30, eegWs.baselineCleanSeconds())"
+              >
+                {{ eegWs.baselineCleanSeconds() }} / 30
+              </progress>
             </div>
 
             @if (!eegWs.allSensorsGood()) {
               <div class="alert alert-warning">
-                {{ 'session.baseline_noisy' | translate }}
+                {{ "session.baseline_noisy" | translate }}
               </div>
-            } @else if (eegWs.baselineWallSeconds() >= 60 && eegWs.baselineCleanSeconds() < 30) {
+            } @else if (
+              eegWs.baselineWallSeconds() >= 60 &&
+              eegWs.baselineCleanSeconds() < 30
+            ) {
               <div class="alert alert-info">
-                {{ lang.currentLang() === 'th'
-                  ? 'ครบ 60 วินาทีแล้ว — ระบบกำลังเก็บคลื่นสะอาดเพิ่มให้ครบ 30 วินาที (สูงสุด 120 วิ)'
-                  : '60s reached — collecting remaining clean EEG up to 30s (max 120s)' }}
+                {{
+                  lang.currentLang() === "th"
+                    ? "ครบ 60 วินาทีแล้ว — ระบบกำลังเก็บคลื่นสะอาดเพิ่มให้ครบ 30 วินาที (สูงสุด 120 วิ)"
+                    : "60s reached — collecting remaining clean EEG up to 30s (max 120s)"
+                }}
               </div>
-            } @else if (eegWs.baselineCleanSeconds() >= 30 && eegWs.baselineWallSeconds() < 60) {
+            } @else if (
+              eegWs.baselineCleanSeconds() >= 30 &&
+              eegWs.baselineWallSeconds() < 60
+            ) {
               <div class="alert alert-info">
-                {{ 'session.baseline_30s_done' | translate }}
+                {{ "session.baseline_30s_done" | translate }}
               </div>
             }
           </div>
         }
 
-        @case ('ready') {
-          <span class="eyebrow">{{ 'session.ready_eyebrow' | translate }}</span>
-          <h2>{{ 'session.ready_title' | translate }}</h2>
-          <p>{{ 'session.ready_desc' | translate }}</p>
+        @case ("ready") {
+          <span class="eyebrow">{{ "session.ready_eyebrow" | translate }}</span>
+          <h2>{{ "session.ready_title" | translate }}</h2>
+          <p>{{ "session.ready_desc" | translate }}</p>
           <div class="form-group">
-            <label class="form-label" for="input-story">{{ 'session.story_prompt_label' | translate }}</label>
-            <textarea id="input-story" class="form-textarea" [(ngModel)]="inputStory" [placeholder]="'session.story_placeholder' | translate"></textarea>
+            <label class="form-label" for="input-story">{{
+              "session.story_prompt_label" | translate
+            }}</label>
+            <textarea
+              id="input-story"
+              class="form-textarea"
+              [(ngModel)]="inputStory"
+              [placeholder]="'session.story_placeholder' | translate"
+            ></textarea>
           </div>
           <div class="form-group">
-            <label class="form-label" for="persona-select">{{ 'session.persona_label' | translate }}</label>
-            <app-select inputId="persona-select" [options]="personaOptions()" [(ngModel)]="selectedPersonaId" />
+            <label class="form-label" for="persona-select">{{
+              "session.persona_label" | translate
+            }}</label>
+            <app-select
+              inputId="persona-select"
+              [options]="personaOptions()"
+              [(ngModel)]="selectedPersonaId"
+            />
           </div>
           <div class="form-group">
-            <label class="form-label" for="art-style-select">{{ lang.currentLang() === 'th' ? 'สไตล์ภาพการ์ตูน' : 'Comic Art Style' }}</label>
-            <app-select inputId="art-style-select" [options]="artStyleOptions()" [(ngModel)]="selectedArtStyle" />
+            <label class="form-label" for="art-style-select">{{
+              lang.currentLang() === "th"
+                ? "สไตล์ภาพการ์ตูน"
+                : "Comic Art Style"
+            }}</label>
+            <app-select
+              inputId="art-style-select"
+              [options]="artStyleOptions()"
+              [(ngModel)]="selectedArtStyle"
+            />
           </div>
-          <button class="btn btn-primary btn-lg" (click)="startRecording()" [disabled]="!inputStory.trim()">{{ 'session.start_recording' | translate }}</button>
+          <button
+            class="btn btn-primary btn-lg"
+            (click)="startRecording()"
+            [disabled]="!inputStory.trim()"
+          >
+            {{ "session.start_recording" | translate }}
+          </button>
         }
 
-        @case ('record') {
-          <span class="eyebrow">{{ 'session.record_eyebrow' | translate }}</span>
-          <h2>{{ currentPhase() === 'PAUSED_SIGNAL_QUALITY' ? ('session.record_paused_title' | translate) : ('session.record_title' | translate) }}</h2>
-          <p>{{ 'session.record_desc' | translate }}</p>
+        @case ("record") {
+          <span class="eyebrow">{{
+            "session.record_eyebrow" | translate
+          }}</span>
+          <h2>
+            {{
+              currentPhase() === "PAUSED_SIGNAL_QUALITY"
+                ? ("session.record_paused_title" | translate)
+                : ("session.record_title" | translate)
+            }}
+          </h2>
+          <p>{{ "session.record_desc" | translate }}</p>
           <div class="record-meter">
             <div class="record-meter-header">
-              <strong>{{ displayAcceptedSeconds() | number:'1.0-0' }} / 30 sec</strong>
-              <span class="record-percentage">{{ Math.min(100, (displayAcceptedSeconds() / 30) * 100) | number:'1.0-0' }}%</span>
+              <strong
+                >{{ displayAcceptedSeconds() | number: "1.0-0" }} / 30
+                sec</strong
+              >
+              <span class="record-percentage"
+                >{{
+                  Math.min(100, (displayAcceptedSeconds() / 30) * 100)
+                    | number: "1.0-0"
+                }}%</span
+              >
             </div>
-            <progress class="session-progress" [class.paused]="currentPhase() === 'PAUSED_SIGNAL_QUALITY'" max="30" [value]="Math.min(30, displayAcceptedSeconds())">{{ displayAcceptedSeconds() }} / 30</progress>
-            <small>{{ 'session.record_wall_clock' | translate }} {{ eegWs.wallClockSeconds() | number:'1.0-0' }} / 120 sec</small>
+            <progress
+              class="session-progress"
+              [class.paused]="currentPhase() === 'PAUSED_SIGNAL_QUALITY'"
+              max="30"
+              [value]="Math.min(30, displayAcceptedSeconds())"
+            >
+              {{ displayAcceptedSeconds() }} / 30
+            </progress>
+            <small
+              >{{ "session.record_wall_clock" | translate }}
+              {{ eegWs.wallClockSeconds() | number: "1.0-0" }} / 120 sec</small
+            >
           </div>
-          @if (currentPhase() === 'PAUSED_SIGNAL_QUALITY') {
+          @if (currentPhase() === "PAUSED_SIGNAL_QUALITY") {
             <div class="alert alert-warning">
-              {{ 'session.record_paused_msg' | translate }}
+              {{ "session.record_paused_msg" | translate }}
             </div>
           }
           <div class="record-actions">
-            <button class="btn btn-secondary btn-sm" (click)="retryRecording()">{{ 'session.retry_recording' | translate }}</button>
-            <button class="btn btn-destructive btn-sm" (click)="cancelSession()">{{ 'session.cancel_session' | translate }}</button>
+            <button class="btn btn-secondary btn-sm" (click)="retryRecording()">
+              {{ "session.retry_recording" | translate }}
+            </button>
+            <button
+              class="btn btn-destructive btn-sm"
+              (click)="cancelSession()"
+            >
+              {{ "session.cancel_session" | translate }}
+            </button>
           </div>
         }
 
-        @case ('emotion') {
-          <span class="eyebrow">{{ 'session.emotion_eyebrow' | translate }}</span>
-          <h2>{{ 'session.emotion_title' | translate }}</h2>
-          <div class="emotion-card"><span>{{ emotionLabel(detectedEmotion()) }}</span><strong>{{ detectedEmotion() || 'Analyzed emotion' }}</strong><small>{{ 'session.emotion_confirm_desc' | translate }}</small></div>
+        @case ("emotion") {
+          <span class="eyebrow">{{
+            "session.emotion_eyebrow" | translate
+          }}</span>
+          <h2>{{ "session.emotion_title" | translate }}</h2>
+          <div class="emotion-card">
+            <span>{{ emotionLabel(detectedEmotion()) }}</span
+            ><strong>{{ detectedEmotion() || "Analyzed emotion" }}</strong
+            ><small>{{ "session.emotion_confirm_desc" | translate }}</small>
+          </div>
           @if (eegWs.recordingQualityWarning()) {
             <div class="alert alert-warning" role="alert">
-              {{ lang.currentLang() === 'th'
-                ? 'คลื่นสมองช่วงบันทึกมีสัญญาณรบกวนสูงหรือข้อมูลสะอาดไม่พอ ระบบจึงใช้ค่าประมาณการแทน (แม้เซนเซอร์จะขึ้นสีเขียว) แนะนำให้กด "วัดซ้ำอีกครั้ง" เพื่อความแม่นยำ'
-                : 'Clean EEG epochs were insufficient during recording (due to noise or movement). Estimated fallback values were used; consider clicking Remeasure.' }}
+              {{
+                lang.currentLang() === "th"
+                  ? 'คลื่นสมองช่วงบันทึกมีสัญญาณรบกวนสูงหรือข้อมูลสะอาดไม่พอ ระบบจึงใช้ค่าประมาณการแทน (แม้เซนเซอร์จะขึ้นสีเขียว) แนะนำให้กด "วัดซ้ำอีกครั้ง" เพื่อความแม่นยำ'
+                  : "Clean EEG epochs were insufficient during recording (due to noise or movement). Estimated fallback values were used; consider clicking Remeasure."
+              }}
             </div>
           }
           @if (generateError()) {
-            <div class="device-status failed" role="alert">{{ generateError() }}</div>
+            <div class="device-status failed" role="alert">
+              {{ generateError() }}
+            </div>
           }
-          <div class="inline-actions"><button class="btn btn-primary btn-lg" (click)="confirmEmotion()">{{ 'session.generate_comic_btn' | translate }}</button><button class="btn btn-secondary" (click)="remeasure()">{{ 'session.remeasure_btn' | translate }}</button></div>
-        }
-
-        @case ('generate') {
-          <span class="eyebrow">{{ 'session.generate_eyebrow' | translate }}</span>
-          <h2>{{ 'session.generate_title' | translate }}</h2>
-          <div class="timeline">
-            <span class="done">{{ 'session.gen_step1' | translate }}</span>
-            <span class="done">{{ 'session.gen_step2' | translate }}</span>
-            <span>{{ 'session.gen_step3' | translate }}</span>
-            <span>{{ 'session.gen_step4' | translate }}</span>
+          <div class="inline-actions">
+            <button class="btn btn-primary btn-lg" (click)="confirmEmotion()">
+              {{ "session.generate_comic_btn" | translate }}</button
+            ><button class="btn btn-secondary" (click)="remeasure()">
+              {{ "session.remeasure_btn" | translate }}
+            </button>
           </div>
-          <div class="alert alert-info"><span class="spinner"></span> {{ 'session.gen_loading' | translate }}</div>
         }
 
-        @case ('timeout') {
-          <span class="eyebrow">{{ 'session.state_eyebrow' | translate }}</span>
-          <h2>{{ 'session.timeout_title' | translate }}</h2>
-          <p>{{ 'session.timeout_desc' | translate }}</p>
+        @case ("generate") {
+          <span class="eyebrow">{{
+            "session.generate_eyebrow" | translate
+          }}</span>
+          <h2>{{ "session.generate_title" | translate }}</h2>
+          <div class="timeline">
+            <span class="done">{{ "session.gen_step1" | translate }}</span>
+            <span class="done">{{ "session.gen_step2" | translate }}</span>
+            <span>{{ "session.gen_step3" | translate }}</span>
+            <span>{{ "session.gen_step4" | translate }}</span>
+          </div>
+          <div class="alert alert-info">
+            <span class="spinner"></span>
+            {{ "session.gen_loading" | translate }}
+          </div>
+        }
+
+        @case ("timeout") {
+          <span class="eyebrow">{{ "session.state_eyebrow" | translate }}</span>
+          <h2>{{ "session.timeout_title" | translate }}</h2>
+          <p>{{ "session.timeout_desc" | translate }}</p>
           <div class="alert alert-warning">
-            {{ 'session.timeout_tip' | translate }}
+            {{ "session.timeout_tip" | translate }}
           </div>
           <div class="inline-actions">
             <button class="btn btn-primary btn-lg" (click)="retryRecording()">
-              {{ 'session.retry_recording' | translate }}
+              {{ "session.retry_recording" | translate }}
             </button>
             <button class="btn btn-secondary" (click)="restart()">
-              {{ 'session.restart_entire_session' | translate }}
+              {{ "session.restart_entire_session" | translate }}
             </button>
           </div>
         }
 
         @default {
-          <span class="eyebrow">{{ 'session.state_eyebrow' | translate }}</span>
+          <span class="eyebrow">{{ "session.state_eyebrow" | translate }}</span>
           <h2>{{ currentPhaseLabel() }}</h2>
           <p>{{ phaseReason() }}</p>
           <div class="inline-actions">
             <button class="btn btn-primary btn-lg" (click)="retryRecording()">
-              {{ 'session.retry_recording' | translate }}
+              {{ "session.retry_recording" | translate }}
             </button>
             <button class="btn btn-secondary" (click)="restart()">
-              {{ 'session.restart_session' | translate }}
+              {{ "session.restart_session" | translate }}
             </button>
           </div>
         }
@@ -278,6 +448,6 @@
   </section>
 
   <p class="entertainment-note">
-    {{ 'session.entertainment_note' | translate }}
+    {{ "session.entertainment_note" | translate }}
   </p>
 </main>

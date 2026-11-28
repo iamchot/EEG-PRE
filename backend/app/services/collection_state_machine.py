@@ -321,7 +321,8 @@ class CollectionStateMachine:
         sensor_timestamps: Mapping[str, float] | None = None,
         sampling_rate_ok: bool = True,
         source_sequence: int | None = None,
-    ) -> CollectionRunnerState:
+        return_state: bool = True,
+    ) -> CollectionRunnerState | None:
         self._require(self._writer is not None, "sample ingestion requires an active capture")
         now = self._monotonic()
         if source_sequence is not None and source_sequence <= 0:
@@ -387,7 +388,7 @@ class CollectionStateMachine:
             name: sampling_rate_ok and qualities[name] >= GOOD_QUALITY_MINIMUM
             for name in SENSOR_NAMES
         }
-        return self.state()
+        return self.state() if return_state else None
 
     def finish_baseline(self) -> CollectionRunnerState:
         self._require(self.session.state is CollectionSessionState.baseline, "no baseline is active")
